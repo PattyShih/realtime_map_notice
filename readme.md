@@ -115,6 +115,7 @@ realtime_map_notice/
 - [system.md](./system.md)：系統架構、服務職責、資料流與 K8s 展示重點。
 - [docs/README.md](./docs/README.md)：文件導覽與閱讀順序。
 - [docs/architecture.md](./docs/architecture.md)：架構圖、服務互動與資料流細節。
+- [docs/capacity-and-bottlenecks.md](./docs/capacity-and-bottlenecks.md)：少量、中量、大量使用時的資源調整與瓶頸分析。
 - [docs/demo-goals.md](./docs/demo-goals.md)：最後 Demo 目標、成功標準、展示故事線與備案。
 - [docs/external-services-and-secrets.md](./docs/external-services-and-secrets.md)：地圖服務、Google Maps API key、環境變數與 secret 管理。
 - [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、分工、里程碑與驗收標準。

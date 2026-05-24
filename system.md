@@ -177,6 +177,7 @@ Message:
 - Location Service 需承受大量短請求。
 - 初期壓測目標為 500-1,000 位虛擬使用者每秒更新一次座標；進階展示可挑戰 3,000 人。
 - Event Service 發布事件時，500 位附近使用者的通知延遲目標小於 2 秒。
+- 不同使用量下的 resource requests/limits、HPA 與瓶頸分析請參考 [docs/capacity-and-bottlenecks.md](./docs/capacity-and-bottlenecks.md)。
 
 可靠性：
 
@@ -233,6 +234,12 @@ Observability:
 - 使用 `kubectl get pods -w` 觀察 Pod 狀態。
 - 使用 `kubectl get hpa -w` 觀察自動擴展。
 - 使用服務健康檢查 `/healthz` 判斷容器是否正常。
+
+資源調整：
+
+- 少量使用時以功能正確與低成本為主。
+- 中量使用時調整 Location Service HPA，支援 500-1,000 人初期壓測。
+- 大量使用時需要檢查 Redis、Event Service fan-out 與 Notification Service WebSocket 連線數是否成為瓶頸。
 
 ## 已確認的改善項目
 

@@ -143,6 +143,7 @@
 - 為服務設定 resource requests 與 limits。
 - 為 Location Service 設定 HPA。
 - 為服務設定 readiness probe 與 liveness probe。
+- 依照 [capacity-and-bottlenecks.md](./capacity-and-bottlenecks.md) 規劃少量、中量、大量使用時的 resource requests/limits 與瓶頸處理方式。
 - 建立 500-1,000 人虛擬使用者壓測腳本，保留 3,000 人進階參數。
 - Demo 時觀察 Pod 數量變化與 HPA 狀態。
 - Demo 時刪除一個 Notification Service Pod，觀察自動重建。
