@@ -114,6 +114,7 @@ realtime_map_notice/
 - [system.md](./system.md)：系統架構、服務職責、資料流與 K8s 展示重點。
 - [docs/README.md](./docs/README.md)：文件導覽與閱讀順序。
 - [docs/architecture.md](./docs/architecture.md)：架構圖、服務互動與資料流細節。
+- [docs/demo-goals.md](./docs/demo-goals.md)：最後 Demo 目標、成功標準、展示故事線與備案。
 - [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、分工、里程碑與驗收標準。
 - [docs/team-plan.md](./docs/team-plan.md)：四人團隊分工、交付物與 Demo 責任。
 - [docs/test-plan.md](./docs/test-plan.md)：後端、前端、WebSocket 與跨服務測試規劃。
