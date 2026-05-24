@@ -5,11 +5,12 @@
 - 建立 Web App 專案與主要畫面
 - 決定地圖函式庫（Leaflet / MapLibre GL JS / Google Maps）
 - 使用地圖元件顯示校園地圖、使用者定位、事件插旗
+- 依照 [ui-ux-guidelines.md](./ui-ux-guidelines.md) 設計地圖、事件列表、插旗表單與通知 Banner
 - **實作 WebSocket client 斷線重連（exponential backoff）與錯誤處理 UI**
 - 設計地圖上方資訊卡片、事件列表、緊急通知 Banner
 - 串接 Location Service、Event Service 與 WebSocket
 - **撰寫前端相關的 WebSocket 連線測試與 API 串接測試**
-- 交付 `web-app/`、地圖主畫面、事件表單與通知元件
+- 交付 `web-app/`、地圖主畫面、事件表單、通知元件與 UI/UX 檢查清單
 - Demo 時負責展示一般使用者如何查看地圖與發布事件
 
 ## 成員 B：後端 API 與商業邏輯

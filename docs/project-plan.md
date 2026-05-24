@@ -72,6 +72,7 @@
 
 - 建立 Web App 專案，**先決定地圖函式庫（Leaflet / MapLibre GL JS / Google Maps），評估瀏覽器定位相容性與開發難度。**
 - 設計全螢幕地圖主畫面。
+- 依照 [ui-ux-guidelines.md](./ui-ux-guidelines.md) 建立地圖、事件列表、插旗表單、通知 Banner 的 UI/UX 規格。
 - 使用 browser Geolocation API 取得目前位置。
 - 定期呼叫 Location Service 上傳位置。
 - 建立事件發布表單，包含標題、內容、類型、嚴重程度。
@@ -84,6 +85,7 @@
 
 - 可在瀏覽器執行的 Web App。
 - 地圖頁面、事件表單、通知元件。
+- UI/UX 檢查清單與 Demo 畫面截圖。
 - 與三個後端服務的串接。
 
 驗收標準：
@@ -92,6 +94,7 @@
 - 使用者允許定位後，前端會定期上傳座標。
 - 使用者可以從 Web App 發布事件。
 - 當附近有緊急事件時，Web App 會即時顯示通知。
+- 手機寬度下，主要按鈕、事件卡片與通知 Banner 不會互相遮擋。
 
 ### 第 3 階段：即時資料與推播整合
 
@@ -221,11 +224,13 @@
 - 設計地圖主畫面。
 - 實作事件插旗表單。
 - 實作即時通知 Banner 或通知列表。
+- 維護 UI/UX 檢查清單，確認地圖可讀性、定位權限、錯誤狀態與響應式布局。
 - 串接 Location Service、Event Service 與 WebSocket。
 
 建議交付：
 
 - `web-app/` 前端專案。
+- UI/UX 設計規格與檢查清單。
 - 地圖頁面截圖。
 - 前端操作 Demo 影片或截圖。
 
