@@ -9,6 +9,7 @@
 - Web App 顯示校園或街區地圖。
 - 使用者可以在地圖上發布事件。
 - 使用者位置會定期上傳到 Location Service。
+- Web App 地圖上的使用者位置與事件 marker 需要隨資料更新。
 - 後端使用 Redis GEO 儲存即時位置。
 - 發布緊急事件時，只通知半徑 500 公尺內使用者。
 - 使用 WebSocket 將事件主動推送到前端。
@@ -41,6 +42,7 @@
 - 建立 `notification-service`，提供 WebSocket 連線與通知 API。
 - 建立 `shared`，放共用 schema、Redis client 與設定。
 - 建立 Redis GEO key 命名規則。
+- 依照 [realtime-location-requirements.md](./realtime-location-requirements.md) 定義位置更新欄位、last_seen TTL 與地圖更新驗收標準。
 - **在每個服務加入 fastapi.middleware.cors.CORSMiddleware（允許前端 origin）。**
 - **建立根目錄 .dockerignore，避免 .git 與 __pycache__ 進入 Docker build context。**
 - 建立 `docker-compose.yml`，讓本機可以一次啟動所有後端服務。
@@ -75,8 +77,10 @@
 - 依照 [ui-ux-guidelines.md](./ui-ux-guidelines.md) 建立地圖、事件列表、插旗表單、通知 Banner 的 UI/UX 規格。
 - 使用 browser Geolocation API 取得目前位置。
 - 定期呼叫 Location Service 上傳位置。
+- 更新使用者目前位置 marker，並顯示定位精度或 fallback 狀態。
 - 建立事件發布表單，包含標題、內容、類型、嚴重程度。
 - 在地圖上顯示事件標記。
+- 收到 WebSocket 通知後，新增或更新事件 marker，點擊通知可移動到事件座標。
 - 建立 WebSocket client，**實作斷線重連（reconnect with exponential backoff）與心跳監聽。**
 - 收到緊急事件時顯示通知 Banner 或側邊事件卡片。
 - **API 呼叫需補上基本錯誤處理（catch error、顯示提示訊息、不靜默失敗）。**

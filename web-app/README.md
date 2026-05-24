@@ -7,10 +7,12 @@
 - 全螢幕地圖介面
 - 使用 browser Geolocation API 取得目前位置
 - 在地圖上新增事件插旗
+- 即時更新使用者位置 marker 與事件 marker
 - 事件列表與緊急通知 Banner
 - 透過 WebSocket 接收 500 公尺內事件通知
 
 UI/UX 注意事項請參考 [../docs/ui-ux-guidelines.md](../docs/ui-ux-guidelines.md)。
+即時位置更新資料規格請參考 [../docs/realtime-location-requirements.md](../docs/realtime-location-requirements.md)。
 
 建議技術：
 
@@ -62,6 +64,14 @@ web-app/
 | `useGeolocation` | 封裝瀏覽器定位、權限錯誤與 fallback 座標 |
 | `useNotificationSocket` | 封裝 WebSocket 連線、斷線重連與訊息解析 |
 
+位置更新規則：
+
+- Demo 預設每 1 秒上傳一次目前位置。
+- 一般使用情境可改成每 2-3 秒，或移動超過 10 公尺才上傳。
+- 定位精度大於 100 公尺時，畫面需提示定位不準。
+- 定位失敗時使用手動選點或預設校園座標。
+- WebSocket 收到事件通知時，地圖要新增事件 marker，通知 Banner 的「查看位置」要能移動到該座標。
+
 環境變數建議：
 
 ```text
@@ -74,6 +84,8 @@ VITE_NOTIFICATION_WS_URL=ws://localhost:8003
 
 - 可以顯示地圖與目前位置。
 - 可以定期呼叫 `POST /locations`。
+- 目前位置 marker 會隨定位資料更新。
 - 可以發布事件並在地圖上看到標記。
 - 可以建立 WebSocket 連線並收到通知。
+- 收到通知後可以在地圖上看到事件 marker。
 - 定位失敗、API 失敗、WebSocket 斷線時都有畫面提示。

@@ -9,6 +9,7 @@
 - 建立一個能展示即時地圖、即時定位與區域推播的 Web App 架構。
 - 使用微服務拆分位置更新、事件發布與通知推播。
 - 使用 Redis 暫存即時座標，支援快速查詢附近使用者。
+- 定義即時位置更新資料、更新頻率與地圖標記同步策略。
 - 使用 WebSocket 讓伺服器主動推播事件到使用者端。
 - 使用 Kubernetes 展示高併發、自動擴展與容錯能力。
 - 使用 Python 腳本模擬 3,000 名虛擬使用者持續移動與上傳 GPS 座標。
@@ -116,6 +117,7 @@ realtime_map_notice/
 - [docs/architecture.md](./docs/architecture.md)：架構圖、服務互動與資料流細節。
 - [docs/demo-goals.md](./docs/demo-goals.md)：最後 Demo 目標、成功標準、展示故事線與備案。
 - [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、分工、里程碑與驗收標準。
+- [docs/realtime-location-requirements.md](./docs/realtime-location-requirements.md)：即時性、位置更新、地圖資料與 Redis 設計需求。
 - [docs/team-plan.md](./docs/team-plan.md)：四人團隊分工、交付物與 Demo 責任。
 - [docs/test-plan.md](./docs/test-plan.md)：後端、前端、WebSocket 與跨服務測試規劃。
 - [docs/ui-ux-guidelines.md](./docs/ui-ux-guidelines.md)：Web App UI/UX 設計注意事項與檢查清單。

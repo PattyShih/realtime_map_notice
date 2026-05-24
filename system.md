@@ -8,8 +8,11 @@
 
 - 持續不斷的座標更新：大量使用者每秒上傳 GPS 位置。
 - 瞬間的區域推播：事件發生後，需要快速找出 500 公尺內使用者並通知。
+- 地圖畫面更新：使用者位置、事件 marker、通知位置需要在前端保持同步。
 
 因此系統不適合每次都把即時座標寫入傳統關聯式資料庫。初步設計使用 Redis GEO 儲存目前位置，讓後端可以快速執行附近查詢。
+
+即時性與地圖地點更新的詳細資料欄位、更新頻率與驗收標準，請參考 [docs/realtime-location-requirements.md](./docs/realtime-location-requirements.md)。
 
 ## 系統元件
 
@@ -72,6 +75,8 @@ Request:
   "longitude": 121.5397
 }
 ```
+
+正式版本建議擴充 `accuracy_meters`、`client_timestamp`、`sequence`、`source` 等欄位，用來處理定位精度、舊資料覆蓋新資料、模擬器資料與真實 GPS 資料的區分。
 
 Response:
 
@@ -163,6 +168,7 @@ Message:
 - GEO set 本身沒有針對單一 member 的 TTL。
 - 可用 `last_seen` 輔助判斷使用者是否仍在線。
 - Event Service 查到附近使用者後，應檢查 last_seen 是否仍有效，避免通知太久沒上線的人。
+- Demo 建議 last_seen TTL 設為 60 秒；正式版本可依電量、移動速度與隱私需求調整。
 
 ## 非功能需求
 

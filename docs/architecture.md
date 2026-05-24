@@ -18,8 +18,11 @@ flowchart LR
 
 - 位置更新路徑：Web App 定期把使用者座標送到 Location Service，Location Service 使用 Redis GEO 更新目前位置。
 - 事件通知路徑：Web App 發布事件後，Event Service 透過 Redis GEO 查詢 500 公尺內使用者，再請 Notification Service 使用 Redis Pub/Sub 與 WebSocket 推播。
+- 地圖更新路徑：Web App 收到新的 GPS 座標或 WebSocket 事件通知後，立即更新使用者 marker、事件 marker 與通知 Banner。
 
 Redis 在圖中拆成 `Redis GEO` 與 `Redis Pub/Sub` 兩個節點，是為了讓報告與 Demo 更容易說明。實作上兩者可以是同一個 Redis instance，只是使用不同資料結構與命令。
+
+即時性與地圖地點更新的詳細資料需求請參考 [realtime-location-requirements.md](./realtime-location-requirements.md)。
 
 ## 架構設計原則
 

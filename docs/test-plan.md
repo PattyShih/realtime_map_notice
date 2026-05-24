@@ -12,6 +12,7 @@
 |--------|----------|------|
 | P0 | **Redis GEO 附近查詢正確性** | Demo 核心：緊急事件是否正確推播給半徑內使用者。半徑內沒收到或半徑外收到都是重大失敗 |
 | P0 | **WebSocket 推播正確送達** | Demo 核心：使用者發布事件後，附近使用者必須即時收到通知 |
+| P0 | **位置更新即時性** | 使用者移動後，Redis GEO 與地圖 marker 必須更新，否則 500 公尺推播會用到舊位置 |
 | P0 | **CORS 設定** | 前後端不同 origin，沒設 CORS 則 Web App 直接無法使用 |
 | P1 | **WebSocket 斷線重連** | 現場 Demo 網路可能不穩，斷線後需自動重連 |
 | P1 | **WebSocket 心跳清理** | Ghost connection 佔用資源，可能影響其他使用者的推播 |
@@ -196,6 +197,8 @@ web-app/
 | `test_healthz` | GET /healthz | status 200，回傳 `{"status": "ok"}` | — |
 | `test_update_location` | POST /locations 合法座標 | status 200，Redis GEO 有該筆資料 | P0 |
 | `test_update_location_twice` | 同一 user_id 更新兩次 | status 200，Redis 只保留最新座標 | P0 |
+| `test_update_location_sequence_newer_wins` | 同一 user_id 傳入新舊 sequence | 新位置不被舊 sequence 覆蓋 | P1 |
+| `test_last_seen_ttl_created` | POST /locations 後檢查 last_seen | last_seen key 存在且有 TTL | **P0** |
 | `test_get_nearby_users` | 在範圍內放入使用者後查詢 nearby | 回傳結果包含該使用者 | **P0** |
 | `test_get_nearby_users_no_result` | 查詢遠距離座標 | 回傳空陣列 | P0 |
 | `test_get_nearby_default_radius` | 不指定 radius_meters | 使用預設 500m | P1 |
@@ -238,7 +241,9 @@ web-app/
 |----------|----------|----------|
 | `renders map container` | 渲染 MapView | 地圖 DOM 元素存在 |
 | `shows user marker when location provided` | 傳入座標給 MapView | 地圖上有使用者標記 |
+| `updates user marker when location changes` | 傳入新座標 | 使用者 marker 移動到新位置 |
 | `shows event markers` | 傳入事件列表 | 每個事件對應一個標記 |
+| `moves map to notification event` | 點擊通知的查看位置 | 地圖中心移動到事件座標 |
 
 #### `web-app/src/components/__tests__/NotificationBanner.test.tsx`
 
@@ -269,6 +274,7 @@ web-app/
 | 5 | 上傳 user_C 的座標（距離 > 500m） | 成功 |
 | 6 | 發布另一個緊急事件 | status 200 |
 | 7 | user_C 的 WebSocket 不應收到通知 | 逾時無訊息 |
+| 8 | 更新 user_C 到事件附近，再次發布事件 | user_C 這次收到通知 |
 
 ### 3.6 跨服務整合測試（Cross-Service）
 
@@ -358,6 +364,7 @@ async def event_client(event_url):
 | `test_write_and_readback` | POST /locations → GET /locations/nearby | 剛寫入的使用者出現在 nearby 結果中 | **P0** |
 | `test_write_multiple_users` | 寫入 5 個不同 user_id，範圍內查詢 | 回傳全部 5 個 | P1 |
 | `test_write_then_move` | user_id A 從座標 (a) 移動到座標 (b) far away | nearby(a) 不再包含 A；nearby(b) 包含 A | **P0** |
+| `test_last_seen_expires` | 寫入 user_id 後等待 TTL 過期 | Event Service 不再推播給該 user_id | P1 |
 | `test_concurrent_writes` | 同時寫入 10 個 user_id（asyncio.gather） | 全部成功，nearby 回傳 10 個 | P1 |
 
 **為什麼要測這個：** 這是整個系統的基礎。如果 Location Service 寫入 Redis 有問題，後面 Event Service 的附近查詢必定失敗。
