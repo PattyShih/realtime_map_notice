@@ -52,7 +52,7 @@ realtime_map_notice/
 
 ## 技術選型
 
-- Web App: React 或 Vite, browser Geolocation API, map library（待決定 Leaflet / MapLibre GL JS / Google Maps）
+- Web App: React + Vite, browser Geolocation API, map library（待決定 Leaflet / MapLibre GL JS / Google Maps）
 - Backend API: Python FastAPI
 - CORS: fastapi.middleware.cors.CORSMiddleware（各服務需加入）
 - Realtime: WebSocket（需補上 ping/pong 心跳）

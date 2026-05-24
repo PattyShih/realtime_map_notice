@@ -154,7 +154,7 @@
 - 刪除 Pod 後 Kubernetes 會自動補回副本。
 - 系統在 Demo 過程中仍可處理位置更新與事件推播。
 
-### 第 6 階段（跨階段）：自動化測試
+### 跨階段工作：自動化測試
 
 目標：
 
@@ -316,7 +316,7 @@
 | 3:00-4:00 | 5. 發布緊急事件，展示區域推播 | 發布 severity=urgent 事件，確認第二個使用者收到通知 Banner | Redis GEOSEARCH 500m 查詢、Redis Pub/Sub 推播 |
 | 4:00-5:00 | 6. 啟動壓測腳本 | `python simulator/simulate_users.py --users 300 --target http://localhost:8001` | 大量座標更新流量、asyncio 併發 |
 | 5:00-6:30 | 7. 展示 HPA 自動擴展 | 另一個 terminal 執行 `kubectl -n realtime-map-notice get hpa -w`，觀察 replica 從 1 → 3 → 5 | HPA CPU 指標、Pod 自動擴展 |
-| 6:30-7:30 | 8. 展示 Pod 容錯 | `kubectl -n realtime-map-notice delete pod -l app=notification-service` 後接 `kubectl get pods -w` 觀察自動重建 | Kubernetes controller manager、ReplicaSet |
+| 6:30-7:30 | 8. 展示 Pod 容錯 | `$pod = kubectl -n realtime-map-notice get pod -l app=notification-service -o jsonpath="{.items[0].metadata.name}"` 後執行 `kubectl -n realtime-map-notice delete pod $pod` | Kubernetes controller manager、ReplicaSet |
 | 7:30-8:30 | 9. 總結技術亮點 | 展示最後的 HPA 截圖與 Pod 重建狀態 | Redis GEO 選型原因、微服務分工、K8s 優勢 |
 | 8:30-10:00 | 10. Q&A 緩衝 | 無 | 回答教授問題 |
 
@@ -341,9 +341,9 @@
 | 6 | 第 3 階段：即時推播整合 | 查詢 500m 附近使用者邏輯、Notification Service Pub/Sub 同步、多副本通知正確性 | C 主導，B 協助 | 半徑內使用者收到通知、半徑外不收；多副本時通知仍正確送達 |
 | 6 | 第 3 階段：後端優化 | Event Service asyncio.gather 批次推送、多副本冪等性（事件去重） | B | 500 人通知延遲 < 2 秒；多副本不重複推送 |
 | 7 | 第 4 階段：K8s 部署 | 建置 Docker image、部署到 K8s、Service 設定、port-forward 測試 | D 主導，全員協助 | `kubectl apply -f k8s/` 後所有 Pod Running；API 可透過 port-forward 呼叫 |
-| 7 | 第 6 階段：自動化測試 | pytest + httpx.AsyncClient 基礎測試、fakeredis 測試環境 | B、C | `pytest` 通過 location-service 與 event-service 基本 API 測試 |
+| 7 | 跨階段：自動化測試 | pytest + httpx.AsyncClient 基礎測試、fakeredis 測試環境 | B、C | `pytest` 通過 location-service 與 event-service 基本 API 測試 |
 | 8 | 第 4 階段：HPA 與壓測 | metrics-server 啟用、HPA 設定、3,000 人壓測、觀察 Pod 自動擴展 | D 主導，全員協助 | `kubectl get hpa -w` 可看到 replica 從 1 → 5；壓測期間服務正常 |
-| 8 | 第 6 階段：測試補齊 | Notification Service WebSocket 測試、前端 API 串接測試 | A、C | WebSocket 連線/斷線測試通過 |
+| 8 | 跨階段：測試補齊 | Notification Service WebSocket 測試、前端 API 串接測試 | A、C | WebSocket 連線/斷線測試通過 |
 | 9 | 第 5 階段：報告準備 | 架構圖、資料流圖、API 表格、K8s 部署圖、壓測截圖 | 全員 | 簡報初稿完成，包含所有圖表與截圖 |
 | 10 | 第 5 階段：Demo 演練 | Demo 腳本演練、時間控制、Q&A 準備、備案確認 | 全員 | Demo 可在 8-10 分鐘內完整跑完 |
 
@@ -397,4 +397,3 @@
 風險：**Event Service 半徑查詢無使用者卻沒有錯誤提示。**
 
 備案：確認附近查詢回傳空陣列時的處理流程，前端與後端都應有對應訊息提示。
-

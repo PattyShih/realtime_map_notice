@@ -42,9 +42,25 @@
 
 ```python
 # conftest.py 範例 — 使用 httpx.AsyncClient 直接測試 FastAPI app
+# 注意：目前 service 資料夾使用 hyphen 命名（例如 location-service），
+# 不能直接用 backend.location_service import；測試時需用 importlib 從檔案載入。
+import importlib.util
+from pathlib import Path
+
 import pytest
 from httpx import ASGITransport, AsyncClient
-from backend.location_service.app.main import app
+
+
+def load_app(service_name: str):
+    app_path = Path("backend") / service_name / "app" / "main.py"
+    spec = importlib.util.spec_from_file_location(f"{service_name}.main", app_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module.app
+
+
+app = load_app("location-service")
 
 
 @pytest.fixture
@@ -450,7 +466,7 @@ WebSocket 測試與一般 HTTP API 測試不同，因為：
 ```python
 async def _connect_ws(user_id: str) -> tuple:
     """連線到 notification-service 的 WebSocket，回傳 (reader, writer)"""
-    # 使用 websockets 或 httpx 的 WS 支援
+    # 使用 websockets 套件；httpx 本身不支援 WebSocket client。
     pass
 
 
@@ -605,8 +621,10 @@ cd web-app && npm run test -- --coverage
 pytest==8.3.4
 pytest-asyncio==0.25.0
 pytest-cov==6.0.0
+pytest-timeout==2.3.1
 httpx==0.28.1
 fakeredis[lua]==2.26.1
+websockets==14.1
 ```
 
 ### 前端（`web-app/package.json` devDependencies）

@@ -12,7 +12,7 @@
 
 建議技術：
 
-- React 或 Vite
+- React + Vite
 - 地圖元件可使用 Leaflet、MapLibre GL JS 或 Google Maps JavaScript API
 - WebSocket client 串接 Notification Service
 - Fetch API 串接 Location Service 與 Event Service
