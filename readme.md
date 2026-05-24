@@ -70,13 +70,19 @@ realtime_map_notice/
 - 成員 C：Redis GEO、WebSocket、即時推播。
 - 成員 D：Docker、Kubernetes、HPA、壓測與 Demo。
 
-## 專案階段
+## 專案階段（十週計畫）
 
-第一階段先完成可展示的系統骨架：後端三個微服務、Redis GEO、WebSocket、Docker Compose、K8s YAML 與壓測腳本。
+詳細每週進度表請見 [docs/project-plan.md](./docs/project-plan.md) 的「十週進度表」章節。
 
-第二階段完成 Web App 與後端整合：地圖顯示、瀏覽器定位、事件插旗、附近事件通知、基本錯誤處理與 Demo 資料。
+第一階段（第 1-2 週）：先完成可展示的系統骨架：後端三個微服務、Redis GEO、WebSocket、Docker Compose、K8s YAML 與壓測腳本。
 
-第三階段強化專題展示：K8s HPA 自動擴展、Pod 容錯、3,000 人壓測、監控截圖、架構圖、簡報素材與最終報告。
+第二階段（第 3-5 週）：完成 Web App 與後端整合：地圖顯示、瀏覽器定位、事件插旗、附近事件通知、基本錯誤處理與 Demo 資料。
+
+第三階段（第 4-6 週）：即時推播整合與後端優化：多副本通知正確性、WebSocket 心跳、批次推送、冪等性。
+
+第四階段（第 6-8 週）：K8s 部署、HPA 自動擴展、Pod 容錯、3,000 人壓測。
+
+第五階段（第 8-10 週）：報告、架構圖、Demo 演練與最終展示。
 
 ## 相關文件
 

@@ -327,20 +327,38 @@
 - **指令腳本：** 建議將所有 kubectl 指令寫成 .ps1 腳本，避免現場打錯。
 - **參數調整：** 本機壓測若 300 人不夠觸發 HPA，可調低 Location Service CPU request（從 100m 降到 50m）。
 
-## 建議時間軸
+## 十週進度表
 
-以下為各階段的建議時程。四人團隊若有 8-12 週專題時間，可依此配置資源。
+以下為每週的詳細目標、負責人與驗收里程碑。總長度 10 週，階段之間允許部分重疊。
 
-| 階段 | 建議週次 | 負責成員 |
-|------|----------|----------|
-| 第 1 階段：架構與後端骨架 | 第 1-2 週 | B、C 主導，D 協助 Docker |
-| 第 2 階段：Web App 前端 | 第 3-5 週 | A 主導，B/C 協助 API 串接 |
-| 第 3 階段：即時資料與推播整合 | 第 4-6 週 | C 主導，B 協助 |
-| 第 6 階段（跨階段）：自動化測試 | 第 4-8 週分散進行 | 四人各自負責自己的模組 |
-| 第 4 階段：Kubernetes 與壓測 | 第 6-8 週 | D 主導，全員協助測試 |
-| 第 5 階段：報告與展示整理 | 第 8-10 週 | 全員 |
+| 週次 | 階段 | 目標 | 負責人 | 週末驗收里程碑 |
+|------|------|------|--------|----------------|
+| 1 | 第 1 階段：後端骨架 | 建立三個微服務基本 API、shared 模組、Redis 連線 | B、C | `POST /locations` 可寫入 Redis；`GET /locations/nearby` 可查詢；WebSocket `/ws/{user_id}` 可連線 |
+| 2 | 第 1 階段：後端骨架 | Dockerfile、docker-compose、CORS middleware、.dockerignore、healthz endpoint | D 主導，B、C 協助 | `docker compose up --build` 可啟動全部服務；API 可從不同 origin 呼叫 |
+| 3 | 第 2 階段：Web App 啟動 | 決定地圖函式庫（Leaflet 優先建議）、建立 Vite/React 專案、全螢幕地圖顯示、瀏覽器定位 | A | 瀏覽器打開可看到地圖，允許定位後地圖上有使用者標記 |
+| 4 | 第 2 階段：Web App API 串接 | 定期呼叫 Location Service 上傳座標、事件發布表單、地圖插旗 | A 主導，B 協助 API 規格 | 可從地圖點擊發布事件，標記顯示在地圖上 |
+| 5 | 第 2 階段：WebSocket 通知 | WebSocket client 連線、斷線重連（exponential backoff）、通知 Banner/卡片 UI | A 主導，C 協助 WS 規格 | 收到緊急事件時前端即時顯示通知；網路斷開後自動重新連線 |
+| 6 | 第 3 階段：即時推播整合 | 查詢 500m 附近使用者邏輯、Notification Service Pub/Sub 同步、多副本通知正確性 | C 主導，B 協助 | 半徑內使用者收到通知、半徑外不收；多副本時通知仍正確送達 |
+| 6 | 第 3 階段：後端優化 | Event Service asyncio.gather 批次推送、多副本冪等性（事件去重） | B | 500 人通知延遲 < 2 秒；多副本不重複推送 |
+| 7 | 第 4 階段：K8s 部署 | 建置 Docker image、部署到 K8s、Service 設定、port-forward 測試 | D 主導，全員協助 | `kubectl apply -f k8s/` 後所有 Pod Running；API 可透過 port-forward 呼叫 |
+| 7 | 第 6 階段：自動化測試 | pytest + httpx.AsyncClient 基礎測試、fakeredis 測試環境 | B、C | `pytest` 通過 location-service 與 event-service 基本 API 測試 |
+| 8 | 第 4 階段：HPA 與壓測 | metrics-server 啟用、HPA 設定、3,000 人壓測、觀察 Pod 自動擴展 | D 主導，全員協助 | `kubectl get hpa -w` 可看到 replica 從 1 → 5；壓測期間服務正常 |
+| 8 | 第 6 階段：測試補齊 | Notification Service WebSocket 測試、前端 API 串接測試 | A、C | WebSocket 連線/斷線測試通過 |
+| 9 | 第 5 階段：報告準備 | 架構圖、資料流圖、API 表格、K8s 部署圖、壓測截圖 | 全員 | 簡報初稿完成，包含所有圖表與截圖 |
+| 10 | 第 5 階段：Demo 演練 | Demo 腳本演練、時間控制、Q&A 準備、備案確認 | 全員 | Demo 可在 8-10 分鐘內完整跑完 |
 
-> 注意：階段 2 與階段 3 有部分重疊（第 4-6 週），因為 Web App 與即時推播需要同步開發與整合測試。
+### 每週檢查點建議
+
+- **週一早上的 Slack/Discord 訊息：** 每人一句本週目標。
+- **週五下午的 15 分鐘線上會議：** 每人展示本週進度（螢幕分享），確認 milestone 是否達成。
+- **若 milestone 未達成：** 下週優先補上，並評估是否影響 Demo 時間。
+
+### 相依性注意
+
+- 第 3 週（Web App 啟動）**不依賴** 第 2 週（docker-compose），可同時開始。
+- 第 5 週（WebSocket 通知）**依賴** 第 2 週（Notification Service 可連線），若第 2 週延遲，A 可用 mock WebSocket server 先開發前端。
+- 第 7 週（K8s 部署）**依賴** 第 2 週（Docker image），但 **不依賴** Web App 前端。
+- 第 9-10 週（報告）**依賴** 第 8 週（壓測截圖），截圖需在第 8 週結束前完成。
 
 ## 風險與備案
 
