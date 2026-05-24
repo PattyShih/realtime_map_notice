@@ -346,7 +346,7 @@ Demo 不追求正式會員註冊、正式上線、長期軌跡分析或原生手
 | 1:30-2:15 | 3. 發布一般事件 | 點擊地圖 → 填寫表單（title, message, severity=info）→ 送出 → 地圖出現標記 | `POST /events`、事件插旗 UI |
 | 2:15-3:00 | 4. 開啟第二個使用者，展示 WebSocket 連線 | 另開無痕視窗模擬不同使用者，打開瀏覽器 DevTools → Network → WS 確認連線 | WebSocket 連線狀態（需補心跳）、**CORS 已設定** |
 | 3:00-4:00 | 5. 發布緊急事件，展示區域推播 | 發布 severity=urgent 事件，確認第二個使用者收到通知 Banner | Redis GEOSEARCH 500m 查詢、Redis Pub/Sub 推播 |
-| 4:00-5:00 | 6. 啟動壓測腳本 | `python simulator/simulate_users.py --users 300 --target http://localhost:8001` | 大量座標更新流量、asyncio 併發 |
+| 4:00-5:00 | 6. 啟動壓測腳本 | `python simulator/simulate_users.py --users 500 --target http://localhost:8001` | 大量座標更新流量、asyncio 併發；若本機效能允許可提高到 1,000 |
 | 5:00-6:30 | 7. 展示 HPA 自動擴展 | 另一個 terminal 執行 `kubectl -n realtime-map-notice get hpa -w`，觀察 replica 從 1 → 3 → 5 | HPA CPU 指標、Pod 自動擴展 |
 | 6:30-7:30 | 8. 展示 Pod 容錯 | `$pod = kubectl -n realtime-map-notice get pod -l app=notification-service -o jsonpath="{.items[0].metadata.name}"` 後執行 `kubectl -n realtime-map-notice delete pod $pod` | Kubernetes controller manager、ReplicaSet |
 | 7:30-8:30 | 9. 總結技術亮點 | 展示最後的 HPA 截圖與 Pod 重建狀態 | Redis GEO 選型原因、微服務分工、K8s 優勢 |
@@ -357,7 +357,7 @@ Demo 不追求正式會員註冊、正式上線、長期軌跡分析或原生手
 - **備案準備：** 提前截好 HPA 擴展前後對比圖、Pod 刪除重建截圖。萬一現場 K8s 環境異常，仍可展示截圖。
 - **網路風險：** 本機環境不使用外部 API，完全離線運作。確保 docker-compose 所有 image 已先 pull 完成。
 - **指令腳本：** 建議將所有 kubectl 指令寫成 .ps1 腳本，避免現場打錯。
-- **參數調整：** 本機壓測若 300 人不夠觸發 HPA，可調低 Location Service CPU request（從 100m 降到 50m）。
+- **參數調整：** 本機壓測若 500 人不夠觸發 HPA，可提高到 1,000 人，或調低 Location Service CPU request（從 100m 降到 50m）。
 
 ## 十週進度表
 

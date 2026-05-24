@@ -196,7 +196,7 @@ Demo 前檢查清單：
 - `kubectl -n realtime-map-notice get svc` 顯示三個服務與 Redis。
 - `kubectl -n realtime-map-notice get hpa` 不應長期顯示 `<unknown>`。
 - 已準備好 HPA 擴展截圖與 Pod 重建截圖作為備案。
-- 壓測腳本先用 300 人測過，確認不會在 Demo 現場立刻失敗。
+- 壓測腳本先用 300 人做 smoke test，正式 Demo 目標使用 500 人起跳，確認不會在 Demo 現場立刻失敗。
 
 ## 開發里程碑
 
@@ -223,7 +223,7 @@ Demo 前檢查清單：
 - Web App 定位上傳。
 - Web App 地圖插旗。
 - WebSocket 接收附近事件通知。
-- 事件分類、嚴重程度與基本登入。
+- 事件分類、嚴重程度與 Demo 用簡易 user_id。
 
 完成條件：
 

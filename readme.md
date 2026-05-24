@@ -23,7 +23,7 @@
 - 已建立 Dockerfile、docker-compose 與 Kubernetes YAML。
 - 已建立壓測腳本，用來模擬大量虛擬使用者上傳座標。
 - 已建立 Web App 前端方向文件，但尚未實作完整 React + Vite 前端。
-- 已補上專案計畫、系統設計、測試計畫、UI/UX 指南與 K8s 使用說明。
+- 已補上專案計畫、系統設計、測試計畫、Web App UI/UX 設計說明與 K8s 使用說明。
 
 後續開發的優先順序是：補 `.dockerignore`、完成 Web App、測試與 K8s Demo。CORS middleware 已先加入三個後端服務。
 
