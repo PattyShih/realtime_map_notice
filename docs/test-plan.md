@@ -254,6 +254,302 @@ web-app/
 | 6 | 發布另一個緊急事件 | status 200 |
 | 7 | user_C 的 WebSocket 不應收到通知 | 逾時無訊息 |
 
+### 3.6 跨服務整合測試（Cross-Service）
+
+前幾節的測試都是單一服務的 API 測試（location-service 單獨測、event-service 單獨測）。但這個專案的 Demo 核心是「三個服務串起來的完整資料流」，跨服務整合測試就是用來驗證這條鏈。
+
+**目標：** 確認 Location Service → Redis → Event Service → Notification Service → WebSocket 這條鏈在真實環境中正確運作。
+
+**運作方式：**
+
+```text
+docker compose up -d（啟動真實 Redis + 三個服務）
+       │
+       ▼
+pytest tests/integration/cross_service/（對真實容器發 request）
+       │
+       ▼
+      確認完整資料流正確
+```
+
+與 3.2 節「個別 API 測試」的差別：
+
+| | 個別 API 測試（3.2） | 跨服務整合測試（3.6） |
+|--|----------------------|----------------------|
+| Redis | fakeredis 模擬 | docker-compose 真實 Redis |
+| 通知發送 | httpx.MockTransport 攔截 | 真實發送 HTTP POST 到 notification-service |
+| WebSocket | ASGITransport 直接測 FastAPI app | 連線到真實 uvicorn 容器 |
+| 測試速度 | 快（毫秒級） | 慢（秒級，需等待 docker） |
+| 執行時機 | 每次 commit / 開發中頻繁執行 | 合併 PR 前 / Demo 前 |
+
+---
+
+#### 3.6.1 目錄結構
+
+```text
+tests/
+└── integration/
+    └── cross_service/
+        ├── conftest.py                    # 跨服務 fixture
+        ├── test_location_to_redis.py       # Location → Redis
+        ├── test_event_to_notification.py   # Event → Notification (HTTP)
+        ├── test_notification_to_websocket.py # Notification → WS
+        └── test_full_chain.py              # 完整資料流
+```
+
+#### 3.6.2 共用 fixture（`tests/integration/cross_service/conftest.py`）
+
+```python
+import pytest
+import httpx
+
+
+@pytest.fixture(scope="session")
+def location_url() -> str:
+    return "http://localhost:8001"
+
+
+@pytest.fixture(scope="session")
+def event_url() -> str:
+    return "http://localhost:8002"
+
+
+@pytest.fixture(scope="session")
+def notification_url() -> str:
+    return "http://localhost:8003"
+
+
+@pytest.fixture
+async def location_client(location_url):
+    async with httpx.AsyncClient(base_url=location_url) as client:
+        yield client
+
+
+@pytest.fixture
+async def event_client(event_url):
+    async with httpx.AsyncClient(base_url=event_url) as client:
+        yield client
+```
+
+> 注意：跨服務測試**不使用** `ASGITransport`，而是透過 HTTP 連到真實的 docker-compose 容器。這樣才能驗證網路層、容器路由、PORT binding 等真實部署行為。
+
+---
+
+#### 3.6.3 `test_location_to_redis.py` — Location Service → Redis 寫入驗證
+
+| 測試名稱 | 操作 | 預期結果 | 對應重點 |
+|----------|------|----------|----------|
+| `test_write_and_readback` | POST /locations → GET /locations/nearby | 剛寫入的使用者出現在 nearby 結果中 | **P0** |
+| `test_write_multiple_users` | 寫入 5 個不同 user_id，範圍內查詢 | 回傳全部 5 個 | P1 |
+| `test_write_then_move` | user_id A 從座標 (a) 移動到座標 (b) far away | nearby(a) 不再包含 A；nearby(b) 包含 A | **P0** |
+| `test_concurrent_writes` | 同時寫入 10 個 user_id（asyncio.gather） | 全部成功，nearby 回傳 10 個 | P1 |
+
+**為什麼要測這個：** 這是整個系統的基礎。如果 Location Service 寫入 Redis 有問題，後面 Event Service 的附近查詢必定失敗。
+
+---
+
+#### 3.6.4 `test_event_to_notification.py` — Event Service → Notification Service HTTP 呼叫
+
+| 測試名稱 | 操作 | 預期結果 | 對應重點 |
+|----------|------|----------|----------|
+| `test_event_triggers_notification` | 先寫入使用者在 Redis，發布事件在附近 | Notification Service 收到 HTTP POST /notify | **P0** |
+| `test_event_no_nearby_users` | 發布事件在無人的座標 | Event Service 回傳 delivered_count = 0 | P0 |
+| `test_event_multiple_recipients` | 寫入 10 個使用者在附近，發布事件 | delivered_count = 10 | **P0** |
+| `test_event_notification_payload` | 檢查通知 payload 內容 | payload 包含 event_id、title、lat、lng、distance | P1 |
+
+**為什麼要測這個：** Event Service 是業務邏輯的核心。它的附近查詢結果是否正確，以及它是否正確呼叫 Notification Service，直接決定推播能不能送到。
+
+---
+
+#### 3.6.5 `test_notification_to_websocket.py` — Notification → WS 推播驗證
+
+| 測試名稱 | 操作 | 預期結果 | 對應重點 |
+|----------|------|----------|----------|
+| `test_notify_connected_client` | WS 連線後，POST /notify/{user_id} | WS 收到通知 JSON | **P0** |
+| `test_notify_unconnected_client` | 無 WS 連線時 POST /notify/{user_id} | subscriber_count = 0，API 仍回 200 | P1 |
+| `test_websocket_echo_notification_id` | WS 收到通知後回傳 event_id | 比對前後一致 | P2 |
+| `test_multi_websocket_receive` | 兩個 WS 各連不同 user_id，各自推播 | 各自只收到自己的通知 | **P0** |
+
+**為什麼要測這個：** Notification Service 是推播的最後一哩路。WebSocket 連線是否正常、pub/sub 是否正確路由，直接決定使用者能不能收到通知。
+
+---
+
+#### 3.6.6 `test_full_chain.py` — 完整鏈路整合測試
+
+這是最重要的測試：模擬 Demo 的完整流程，從上傳座標到發布事件到 WebSocket 接收通知。
+
+**測試流程：**
+
+```
+Step 1: 上傳 user_A 和 user_B 的座標到 Location Service
+              │
+Step 2: 確認 Redis 可查到兩人在 nearby 500m
+              │
+Step 3: user_A 和 user_B 各自連線 WebSocket
+              │
+Step 4: 發布緊急事件在兩人的中間點
+              │
+Step 5: user_A 和 user_B 的 WebSocket 都收到通知
+              │
+Step 6: 上傳 user_C 在距離 1000m 外的座標
+              │
+Step 7: user_C 連線 WebSocket
+              │
+Step 8: 發布另一個緊急事件
+              │
+Step 9: user_C 的 WebSocket 不應收到通知（逾時檢查）
+```
+
+| 測試名稱 | 測試內容 | 驗收條件 | 對應重點 |
+|----------|----------|----------|----------|
+| `test_demo_full_flow` | 完整 9 步驟資料流 | 所有步驟通過，P0 功能全部正常 | **P0** |
+
+**程式碼概念：**
+
+```python
+import asyncio
+import httpx
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_demo_full_flow(location_client, event_client):
+    # Step 1: 上傳 user_A 與 user_B 座標（距離約 200m）
+    user_a = {"user_id": "integ-a", "latitude": 25.0173, "longitude": 121.5397}
+    user_b = {"user_id": "integ-b", "latitude": 25.0185, "longitude": 121.5405}
+    user_c = {"user_id": "integ-c", "latitude": 25.0500, "longitude": 121.5600}  # 很遠
+
+    for u in [user_a, user_b, user_c]:
+        r = await location_client.post("/locations", json=u)
+        assert r.status_code == 200
+
+    # Step 2: 確認 nearby 查詢
+    r = await location_client.get(
+        "/locations/nearby",
+        params={"latitude": 25.0179, "longitude": 121.5400, "radius_meters": 500},
+    )
+    nearby = r.json()["users"]
+    assert "integ-a" in nearby
+    assert "integ-b" in nearby
+    assert "integ-c" not in nearby  # 距離太遠
+
+    # Step 3-5: WebSocket 驗證需另外處理（見下方說明）
+    # ...
+
+    # Step 6-9: user_C 不應收到通知
+    # ...
+```
+
+**WebSocket 測試的特殊處理：**
+
+WebSocket 測試與一般 HTTP API 測試不同，因為：
+1. WebSocket 是 persistent connection，需要保持連線一段時間等待推播
+2. 需要同時管理 HTTP client 和 WebSocket connection
+3. 需要處理 timeout（確認「不該收到通知」的使用者確實沒收到）
+
+```python
+async def _connect_ws(user_id: str) -> tuple:
+    """連線到 notification-service 的 WebSocket，回傳 (reader, writer)"""
+    # 使用 websockets 或 httpx 的 WS 支援
+    pass
+
+
+async def _wait_for_notification(ws, timeout: float = 5.0) -> dict | None:
+    """等待 WS 訊息，timeout 後回傳 None"""
+    try:
+        data = await asyncio.wait_for(ws.receive(), timeout=timeout)
+        return json.loads(data)
+    except asyncio.TimeoutError:
+        return None
+```
+
+---
+
+#### 3.6.7 跨服務整合測試執行方式
+
+跨服務測試需要先啟動 docker-compose，然後對真實容器執行測試。
+
+```powershell
+# Step 1: 啟動所有服務
+docker compose up -d --build
+
+# Step 2: 等待服務就緒（healthz 檢查）
+echo "Waiting for services..."
+$ready = $false
+while (-not $ready) {
+    try {
+        $r = Invoke-RestMethod http://localhost:8001/healthz
+        $r = Invoke-RestMethod http://localhost:8002/healthz
+        $r = Invoke-RestMethod http://localhost:8003/healthz
+        $ready = $true
+    } catch {
+        Start-Sleep -Seconds 2
+    }
+}
+echo "All services ready."
+
+# Step 3: 執行跨服務整合測試
+pytest tests/integration/cross_service/ -v --timeout=30
+
+# Step 4: 清理
+docker compose down
+```
+
+也可以使用 `pytest-docker` 套件自動管理 docker-compose 生命週期：
+
+```python
+# conftest.py（使用 pytest-docker）
+import pytest
+
+
+@pytest.fixture(scope="session")
+def docker_compose_files(pytestconfig):
+    return ["docker-compose.yml"]
+
+
+@pytest.fixture(scope="session")
+def docker_services(docker_compose_files):
+    """啟動 docker-compose，等待服務就緒後執行測試，結束後自動 down"""
+    pass
+```
+
+**執行腳本建議儲存在 `scripts/run-integration-tests.ps1`：**
+
+```powershell
+# scripts/run-integration-tests.ps1
+Write-Host "=== Starting integration test environment ==="
+docker compose up -d --build
+
+Write-Host "=== Waiting for services ==="
+do {
+    $r1 = try { (Invoke-WebRequest -Uri http://localhost:8001/healthz -TimeoutSec 2).StatusCode } catch { 0 }
+    $r2 = try { (Invoke-WebRequest -Uri http://localhost:8002/healthz -TimeoutSec 2).StatusCode } catch { 0 }
+    $r3 = try { (Invoke-WebRequest -Uri http://localhost:8003/healthz -TimeoutSec 2).StatusCode } catch { 0 }
+} while ($r1 -ne 200 -or $r2 -ne 200 -or $r3 -ne 200)
+
+Write-Host "=== Running cross-service integration tests ==="
+pytest tests/integration/cross_service/ -v --timeout=30
+$exitCode = $LASTEXITCODE
+
+Write-Host "=== Cleaning up ==="
+docker compose down
+
+exit $exitCode
+```
+
+---
+
+#### 3.6.8 跨服務測試 vs 個別 API 測試 — 何時用哪個？
+
+| 情境 | 用哪個 | 原因 |
+|------|--------|------|
+| 開發中頻繁修改 API | 個別 API 測試（3.2） | 快速反饋，毫秒級 |
+| 修改 Redis key 格式 | 個別 + 跨服務 | 個別快速驗證語法，跨服務確認真實 Redis 行為 |
+| 修改 Event Service 通知邏輯 | 跨服務 | 需要驗證跟 Notification Service 的 HTTP 溝通 |
+| 調整 docker-compose 或 Dockerfile | 跨服務 | 跨服務測試用真實容器，可抓到 Docker 層問題 |
+| Demo 前一天 | **跨服務 + E2E** | 確認所有容器、API、WebSocket 在真實環境正常 |
+| CI pipeline | 個別（無 docker） | CI 不一定有 docker 環境 |
+
 ---
 
 ## 4. 測試執行
@@ -270,12 +566,14 @@ pip install -r tests/requirements-test.txt
 # 單元測試（快速，不需 docker）
 pytest tests/unit/ -v
 
-# 整合測試（需先啟動 docker-compose）
-docker compose up -d
+# 個別 API 整合測試（需 fakeredis，不需 docker）
 pytest tests/integration/ -v
 
+# 跨服務整合測試（需要 docker-compose）
+.\scripts\run-integration-tests.ps1
+
 # 全部後端測試
-pytest -v
+pytest tests/unit/ tests/integration/ -v
 ```
 
 ### 執行前端測試
