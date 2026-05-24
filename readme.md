@@ -68,7 +68,16 @@ realtime_map_notice/
 - 成員 C：Redis GEO、WebSocket、即時推播。
 - 成員 D：Docker、Kubernetes、HPA、壓測與 Demo。
 
+## 專案階段
+
+第一階段先完成可展示的系統骨架：後端三個微服務、Redis GEO、WebSocket、Docker Compose、K8s YAML 與壓測腳本。
+
+第二階段完成 Web App 與後端整合：地圖顯示、瀏覽器定位、事件插旗、附近事件通知、基本錯誤處理與 Demo 資料。
+
+第三階段強化專題展示：K8s HPA 自動擴展、Pod 容錯、3,000 人壓測、監控截圖、架構圖、簡報素材與最終報告。
+
 ## 相關文件
 
 - [development.md](./development.md)：開發環境、執行方式、Demo 流程。
 - [system.md](./system.md)：系統架構、服務職責、資料流與 K8s 展示重點。
+- [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、分工、里程碑與驗收標準。

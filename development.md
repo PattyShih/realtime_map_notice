@@ -120,7 +120,9 @@ kubectl -n realtime-map-notice delete pod $pod
 
 ## 開發里程碑
 
-第一階段：專案骨架
+詳細分工與驗收標準請參考 [docs/project-plan.md](./docs/project-plan.md)。
+
+### 第一階段：專案骨架
 
 - 建立三個後端服務的基本 API。
 - 建立 Redis GEO 位置儲存雛形。
@@ -128,16 +130,39 @@ kubectl -n realtime-map-notice delete pod $pod
 - 建立 Dockerfile、docker-compose 與 Kubernetes YAML。
 - 建立壓測腳本。
 
-第二階段：功能整合
+完成條件：
+
+- `docker compose up --build` 可以啟動 Redis 與三個後端服務。
+- Location Service 可以接收座標並寫入 Redis。
+- Event Service 可以查詢 500 公尺內使用者。
+- Notification Service 可以透過 WebSocket 推送事件。
+- simulator 可以產生可調整人數的座標更新流量。
+
+### 第二階段：功能整合
 
 - Web App 定位上傳。
 - Web App 地圖插旗。
 - WebSocket 接收附近事件通知。
 - 事件分類、嚴重程度與基本登入。
 
-第三階段：Demo 強化
+完成條件：
+
+- 使用者可以在瀏覽器地圖上看到目前位置。
+- 使用者可以新增一般事件與緊急事件。
+- 緊急事件只通知半徑內的測試使用者。
+- 前端能清楚顯示通知內容、距離與事件類型。
+- API 錯誤時前端有基本提示，不會靜默失敗。
+
+### 第三階段：Demo 強化
 
 - HPA 自動擴展示範。
 - Pod 刪除後自動復原展示。
 - 壓測數據截圖與報告整理。
 - API、架構圖與簡報素材整理。
+
+完成條件：
+
+- 可用 `kubectl get hpa -w` 看到 Location Service Pod 數量上升。
+- 可手動刪除 Notification Service Pod 並看到 Kubernetes 自動重建。
+- Demo 流程可在 8 到 10 分鐘內完整呈現。
+- 報告包含架構圖、資料流、K8s 展示截圖與四人貢獻。

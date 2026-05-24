@@ -6,6 +6,8 @@
 - 使用地圖元件顯示校園地圖、使用者定位、事件插旗
 - 設計地圖上方資訊卡片、事件列表、緊急通知 Banner
 - 串接 Location Service、Event Service 與 WebSocket
+- 交付 `web-app/`、地圖主畫面、事件表單與通知元件
+- Demo 時負責展示一般使用者如何查看地圖與發布事件
 
 ## 成員 B：後端 API 與商業邏輯
 
@@ -13,6 +15,8 @@
 - 設計事件資料格式與 API contract
 - 實作登入雛形、發布事件、事件分類
 - 補上 API 測試與錯誤處理
+- 交付事件 API、事件 payload 文件與測試指令
+- Demo 時負責說明事件如何從 Web App 進入後端流程
 
 ## 成員 C：資料庫與即時連線
 
@@ -20,6 +24,8 @@
 - 維護 Notification Service 與 WebSocket 連線管理
 - 設計即時通知 payload
 - 測試 500 公尺附近查詢結果
+- 交付 Redis GEO 查詢流程、WebSocket 推播流程與測試結果
+- Demo 時負責說明為什麼即時位置使用 Redis，而不是每秒寫入傳統資料庫
 
 ## 成員 D：DevOps 與 K8s 架構
 
@@ -27,3 +33,5 @@
 - 設定 Deployment、Service、HPA、Resource requests/limits
 - 撰寫 3,000 虛擬使用者壓測腳本
 - Demo 時展示 `kubectl get hpa -w` 與刪除 Pod 容錯
+- 交付 `k8s/`、`simulator/`、HPA 截圖與 Pod 容錯截圖
+- Demo 時負責操作終端機展示自動擴展與容錯
