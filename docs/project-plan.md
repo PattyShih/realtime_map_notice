@@ -43,7 +43,7 @@
 - 建立 `shared`，放共用 schema、Redis client 與設定。
 - 建立 Redis GEO key 命名規則。
 - 依照 [realtime-location-requirements.md](./realtime-location-requirements.md) 定義位置更新欄位、last_seen TTL 與地圖更新驗收標準。
-- **在每個服務加入 fastapi.middleware.cors.CORSMiddleware（允許前端 origin）。**
+- **確認每個服務的 fastapi.middleware.cors.CORSMiddleware 正確允許前端 origin。**
 - **建立根目錄 .dockerignore，避免 .git 與 __pycache__ 進入 Docker build context。**
 - 建立 `docker-compose.yml`，讓本機可以一次啟動所有後端服務。
 - 建立每個服務的 Dockerfile。

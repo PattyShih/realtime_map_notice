@@ -5,6 +5,7 @@ import httpx
 from fastapi import FastAPI
 
 from backend.shared.config import USER_LOCATION_KEY
+from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import EventCreate, EventNotification
 
@@ -14,6 +15,7 @@ NOTIFICATION_SERVICE_URL = os.getenv(
 )
 
 app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0")
+configure_cors(app)
 redis = create_redis()
 
 

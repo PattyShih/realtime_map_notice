@@ -26,7 +26,7 @@
 - 維護 Event Service
 - 設計事件資料格式與 API contract
 - 實作登入雛形、發布事件、事件分類
-- **在 Event Service 加入 CORS middleware**
+- **確認 Event Service 的 CORS middleware 設定符合前端 origin**
 - **實作 Event Service 多副本冪等性（事件去重）**
 - **優化通知發送方式（asyncio.gather 批次發送或改用 Redis Pub/Sub 直發）**
 - 補上 API 測試與錯誤處理
@@ -45,7 +45,7 @@
 - 維護 Redis GEO 結構
 - 維護 Notification Service 與 WebSocket 連線管理
 - **補上 WebSocket ping/pong 心跳，清理 ghost connection**
-- **在 Notification Service 加入 CORS middleware**
+- **確認 Notification Service 的 CORS middleware 設定符合前端 origin**
 - 設計即時通知 payload
 - 測試 500 公尺附近查詢結果
 - 交付 Redis GEO 查詢流程、WebSocket 推播流程與測試結果

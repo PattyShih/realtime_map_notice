@@ -2,7 +2,7 @@
 
 這份文件描述 `realtime_map_notice` 的初步開發方式、測試方式與 Demo 流程。現階段目標是先完成可展示的專案骨架，後續再逐步補齊正式功能。
 
-> **CORS 注意：** 所有後端服務預設沒有 CORS 設定。前端開發伺服器與後端不同 origin 時，瀏覽器會擋掉請求。需在 docker-compose 或各服務啟動前補上 CORS middleware，否則 Web App 無法串接 API。
+> **CORS 注意：** 三個後端服務已加入 CORS middleware，預設允許 `http://localhost:5173` 與 `http://localhost:3000`。若前端改用其他 port 或正式網域，請更新 `CORS_ALLOW_ORIGINS`。
 
 > **.dockerignore 注意：** 根目錄目前沒有 `.dockerignore`。Docker build 時會把 `.git`、`__pycache__` 等不必要檔案送入 build context，導致建置變慢。
 

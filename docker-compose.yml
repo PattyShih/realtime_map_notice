@@ -10,6 +10,7 @@ services:
       dockerfile: backend/location-service/Dockerfile
     environment:
       REDIS_URL: redis://redis:6379/0
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
     ports:
       - "8001:8000"
     depends_on:
@@ -22,6 +23,7 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       NOTIFICATION_SERVICE_URL: http://notification-service:8000
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
     ports:
       - "8002:8000"
     depends_on:
@@ -34,8 +36,8 @@ services:
       dockerfile: backend/notification-service/Dockerfile
     environment:
       REDIS_URL: redis://redis:6379/0
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
     ports:
       - "8003:8000"
     depends_on:
       - redis
-

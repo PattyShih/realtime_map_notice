@@ -25,7 +25,7 @@
 - 已建立 Web App 前端方向文件，但尚未實作完整 React + Vite 前端。
 - 已補上專案計畫、系統設計、測試計畫、UI/UX 指南與 K8s 使用說明。
 
-後續開發的優先順序是：先補 CORS 與 `.dockerignore`，再完成 Web App、測試與 K8s Demo。
+後續開發的優先順序是：補 `.dockerignore`、完成 Web App、測試與 K8s Demo。CORS middleware 已先加入三個後端服務。
 
 ## 使用情境
 
@@ -68,7 +68,7 @@ realtime_map_notice/
 
 - Web App: React + Vite, browser Geolocation API, map library（初期建議 Leaflet；也可選 MapLibre GL JS / Google Maps）
 - Backend API: Python FastAPI
-- CORS: fastapi.middleware.cors.CORSMiddleware（各服務需加入）
+- CORS: fastapi.middleware.cors.CORSMiddleware（已加入各後端服務，可用 `CORS_ALLOW_ORIGINS` 設定）
 - Realtime: WebSocket（需補上 ping/pong 心跳）
 - Realtime Location Store: Redis GEO
 - Container: Docker

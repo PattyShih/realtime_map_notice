@@ -238,7 +238,13 @@ Observability:
 
 ### CORS
 
-目前三個後端服務都沒有設定 CORS middleware。前端開發伺服器（如 Vite port 5173）與後端（port 8001-8003）不同 origin，瀏覽器會直接阻擋跨來源請求。第一階段必須加入 `fastapi.middleware.cors.CORSMiddleware`，否則 Web App 無法串接 API。
+三個後端服務已加入 `fastapi.middleware.cors.CORSMiddleware`。前端開發伺服器（如 Vite port 5173）與後端（port 8001-8003）不同 origin，因此需要透過 `CORS_ALLOW_ORIGINS` 設定允許來源。預設允許：
+
+```text
+http://localhost:5173,http://localhost:3000
+```
+
+正式部署時應改成正式網域，不建議長期使用 `*`。
 
 ### WebSocket 心跳
 

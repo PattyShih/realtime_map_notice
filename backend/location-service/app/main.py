@@ -3,10 +3,12 @@ from datetime import UTC, datetime
 from fastapi import FastAPI
 
 from backend.shared.config import USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
+from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import LocationUpdate
 
 app = FastAPI(title="realtime_map_notice Location Service", version="0.1.0")
+configure_cors(app)
 redis = create_redis()
 
 
