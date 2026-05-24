@@ -12,7 +12,39 @@
 
 因此系統不適合每次都把即時座標寫入傳統關聯式資料庫。初步設計使用 Redis GEO 儲存目前位置，讓後端可以快速執行附近查詢。
 
-即時性與地圖地點更新的詳細資料欄位、更新頻率與驗收標準，請參考 [docs/realtime-location-requirements.md](./docs/realtime-location-requirements.md)。
+即時性、地圖地點更新、容量規劃與瓶頸分析都整合在本文件中。
+
+## 架構圖
+
+```mermaid
+flowchart LR
+    App["Web App - Browser Geolocation and Map UI"] -->|"POST /locations"| Location["Location Service"]
+    Location -->|"GEOADD"| RedisGeo["Redis GEO"]
+    App -->|"POST /events"| Event["Event Service"]
+    Event -->|"GEOSEARCH 500m"| RedisGeo
+    Event -->|"POST /notify user_id"| Notify["Notification Service"]
+    Notify -->|"PUBLISH user channel"| RedisPubSub["Redis Pub/Sub"]
+    RedisPubSub -->|"SUBSCRIBE user channel"| Notify
+    Notify -->|"WebSocket"| App
+```
+
+架構分成三條主要路徑：
+
+- 位置更新：Web App 定期把座標送到 Location Service，Location Service 更新 Redis GEO。
+- 事件通知：Web App 發布事件，Event Service 查詢 500 公尺內使用者，再由 Notification Service 推播。
+- 地圖更新：Web App 收到 GPS 或 WebSocket 訊息後，更新使用者 marker、事件 marker 與通知 Banner。
+
+Redis GEO 與 Redis Pub/Sub 可以是同一個 Redis instance，但在架構圖中分開表示，方便說明不同資料結構與用途。
+
+## 服務邊界
+
+| 服務 | 負責 | 不負責 |
+|------|------|--------|
+| Web App | 地圖、定位、事件表單、通知展示 | 直接查 Redis、K8s 操作 |
+| Location Service | 接收座標、更新 Redis GEO、附近查詢 | 事件建立、通知推播 |
+| Event Service | 事件建立、半徑查詢、通知觸發 | WebSocket 連線管理 |
+| Notification Service | WebSocket、Redis Pub/Sub、指定使用者通知 | 判斷事件半徑、儲存位置 |
+| Redis | 即時位置、last_seen、Pub/Sub channel | 長期報表、正式使用者資料 |
 
 ## 系統元件
 
@@ -170,6 +202,43 @@ Message:
 - Event Service 查到附近使用者後，應檢查 last_seen 是否仍有效，避免通知太久沒上線的人。
 - Demo 建議 last_seen TTL 設為 60 秒；正式版本可依電量、移動速度與隱私需求調整。
 
+## 即時地圖更新需求
+
+本專題中的「即時」是校園情境下使用者能感受到資訊接近現況，不是毫秒級金融交易。
+
+| 項目 | 目標 |
+|------|------|
+| 使用者位置上傳頻率 | 每 1-3 秒一次，Demo 預設每 1 秒 |
+| Web App 地圖使用者位置更新 | 收到新定位後 1 秒內更新畫面 |
+| Location Service API 延遲 | 單次 `POST /locations` 目標小於 200ms |
+| 附近查詢延遲 | `GEOSEARCH 500m` 目標小於 100ms |
+| 緊急事件推播延遲 | 發布事件後 1-2 秒內通知附近使用者 |
+| 使用者在線有效期限 | last_seen 超過 60 秒視為離線或不可靠 |
+
+地圖地點更新分成三種：
+
+- 使用者目前位置更新：Geolocation API 取得座標後更新 marker，並呼叫 `POST /locations`。
+- 事件標記更新：發布事件成功或收到 WebSocket 通知後新增事件 marker。
+- 通知位置更新：點擊通知 Banner 時，地圖移動到事件座標。
+
+位置資料正式版本建議擴充：
+
+```json
+{
+  "user_id": "u-0001",
+  "latitude": 25.0173,
+  "longitude": 121.5397,
+  "accuracy_meters": 15,
+  "heading_degrees": 180,
+  "speed_mps": 1.2,
+  "client_timestamp": "2026-05-24T10:15:30Z",
+  "sequence": 42,
+  "source": "gps"
+}
+```
+
+其中 `accuracy_meters` 用來顯示定位精度，`sequence` 用來避免舊位置覆蓋新位置，`source` 用來區分 GPS、手動選點與 simulator。
+
 ## 非功能需求
 
 效能：
@@ -177,7 +246,7 @@ Message:
 - Location Service 需承受大量短請求。
 - 初期壓測目標為 500-1,000 位虛擬使用者每秒更新一次座標；進階展示可挑戰 3,000 人。
 - Event Service 發布事件時，500 位附近使用者的通知延遲目標小於 2 秒。
-- 不同使用量下的 resource requests/limits、HPA 與瓶頸分析請參考 [docs/capacity-and-bottlenecks.md](./docs/capacity-and-bottlenecks.md)。
+- 不同使用量下的 resource requests/limits、HPA 與瓶頸分析也整合在本文件中。
 
 可靠性：
 
@@ -190,6 +259,34 @@ Message:
 - Demo 階段使用假 user_id，不收集真實個資。
 - 正式版本需加入認證、授權與位置資料保存期限。
 - 位置資料不應長期保存，除非使用者明確同意。
+
+## 容量規劃與瓶頸
+
+使用量以「虛擬使用者每秒上傳位置」作為主要容量指標。
+
+| 等級 | 虛擬使用者 | 約略位置更新量 | 目標 |
+|------|------------|----------------|------|
+| 少量使用 | 1-100 人 | 30-100 req/s | 功能驗證、本機開發 |
+| 中量使用 | 500-1,000 人 | 500-1,000 req/s | 初期 Demo 與 HPA 展示 |
+| 大量使用 | 3,000+ 人 | 3,000+ req/s | 進階壓測與架構討論 |
+
+不同服務的調整方向：
+
+| 元件 | 壓力來源 | 調整方式 |
+|------|----------|----------|
+| Location Service | 高頻 `POST /locations` | HPA 增加 replicas |
+| Event Service | 事件發布與通知 fan-out | 增加 replicas、批次通知、背景任務 |
+| Notification Service | WebSocket 連線數與 Pub/Sub 訊息量 | 增加 replicas、心跳清理 |
+| Redis | GEO 寫入、GEOSEARCH、Pub/Sub | 提高資源、分離 Redis、使用 managed Redis |
+| Web App | marker 太多、頻繁 render | marker clustering、viewport filtering、throttling |
+
+主要瓶頸：
+
+- Location Service CPU 會隨位置更新量線性上升。
+- Redis 可能成為單點瓶頸，因為 GEO 寫入、附近查詢與 Pub/Sub 都依賴它。
+- Event Service 若逐一 HTTP POST 通知附近使用者，會產生 fan-out 延遲。
+- Notification Service 需要處理大量 WebSocket 長連線。
+- Web App 在 marker 過多時可能卡頓，需要 clustering 或只顯示目前視窗範圍內事件。
 
 ## 資料流
 
@@ -240,6 +337,14 @@ Observability:
 - 少量使用時以功能正確與低成本為主。
 - 中量使用時調整 Location Service HPA，支援 500-1,000 人初期壓測。
 - 大量使用時需要檢查 Redis、Event Service fan-out 與 Notification Service WebSocket 連線數是否成為瓶頸。
+
+Demo 時可說明的技術點：
+
+1. 傳統論壇需要使用者自己刷新與搜尋，這個系統會根據目前座標主動通知。
+2. Redis GEO 適合高頻位置更新與附近查詢。
+3. WebSocket 讓緊急事件可以由伺服器主動推播，不必等使用者刷新。
+4. Kubernetes HPA 可針對高壓的 Location Service 做水平擴展。
+5. 微服務讓不同服務依照自己的壓力來源獨立調整資源。
 
 ## 已確認的改善項目
 

@@ -112,16 +112,9 @@ realtime_map_notice/
 ## 相關文件
 
 - [development.md](./development.md)：開發環境、執行方式、Demo 流程。
-- [system.md](./system.md)：系統架構、服務職責、資料流與 K8s 展示重點。
+- [system.md](./system.md)：系統架構、API、即時位置、容量規劃、瓶頸與 K8s 展示重點。
 - [docs/README.md](./docs/README.md)：文件導覽與閱讀順序。
-- [docs/architecture.md](./docs/architecture.md)：架構圖、服務互動與資料流細節。
-- [docs/capacity-and-bottlenecks.md](./docs/capacity-and-bottlenecks.md)：少量、中量、大量使用時的資源調整與瓶頸分析。
-- [docs/demo-goals.md](./docs/demo-goals.md)：最後 Demo 目標、成功標準、展示故事線與備案。
-- [docs/external-services-and-secrets.md](./docs/external-services-and-secrets.md)：地圖服務、Google Maps API key、環境變數與 secret 管理。
-- [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、分工、里程碑與驗收標準。
-- [docs/realtime-location-requirements.md](./docs/realtime-location-requirements.md)：即時性、位置更新、地圖資料與 Redis 設計需求。
-- [docs/team-plan.md](./docs/team-plan.md)：四人團隊分工、交付物與 Demo 責任。
+- [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、Demo 目標、四人分工、里程碑與驗收標準。
 - [docs/test-plan.md](./docs/test-plan.md)：後端、前端、WebSocket 與跨服務測試規劃。
-- [docs/ui-ux-guidelines.md](./docs/ui-ux-guidelines.md)：Web App UI/UX 設計注意事項與檢查清單。
 - [k8s/README.md](./k8s/README.md)：Kubernetes 部署、HPA 與故障復原操作。
-- [web-app/README.md](./web-app/README.md)：Web App 前端開發方向。
+- [web-app/README.md](./web-app/README.md)：Web App 前端開發方向、地圖服務、UI/UX 與 API key。

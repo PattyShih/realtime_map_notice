@@ -2,7 +2,7 @@
 
 這份文件描述如何把 `realtime_map_notice` 的後端服務部署到 Kubernetes，並展示 HPA 自動擴展與 Pod 容錯。所有指令預設在專案根目錄執行。
 
-少量、中量、大量使用時的 resource 調整與瓶頸分析，請參考 [../docs/capacity-and-bottlenecks.md](../docs/capacity-and-bottlenecks.md)。
+少量、中量、大量使用時的 resource 調整與瓶頸分析，請參考 [../system.md](../system.md)。
 
 ## 前置需求
 

@@ -42,7 +42,7 @@
 - 建立 `notification-service`，提供 WebSocket 連線與通知 API。
 - 建立 `shared`，放共用 schema、Redis client 與設定。
 - 建立 Redis GEO key 命名規則。
-- 依照 [realtime-location-requirements.md](./realtime-location-requirements.md) 定義位置更新欄位、last_seen TTL 與地圖更新驗收標準。
+- 依照 [../system.md](../system.md) 定義位置更新欄位、last_seen TTL 與地圖更新驗收標準。
 - **確認每個服務的 fastapi.middleware.cors.CORSMiddleware 正確允許前端 origin。**
 - **建立根目錄 .dockerignore，避免 .git 與 __pycache__ 進入 Docker build context。**
 - 建立 `docker-compose.yml`，讓本機可以一次啟動所有後端服務。
@@ -74,7 +74,7 @@
 
 - 建立 Web App 專案，**先決定地圖函式庫（Leaflet / MapLibre GL JS / Google Maps），評估瀏覽器定位相容性與開發難度。**
 - 設計全螢幕地圖主畫面。
-- 依照 [ui-ux-guidelines.md](./ui-ux-guidelines.md) 建立地圖、事件列表、插旗表單、通知 Banner 的 UI/UX 規格。
+- 依照 [../web-app/README.md](../web-app/README.md) 建立地圖、事件列表、插旗表單、通知 Banner 的 UI/UX 規格。
 - 使用 browser Geolocation API 取得目前位置。
 - 定期呼叫 Location Service 上傳位置。
 - 更新使用者目前位置 marker，並顯示定位精度或 fallback 狀態。
@@ -143,7 +143,7 @@
 - 為服務設定 resource requests 與 limits。
 - 為 Location Service 設定 HPA。
 - 為服務設定 readiness probe 與 liveness probe。
-- 依照 [capacity-and-bottlenecks.md](./capacity-and-bottlenecks.md) 規劃少量、中量、大量使用時的 resource requests/limits 與瓶頸處理方式。
+- 依照 [../system.md](../system.md) 規劃少量、中量、大量使用時的 resource requests/limits 與瓶頸處理方式。
 - 建立 500-1,000 人虛擬使用者壓測腳本，保留 3,000 人進階參數。
 - Demo 時觀察 Pod 數量變化與 HPA 狀態。
 - Demo 時刪除一個 Notification Service Pod，觀察自動重建。
@@ -231,6 +231,7 @@
 - 實作即時通知 Banner 或通知列表。
 - 維護 UI/UX 檢查清單，確認地圖可讀性、定位權限、錯誤狀態與響應式布局。
 - 串接 Location Service、Event Service 與 WebSocket。
+- 與 B 確認 `POST /events` payload，與 C 確認 WebSocket notification JSON。
 
 建議交付：
 
@@ -254,6 +255,7 @@
 - 實作事件建立、事件分類與嚴重程度。
 - 呼叫 Redis GEO 查詢附近使用者。
 - 呼叫 Notification Service 發送通知。
+- 與 A 確認事件表單欄位，與 C 確認通知 payload 與 Redis GEO 查詢結果。
 
 建議交付：
 
@@ -276,6 +278,7 @@
 - 實作 WebSocket 連線管理。
 - 實作 Redis Pub/Sub 通知同步。
 - 測試半徑內與半徑外通知結果。
+- 與 A 確認 WebSocket 斷線重連狀態，與 D 確認 Redis 與 Notification Service 多副本部署行為。
 
 建議交付：
 
@@ -298,6 +301,7 @@
 - 設定 HPA、resource requests、readiness probe。
 - 撰寫 500-1,000 人壓測腳本，保留 3,000 人進階參數。
 - 規劃 Demo 操作流程。
+- 與全員確認 Demo 腳本、截圖備案與現場操作順序。
 
 建議交付：
 
@@ -315,7 +319,23 @@
 
 ## Demo 腳本（含時間分配）
 
-最後 Demo 的總體目標、成功標準與備案請先參考 [demo-goals.md](./demo-goals.md)。本章節聚焦在實際操作順序與時間分配。
+本章節整理最後 Demo 的總體目標、成功標準、備案與實際操作順序。
+
+Demo 要證明五件事：
+
+1. 使用者可以在 Web App 地圖上查看目前位置與附近事件。
+2. 使用者可以發布一般事件或緊急事件。
+3. 緊急事件只會推播給 500 公尺內的使用者。
+4. 系統可以承受 500-1,000 位虛擬使用者持續上傳 GPS 座標。
+5. Kubernetes 可以在流量上升或 Pod 故障時維持服務可用。
+
+一句話主軸：
+
+```text
+當校園中有人發布緊急事件時，系統會即時找出 500 公尺內的使用者並推播通知；同時後端可以透過 Kubernetes 面對大量座標更新與服務故障。
+```
+
+Demo 不追求正式會員註冊、正式上線、長期軌跡分析或原生手機 App。3,000 人壓測是進階挑戰，不是初期必要成功條件。
 
 總長度 8-10 分鐘。每個步驟標註預計秒數。
 
@@ -409,3 +429,11 @@
 風險：**Event Service 半徑查詢無使用者卻沒有錯誤提示。**
 
 備案：確認附近查詢回傳空陣列時的處理流程，前端與後端都應有對應訊息提示。
+
+## 整合會議建議
+
+- 每週至少一次 15 分鐘同步 API 與 Demo 進度。
+- 第 3 週開始固定確認 Web App 能否連到後端。
+- 第 6 週開始固定確認 Redis GEO 與 WebSocket 完整鏈路。
+- 第 8 週前完成第一版 HPA 截圖與 Pod 容錯截圖。
+- 第 9 週開始只修 Demo 風險，不再加入大型新功能。

@@ -11,16 +11,28 @@
 - 事件列表與緊急通知 Banner
 - 透過 WebSocket 接收 500 公尺內事件通知
 
-UI/UX 注意事項請參考 [../docs/ui-ux-guidelines.md](../docs/ui-ux-guidelines.md)。
-即時位置更新資料規格請參考 [../docs/realtime-location-requirements.md](../docs/realtime-location-requirements.md)。
-
 建議技術：
 
 - React + Vite
 - 地圖元件初期建議 Leaflet + OpenStreetMap；也可使用 MapLibre GL JS 或 Google Maps JavaScript API
 - WebSocket client 串接 Notification Service
 - Fetch API 串接 Location Service 與 Event Service
-- 若使用 Google Maps，需準備 Google Maps JavaScript API key；詳見 [../docs/external-services-and-secrets.md](../docs/external-services-and-secrets.md)。
+- 若使用 Google Maps，需準備 Google Maps JavaScript API key。
+
+地圖服務選項：
+
+| 方案 | 是否需要 API key | 適合情境 |
+|------|------------------|----------|
+| Leaflet + OpenStreetMap tiles | 通常不需要 key | 初期開發與低風險 Demo |
+| MapLibre GL JS + 外部 tile/style provider | 視 provider 而定 | 需要較佳視覺與互動效果 |
+| Google Maps JavaScript API | 需要 key | 需要完整商用地圖能力 |
+
+Google Maps key 建議：
+
+- 啟用 Maps JavaScript API。
+- 限制 HTTP referrers，例如 `localhost:5173` 與正式網域。
+- 設定 quota 或 budget alert。
+- 不要把真實 key commit 到 GitHub。
 
 建議目錄：
 
@@ -53,6 +65,16 @@ web-app/
 - 定位失敗時需提供手動選點或預設校園座標。
 - WebSocket 斷線時需顯示重連狀態。
 - 手機瀏覽器寬度下，事件列表建議使用底部抽屜。
+
+UI/UX 注意事項：
+
+- 地圖永遠是主角，事件資訊不能長時間遮住主要地圖內容。
+- 使用者應能在 3 秒內判斷附近是否有重要事件。
+- 一般事件保持低干擾，緊急事件要明顯但不能造成恐慌。
+- 插旗表單要短，Demo 時最好 20 秒內可以送出事件。
+- 緊急通知 Banner 要顯示事件標題、距離、時間與「查看位置」動作。
+- 定位被拒絕時，要提供手動選點或預設校園座標。
+- 手機寬度下，按鈕觸控區域至少約 44px 高。
 
 核心元件職責：
 
