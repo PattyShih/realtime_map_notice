@@ -96,6 +96,33 @@ Observability:
 - 使用 `kubectl get hpa -w` 觀察自動擴展。
 - 使用服務健康檢查 `/healthz` 判斷容器是否正常。
 
+## 已確認的改善項目
+
+### CORS
+
+目前三個後端服務都沒有設定 CORS middleware。前端開發伺服器（如 Vite port 5173）與後端（port 8001-8003）不同 origin，瀏覽器會直接阻擋跨來源請求。第一階段必須加入 `fastapi.middleware.cors.CORSMiddleware`，否則 Web App 無法串接 API。
+
+### WebSocket 心跳
+
+Notification Service 目前沒有 ping/pong 機制。當使用者因為網路問題斷線時，服務端不會發現，導致 ghost connection 持續佔用資源。需補上 WebSocket 心跳：
+
+- 伺服器定時發送 ping frame。
+- 客戶端回覆 pong。
+- 逾時未回應則主動關閉連線並清理 pubsub subscription。
+
+### Event Service 同步通知瓶頸
+
+目前 Event Service 對每個附近使用者發送一次 HTTP POST 給 Notification Service。若半徑內有 500 位使用者，Event Service 需要發送 500 次 HTTP 請求，且是序列執行（透過 `async for`），可能導致事件發布延遲數秒。
+
+考量方向：
+
+- 改用 `asyncio.gather` 批次發送，而不是逐個 await。
+- 或讓 Event Service 直接發布 Redis Pub/Sub，跳過 HTTP 層，減少中間跳數。
+
+### Event Service 多副本冪等性
+
+Kubernetes 中 event-service 設為 2 個 replica。當多個副本同時收到同一事件時，目前沒有冪等機制，可能導致同一通知重複發送。Event Service 需要實作事件去重，或在通知流程中加入請求 ID 比對。
+
 ## 初步限制
 
 - 尚未設計正式使用者帳號與權限。

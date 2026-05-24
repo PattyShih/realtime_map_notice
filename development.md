@@ -2,6 +2,10 @@
 
 這份文件描述 `realtime_map_notice` 的初步開發方式、測試方式與 Demo 流程。現階段目標是先完成可展示的專案骨架，後續再逐步補齊正式功能。
 
+> **CORS 注意：** 所有後端服務預設沒有 CORS 設定。前端開發伺服器與後端不同 origin 時，瀏覽器會擋掉請求。需在 docker-compose 或各服務啟動前補上 CORS middleware，否則 Web App 無法串接 API。
+
+> **.dockerignore 注意：** 根目錄目前沒有 `.dockerignore`。Docker build 時會把 `.git`、`__pycache__` 等不必要檔案送入 build context，導致建置變慢。
+
 ## 環境需求
 
 建議安裝：
@@ -68,6 +72,16 @@ Invoke-RestMethod `
   -ContentType application/json `
   -Body '{"title":"Library seats","message":"3F has seats near windows","latitude":25.0173,"longitude":121.5397,"severity":"info","radius_meters":500}'
 ```
+
+## 基本測試
+
+專案目前沒有任何自動化測試。建議在第二階段開始前補上各服務的基礎 API 測試：
+
+- Location Service：測試 `POST /locations`、`GET /locations/nearby`。
+- Event Service：測試 `POST /events`，確認附近查詢與推播呼叫正確。
+- Notification Service：測試 WebSocket 連線與斷線行為。
+
+測試框架建議使用 `pytest` + `httpx.AsyncClient`，Redis 可使用 `fakeredis` 或 docker-compose 提供的實體 Redis。
 
 ## 壓測模擬
 

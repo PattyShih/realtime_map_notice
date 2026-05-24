@@ -52,14 +52,16 @@ realtime_map_notice/
 
 ## 技術選型
 
-- Web App: React 或 Vite, browser Geolocation API, map library
+- Web App: React 或 Vite, browser Geolocation API, map library（待決定 Leaflet / MapLibre GL JS / Google Maps）
 - Backend API: Python FastAPI
-- Realtime: WebSocket
+- CORS: fastapi.middleware.cors.CORSMiddleware（各服務需加入）
+- Realtime: WebSocket（需補上 ping/pong 心跳）
 - Realtime Location Store: Redis GEO
 - Container: Docker
 - Orchestration: Kubernetes
 - Autoscaling: Horizontal Pod Autoscaler
 - Load Simulation: Python asyncio + httpx
+- Testing（待補）: pytest, httpx.AsyncClient, fakeredis
 
 ## 四人分工
 

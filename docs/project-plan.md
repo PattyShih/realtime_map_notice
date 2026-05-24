@@ -41,6 +41,8 @@
 - 建立 `notification-service`，提供 WebSocket 連線與通知 API。
 - 建立 `shared`，放共用 schema、Redis client 與設定。
 - 建立 Redis GEO key 命名規則。
+- **在每個服務加入 fastapi.middleware.cors.CORSMiddleware（允許前端 origin）。**
+- **建立根目錄 .dockerignore，避免 .git 與 __pycache__ 進入 Docker build context。**
 - 建立 `docker-compose.yml`，讓本機可以一次啟動所有後端服務。
 - 建立每個服務的 Dockerfile。
 
@@ -68,14 +70,15 @@
 
 工作項目：
 
-- 建立 Web App 專案。
+- 建立 Web App 專案，**先決定地圖函式庫（Leaflet / MapLibre GL JS / Google Maps），評估瀏覽器定位相容性與開發難度。**
 - 設計全螢幕地圖主畫面。
 - 使用 browser Geolocation API 取得目前位置。
 - 定期呼叫 Location Service 上傳位置。
 - 建立事件發布表單，包含標題、內容、類型、嚴重程度。
 - 在地圖上顯示事件標記。
-- 建立 WebSocket client，接收 Notification Service 推播。
+- 建立 WebSocket client，**實作斷線重連（reconnect with exponential backoff）與心跳監聽。**
 - 收到緊急事件時顯示通知 Banner 或側邊事件卡片。
+- **API 呼叫需補上基本錯誤處理（catch error、顯示提示訊息、不靜默失敗）。**
 
 交付物：
 
@@ -101,7 +104,9 @@
 
 - 使用 Redis GEO 的 `GEOADD` 儲存使用者位置。
 - 使用 Redis GEO 的 `GEOSEARCH` 查詢半徑內使用者。
-- Event Service 對每個附近使用者送出通知請求。
+- Event Service 對每個附近使用者送出通知請求**（優化：改用 asyncio.gather 批次發送，或直接透過 Redis Pub/Sub 跳過 HTTP 層）。**
+- **Event Service 多副本冪等性：實作事件去重機制，避免同一通知被多個副本重複推送。**
+- **Notification Service 補上 WebSocket ping/pong 心跳，偵測並清理已斷線的 ghost connection。**
 - Notification Service 使用 Redis Pub/Sub 發布使用者專屬通知。
 - 持有 WebSocket 連線的 Pod 訂閱對應 channel 並推送給前端。
 - 補上事件 payload 格式與錯誤處理。
@@ -148,6 +153,33 @@
 - 壓測期間 Location Service Pod 會自動擴展。
 - 刪除 Pod 後 Kubernetes 會自動補回副本。
 - 系統在 Demo 過程中仍可處理位置更新與事件推播。
+
+### 第 6 階段（跨階段）：自動化測試
+
+目標：
+
+- 確保每次改動不會不小心破壞既有功能。
+- 壓測之前先確認 API 行為正確，避免花時間除錯模擬腳本。
+
+工作項目：
+
+- 建立 `tests/` 目錄結構，對應三個服務。
+- Location Service 測試：`POST /locations` 寫入成功、`GET /locations/nearby` 正確查詢、參數邊界（緯度經度範圍）。
+- Event Service 測試：`POST /events` 建立事件、附近查詢結果正確、通知推播呼叫符合預期。
+- Notification Service 測試：WebSocket 連線與斷線、通知接收。
+- 使用 `fakeredis` 或 docker-compose Redis 作為測試環境。
+- 整合到 CI（選擇性，非專題必需品）。
+
+交付物：
+
+- `tests/` 測試目錄。
+- 每個服務至少 2-3 個基本測試案例。
+- 可透過 `pytest` 一次性執行所有測試。
+
+驗收標準：
+
+- `pytest` 通過所有 API 測試。
+- 修改 API payload 後，測試會正確失敗提醒。
 
 ### 第 5 階段：報告與展示整理
 
@@ -271,18 +303,44 @@
 - Pod failure recovery。
 - 壓測如何模擬真實使用者流量。
 
-## Demo 腳本
+## Demo 腳本（含時間分配）
 
-1. 開啟 Web App，說明校園即時地圖情境。
-2. 使用瀏覽器定位，讓系統開始上傳目前位置。
-3. 在地圖上新增一般事件，例如圖書館有空位。
-4. 開啟另一個測試使用者頁面，展示 WebSocket 連線。
-5. 發布緊急事件，展示半徑內使用者收到通知。
-6. 啟動 3,000 人壓測腳本，說明大量座標更新。
-7. 使用 `kubectl get hpa -w` 展示 Location Service 自動擴展。
-8. 刪除一個 Notification Service Pod。
-9. 使用 `kubectl get pods -w` 展示 Kubernetes 自動重建。
-10. 總結 Redis GEO、WebSocket、K8s 在系統中的角色。
+總長度 8-10 分鐘。每個步驟標註預計秒數。
+
+| 時間 | 步驟 | 操作指令 | 展示重點 |
+|------|------|----------|----------|
+| 0:00-0:45 | 1. 開啟 Web App，說明校園即時地圖情境 | 打開瀏覽器 localhost 頁面 | 全螢幕地圖介面、專案動機 |
+| 0:45-1:30 | 2. 瀏覽器定位，系統開始上傳位置 | 點擊「啟用定位」按鈕，允許權限 | browser Geolocation API、POST /locations |
+| 1:30-2:15 | 3. 發布一般事件 | 點擊地圖 → 填寫表單（title, message, severity=info）→ 送出 → 地圖出現標記 | `POST /events`、事件插旗 UI |
+| 2:15-3:00 | 4. 開啟第二個使用者，展示 WebSocket 連線 | 另開無痕視窗模擬不同使用者，打開瀏覽器 DevTools → Network → WS 確認連線 | WebSocket 連線狀態（需補心跳）、**CORS 已設定** |
+| 3:00-4:00 | 5. 發布緊急事件，展示區域推播 | 發布 severity=urgent 事件，確認第二個使用者收到通知 Banner | Redis GEOSEARCH 500m 查詢、Redis Pub/Sub 推播 |
+| 4:00-5:00 | 6. 啟動壓測腳本 | `python simulator/simulate_users.py --users 300 --target http://localhost:8001` | 大量座標更新流量、asyncio 併發 |
+| 5:00-6:30 | 7. 展示 HPA 自動擴展 | 另一個 terminal 執行 `kubectl -n realtime-map-notice get hpa -w`，觀察 replica 從 1 → 3 → 5 | HPA CPU 指標、Pod 自動擴展 |
+| 6:30-7:30 | 8. 展示 Pod 容錯 | `kubectl -n realtime-map-notice delete pod -l app=notification-service` 後接 `kubectl get pods -w` 觀察自動重建 | Kubernetes controller manager、ReplicaSet |
+| 7:30-8:30 | 9. 總結技術亮點 | 展示最後的 HPA 截圖與 Pod 重建狀態 | Redis GEO 選型原因、微服務分工、K8s 優勢 |
+| 8:30-10:00 | 10. Q&A 緩衝 | 無 | 回答教授問題 |
+
+### Demo 注意事項
+
+- **備案準備：** 提前截好 HPA 擴展前後對比圖、Pod 刪除重建截圖。萬一現場 K8s 環境異常，仍可展示截圖。
+- **網路風險：** 本機環境不使用外部 API，完全離線運作。確保 docker-compose 所有 image 已先 pull 完成。
+- **指令腳本：** 建議將所有 kubectl 指令寫成 .ps1 腳本，避免現場打錯。
+- **參數調整：** 本機壓測若 300 人不夠觸發 HPA，可調低 Location Service CPU request（從 100m 降到 50m）。
+
+## 建議時間軸
+
+以下為各階段的建議時程。四人團隊若有 8-12 週專題時間，可依此配置資源。
+
+| 階段 | 建議週次 | 負責成員 |
+|------|----------|----------|
+| 第 1 階段：架構與後端骨架 | 第 1-2 週 | B、C 主導，D 協助 Docker |
+| 第 2 階段：Web App 前端 | 第 3-5 週 | A 主導，B/C 協助 API 串接 |
+| 第 3 階段：即時資料與推播整合 | 第 4-6 週 | C 主導，B 協助 |
+| 第 6 階段（跨階段）：自動化測試 | 第 4-8 週分散進行 | 四人各自負責自己的模組 |
+| 第 4 階段：Kubernetes 與壓測 | 第 6-8 週 | D 主導，全員協助測試 |
+| 第 5 階段：報告與展示整理 | 第 8-10 週 | 全員 |
+
+> 注意：階段 2 與階段 3 有部分重疊（第 4-6 週），因為 Web App 與即時推播需要同步開發與整合測試。
 
 ## 風險與備案
 
@@ -305,4 +363,20 @@
 風險：Demo 網路不穩或 Docker/K8s 啟動過慢。
 
 備案：提前準備截圖、錄影與已啟動環境，現場以短指令展示關鍵狀態。
+
+風險：**CORS 未設定導致前端完全無法呼叫 API。**
+
+備案：第一階段強制加入 CORS middleware，並在 docker-compose 中允許 `localhost:5173`（Vite dev server）與 `localhost:3000`（React dev server）。
+
+風險：**Web App 開發時程延誤，Demo 無前端可用。**
+
+備案：準備 curl/PowerShell 指令作為 API 展示備案，至少有 terminal 能展示後端功能。前端可先用最簡 HTML（無框架）確認 WebSocket 與 API 可通。
+
+風險：**WebSocket 斷線重連未實作，Demo 時網路不穩導致使用者收不到通知。**
+
+備案：前端的 WebSocket client 必須實作 reconnect with exponential backoff，避免一次斷線就永久失去連線。
+
+風險：**Event Service 半徑查詢無使用者卻沒有錯誤提示。**
+
+備案：確認附近查詢回傳空陣列時的處理流程，前端與後端都應有對應訊息提示。
 
