@@ -13,6 +13,19 @@
 - 使用 Kubernetes 展示高併發、自動擴展與容錯能力。
 - 使用 Python 腳本模擬 3,000 名虛擬使用者持續移動與上傳 GPS 座標。
 
+## 目前狀態
+
+目前 repo 已完成專題初步骨架與文件規劃：
+
+- 已建立三個後端服務的目錄與初版 FastAPI 程式。
+- 已建立 Redis GEO 位置儲存與 WebSocket 通知的基本方向。
+- 已建立 Dockerfile、docker-compose 與 Kubernetes YAML。
+- 已建立壓測腳本，用來模擬大量虛擬使用者上傳座標。
+- 已建立 Web App 前端方向文件，但尚未實作完整 React + Vite 前端。
+- 已補上專案計畫、系統設計、測試計畫、UI/UX 指南與 K8s 使用說明。
+
+後續開發的優先順序是：先補 CORS 與 `.dockerignore`，再完成 Web App、測試與 K8s Demo。
+
 ## 使用情境
 
 一般事件：
@@ -61,7 +74,18 @@ realtime_map_notice/
 - Orchestration: Kubernetes
 - Autoscaling: Horizontal Pod Autoscaler
 - Load Simulation: Python asyncio + httpx
-- Testing（待補）: pytest, httpx.AsyncClient, fakeredis
+- Testing Plan: pytest, httpx.AsyncClient, fakeredis, Vitest, MSW, WebSocket tests
+
+## 核心 API 摘要
+
+| 服務 | Endpoint | 用途 |
+|------|----------|------|
+| Location Service | `POST /locations` | 接收使用者目前 GPS 座標並寫入 Redis GEO |
+| Location Service | `GET /locations/nearby` | 查詢指定座標半徑內的使用者 |
+| Event Service | `POST /events` | 建立事件並觸發附近使用者通知 |
+| Notification Service | `GET /healthz` | 健康檢查 |
+| Notification Service | `POST /notify/{user_id}` | 對指定使用者發布通知 |
+| Notification Service | `WS /ws/{user_id}` | 前端 WebSocket 即時通知連線 |
 
 ## 四人分工
 
@@ -88,5 +112,11 @@ realtime_map_notice/
 
 - [development.md](./development.md)：開發環境、執行方式、Demo 流程。
 - [system.md](./system.md)：系統架構、服務職責、資料流與 K8s 展示重點。
+- [docs/README.md](./docs/README.md)：文件導覽與閱讀順序。
+- [docs/architecture.md](./docs/architecture.md)：架構圖、服務互動與資料流細節。
 - [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、分工、里程碑與驗收標準。
+- [docs/team-plan.md](./docs/team-plan.md)：四人團隊分工、交付物與 Demo 責任。
+- [docs/test-plan.md](./docs/test-plan.md)：後端、前端、WebSocket 與跨服務測試規劃。
 - [docs/ui-ux-guidelines.md](./docs/ui-ux-guidelines.md)：Web App UI/UX 設計注意事項與檢查清單。
+- [k8s/README.md](./k8s/README.md)：Kubernetes 部署、HPA 與故障復原操作。
+- [web-app/README.md](./web-app/README.md)：Web App 前端開發方向。

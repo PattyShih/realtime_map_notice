@@ -19,6 +19,11 @@
 
 ## 本機開發流程
 
+建議使用兩種開發模式：
+
+- 後端模式：只啟動 Redis 與三個 FastAPI 服務，優先測 API、Redis GEO 與 WebSocket。
+- 前後端整合模式：同時啟動 Web App dev server 與後端服務，測瀏覽器定位、CORS 與即時通知。
+
 建立 Python 虛擬環境：
 
 ```powershell
@@ -44,6 +49,21 @@ docker compose up --build
 - Event Service: http://localhost:8002/docs
 - Notification Service: ws://localhost:8003/ws/{user_id}
 - Redis: localhost:6379
+
+建議每次開發前先確認服務健康狀態：
+
+```powershell
+Invoke-RestMethod http://localhost:8001/healthz
+Invoke-RestMethod http://localhost:8002/healthz
+Invoke-RestMethod http://localhost:8003/healthz
+```
+
+若其中一個服務沒有回應，先檢查：
+
+- `docker compose ps`
+- `docker compose logs location-service`
+- `docker compose logs event-service`
+- `docker compose logs notification-service`
 
 ## API 初步測試
 
@@ -73,6 +93,24 @@ Invoke-RestMethod `
   -Body '{"title":"Library seats","message":"3F has seats near windows","latitude":25.0173,"longitude":121.5397,"severity":"info","radius_meters":500}'
 ```
 
+測試 WebSocket 通知時，可以先用瀏覽器或 WebSocket client 連到：
+
+```text
+ws://localhost:8003/ws/u-0001
+```
+
+再呼叫 Notification Service：
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8003/notify/u-0001 `
+  -ContentType application/json `
+  -Body '{"event_id":"demo-event","title":"Urgent notice","message":"Test notification","latitude":25.0173,"longitude":121.5397,"severity":"urgent","distance_meters":120}'
+```
+
+如果 WebSocket client 收到 JSON 訊息，代表 Notification Service 的基本推播流程正常。
+
 ## 基本測試
 
 專案目前沒有任何自動化測試。建議在第二階段開始前補上各服務的基礎 API 測試：
@@ -95,6 +133,18 @@ python simulator/simulate_users.py --users 3000 --target http://localhost:8001 -
 
 ```powershell
 python simulator/simulate_users.py --users 300 --target http://localhost:8001 --interval 1
+```
+
+壓測時建議分三段：
+
+1. `--users 100`：確認服務能接收流量且沒有明顯錯誤。
+2. `--users 300`：本機 Demo 預演用，較不容易把電腦壓垮。
+3. `--users 3000`：正式展示或截圖用，觀察 HPA 與服務極限。
+
+壓測時同步觀察：
+
+```powershell
+docker compose logs -f location-service
 ```
 
 ## Kubernetes Demo 流程
@@ -131,6 +181,14 @@ kubectl -n realtime-map-notice get hpa -w
 $pod = kubectl -n realtime-map-notice get pod -l app=notification-service -o jsonpath="{.items[0].metadata.name}"
 kubectl -n realtime-map-notice delete pod $pod
 ```
+
+Demo 前檢查清單：
+
+- `kubectl -n realtime-map-notice get pods` 顯示所有 Pod Running。
+- `kubectl -n realtime-map-notice get svc` 顯示三個服務與 Redis。
+- `kubectl -n realtime-map-notice get hpa` 不應長期顯示 `<unknown>`。
+- 已準備好 HPA 擴展截圖與 Pod 重建截圖作為備案。
+- 壓測腳本先用 300 人測過，確認不會在 Demo 現場立刻失敗。
 
 ## 開發里程碑
 

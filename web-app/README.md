@@ -19,6 +19,30 @@ UI/UX 注意事項請參考 [../docs/ui-ux-guidelines.md](../docs/ui-ux-guidelin
 - WebSocket client 串接 Notification Service
 - Fetch API 串接 Location Service 與 Event Service
 
+建議目錄：
+
+```text
+web-app/
+├── src/
+│   ├── components/
+│   │   ├── MapView.tsx
+│   │   ├── EventForm.tsx
+│   │   ├── EventList.tsx
+│   │   └── NotificationBanner.tsx
+│   ├── hooks/
+│   │   ├── useGeolocation.ts
+│   │   └── useNotificationSocket.ts
+│   ├── services/
+│   │   ├── locationApi.ts
+│   │   ├── eventApi.ts
+│   │   └── websocket.ts
+│   ├── types/
+│   │   └── api.ts
+│   └── App.tsx
+├── package.json
+└── vite.config.ts
+```
+
 設計重點：
 
 - 地圖是主畫面核心，資訊卡片與表單不可長時間遮住主要地圖內容。
@@ -26,3 +50,30 @@ UI/UX 注意事項請參考 [../docs/ui-ux-guidelines.md](../docs/ui-ux-guidelin
 - 定位失敗時需提供手動選點或預設校園座標。
 - WebSocket 斷線時需顯示重連狀態。
 - 手機瀏覽器寬度下，事件列表建議使用底部抽屜。
+
+核心元件職責：
+
+| 元件 | 職責 |
+|------|------|
+| `MapView` | 顯示地圖、使用者位置與事件標記 |
+| `EventForm` | 新增事件，包含類型、嚴重程度、標題與說明 |
+| `EventList` | 顯示附近事件，支援點擊後移動地圖 |
+| `NotificationBanner` | 顯示緊急事件通知與「查看位置」動作 |
+| `useGeolocation` | 封裝瀏覽器定位、權限錯誤與 fallback 座標 |
+| `useNotificationSocket` | 封裝 WebSocket 連線、斷線重連與訊息解析 |
+
+環境變數建議：
+
+```text
+VITE_LOCATION_SERVICE_URL=http://localhost:8001
+VITE_EVENT_SERVICE_URL=http://localhost:8002
+VITE_NOTIFICATION_WS_URL=ws://localhost:8003
+```
+
+前端完成條件：
+
+- 可以顯示地圖與目前位置。
+- 可以定期呼叫 `POST /locations`。
+- 可以發布事件並在地圖上看到標記。
+- 可以建立 WebSocket 連線並收到通知。
+- 定位失敗、API 失敗、WebSocket 斷線時都有畫面提示。

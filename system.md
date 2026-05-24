@@ -20,30 +20,35 @@ Web App:
 - 使用 browser Geolocation API 取得目前位置。
 - 定期上傳目前 GPS 座標。
 - 透過 WebSocket 接收附近事件通知。
+- 需要處理定位被拒絕、API 失敗、WebSocket 斷線重連與空狀態。
 
 Location Service:
 
 - 接收 `POST /locations`。
 - 將使用者目前座標寫入 Redis GEO。
 - 是主要高併發入口，也是 HPA 自動擴展展示對象。
+- 不負責長期保存歷史軌跡，主要保存「目前位置」。
 
 Event Service:
 
 - 接收 `POST /events`。
 - 使用事件座標查詢半徑內使用者。
 - 呼叫 Notification Service 發送通知。
+- 是區域推播的主要商業邏輯位置。
 
 Notification Service:
 
 - 維護 WebSocket 連線。
 - 接收指定 user_id 的通知請求。
 - 使用 Redis Pub/Sub 支援多副本推播。
+- 需要在未來補上心跳、重連配合與離線通知策略。
 
 Redis:
 
 - 使用 GEOADD 儲存使用者目前位置。
 - 使用 GEOSEARCH 查詢指定座標附近使用者。
 - 使用 Pub/Sub 協助 Notification Service 多副本同步通知。
+- Demo 階段可接受資料暫存在記憶體；正式產品需規劃資料持久化與備份。
 
 Kubernetes:
 
@@ -51,6 +56,133 @@ Kubernetes:
 - 使用 Service 提供穩定內部網路入口。
 - 使用 HPA 讓 Location Service 依 CPU 自動擴展。
 - 使用多副本 Notification Service 展示容錯。
+
+## API Contract
+
+### `POST /locations`
+
+用途：Web App 定期上傳使用者目前位置。
+
+Request:
+
+```json
+{
+  "user_id": "u-0001",
+  "latitude": 25.0173,
+  "longitude": 121.5397
+}
+```
+
+Response:
+
+```json
+{
+  "status": "accepted",
+  "user_id": "u-0001"
+}
+```
+
+### `GET /locations/nearby`
+
+用途：依指定座標查詢半徑內使用者。
+
+Query:
+
+```text
+latitude=25.0173
+longitude=121.5397
+radius_meters=500
+```
+
+Response:
+
+```json
+{
+  "users": ["u-0001", "u-0002"]
+}
+```
+
+### `POST /events`
+
+用途：建立事件並推播給附近使用者。
+
+Request:
+
+```json
+{
+  "title": "Library seats",
+  "message": "3F has seats near windows",
+  "latitude": 25.0173,
+  "longitude": 121.5397,
+  "severity": "info",
+  "radius_meters": 500
+}
+```
+
+Response:
+
+```json
+{
+  "event_id": "uuid",
+  "nearby_user_count": 2,
+  "delivered_count": 2,
+  "delivered_to": ["u-0001", "u-0002"]
+}
+```
+
+### `WS /ws/{user_id}`
+
+用途：Web App 建立指定使用者的即時通知連線。
+
+Message:
+
+```json
+{
+  "event_id": "uuid",
+  "title": "Urgent notice",
+  "message": "Road blocked near library",
+  "latitude": 25.0173,
+  "longitude": 121.5397,
+  "severity": "urgent",
+  "distance_meters": 120.0
+}
+```
+
+## Redis 資料設計
+
+建議 key：
+
+| Key | 類型 | 用途 |
+|-----|------|------|
+| `realtime_map_notice:user:locations` | GEO set | 儲存使用者目前座標 |
+| `realtime_map_notice:user:last_seen:{user_id}` | String with TTL | 記錄使用者最後上傳時間 |
+| `realtime_map_notice:user:{user_id}:notifications` | Pub/Sub channel | 指定使用者通知 channel |
+
+位置資料的 TTL 策略：
+
+- GEO set 本身沒有針對單一 member 的 TTL。
+- 可用 `last_seen` 輔助判斷使用者是否仍在線。
+- Event Service 查到附近使用者後，應檢查 last_seen 是否仍有效，避免通知太久沒上線的人。
+
+## 非功能需求
+
+效能：
+
+- Location Service 需承受大量短請求。
+- 壓測目標為 3,000 位虛擬使用者每秒更新一次座標。
+- Event Service 發布事件時，500 位附近使用者的通知延遲目標小於 2 秒。
+
+可靠性：
+
+- Notification Service 至少 2-3 個 replicas。
+- 刪除任一 Notification Pod 後，系統仍可接受新的 WebSocket 連線。
+- Redis 若失效，位置查詢與通知都會受影響，Demo 前需確認 Redis Pod 狀態。
+
+安全與隱私：
+
+- Demo 階段使用假 user_id，不收集真實個資。
+- 正式版本需加入認證、授權與位置資料保存期限。
+- 位置資料不應長期保存，除非使用者明確同意。
 
 ## 資料流
 
