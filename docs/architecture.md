@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-    App["iOS App<br/>SwiftUI + MapKit"] -->|POST /locations| Location["Location Service"]
+    App["Web App<br/>Browser Geolocation + Map UI"] -->|POST /locations| Location["Location Service"]
     Location -->|GEOADD| Redis[("Redis GEO")]
     App -->|POST /events| Event["Event Service"]
     Event -->|GEOSEARCH 500m| Redis
@@ -30,7 +30,7 @@ Event Service:
 
 Notification Service:
 
-- 維護手機 App 的 WebSocket 連線
+- 維護 Web App 的 WebSocket 連線
 - 使用 Redis Pub/Sub 解決多副本時的連線分散問題
 - 對指定 user_id 推送事件通知
 - 可用多副本展示 Pod 被刪除後仍可服務

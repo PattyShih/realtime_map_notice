@@ -13,10 +13,11 @@
 
 ## 系統元件
 
-Mobile App:
+Web App:
 
-- 使用 SwiftUI 建立介面。
-- 使用 MapKit 顯示地圖與事件。
+- 使用瀏覽器前端框架建立介面。
+- 使用地圖元件顯示校園地圖、使用者定位與事件插旗。
+- 使用 browser Geolocation API 取得目前位置。
 - 定期上傳目前 GPS 座標。
 - 透過 WebSocket 接收附近事件通知。
 
@@ -56,14 +57,14 @@ Kubernetes:
 位置更新流程：
 
 ```text
-iOS App -> Location Service -> Redis GEO
+Web App -> Location Service -> Redis GEO
 ```
 
 事件推播流程：
 
 ```text
-iOS App -> Event Service -> Redis GEO nearby query
-Event Service -> Notification Service -> Redis Pub/Sub -> WebSocket -> iOS App
+Web App -> Event Service -> Redis GEO nearby query
+Event Service -> Notification Service -> Redis Pub/Sub -> WebSocket -> Web App
 ```
 
 ## 區域推播邏輯
@@ -72,7 +73,7 @@ Event Service -> Notification Service -> Redis Pub/Sub -> WebSocket -> iOS App
 2. Event Service 使用 Redis GEO 查詢事件座標 500 公尺內的使用者。
 3. Event Service 對每個附近使用者呼叫 Notification Service。
 4. Notification Service 將通知發布到該使用者的 Redis Pub/Sub channel。
-5. 持有該使用者 WebSocket 連線的 Notification Service Pod 收到訊息並推送到 App。
+5. 持有該使用者 WebSocket 連線的 Notification Service Pod 收到訊息並推送到 Web App。
 
 ## Kubernetes 展示點
 
@@ -101,4 +102,3 @@ Observability:
 - 即時位置目前只保留短期用途，不作長期軌跡分析。
 - WebSocket 推播為初步架構，正式產品需要補上斷線重連、訊息確認與離線通知。
 - 500 公尺為預設 Demo 半徑，未來可依事件類型調整。
-

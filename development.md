@@ -11,7 +11,7 @@
 - Kubernetes 環境，例如 Docker Desktop Kubernetes 或 minikube
 - kubectl
 - metrics-server，用於 HPA 指標
-- Xcode，用於 iOS App 開發
+- Node.js 20+，用於 Web App 開發
 
 ## 本機開發流程
 
@@ -130,8 +130,8 @@ kubectl -n realtime-map-notice delete pod $pod
 
 第二階段：功能整合
 
-- iOS App 定位上傳。
-- iOS App 地圖插旗。
+- Web App 定位上傳。
+- Web App 地圖插旗。
 - WebSocket 接收附近事件通知。
 - 事件分類、嚴重程度與基本登入。
 
@@ -141,4 +141,3 @@ kubectl -n realtime-map-notice delete pod $pod
 - Pod 刪除後自動復原展示。
 - 壓測數據截圖與報告整理。
 - API、架構圖與簡報素材整理。
-

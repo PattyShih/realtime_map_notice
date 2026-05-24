@@ -2,9 +2,9 @@
 
 ## 成員 A：前端 UI/UX 開發
 
-- 建立 SwiftUI 專案與主要畫面
-- 使用 MapKit 顯示校園地圖、使用者定位、事件插旗
-- 設計毛玻璃資訊卡片、事件列表、緊急通知 Banner
+- 建立 Web App 專案與主要畫面
+- 使用地圖元件顯示校園地圖、使用者定位、事件插旗
+- 設計地圖上方資訊卡片、事件列表、緊急通知 Banner
 - 串接 Location Service、Event Service 與 WebSocket
 
 ## 成員 B：後端 API 與商業邏輯
@@ -27,4 +27,3 @@
 - 設定 Deployment、Service、HPA、Resource requests/limits
 - 撰寫 3,000 虛擬使用者壓測腳本
 - Demo 時展示 `kubectl get hpa -w` 與刪除 Pod 容錯
-
