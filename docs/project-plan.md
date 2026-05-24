@@ -163,7 +163,7 @@
 
 工作項目：
 
-- 建立 `tests/` 目錄結構，對應三個服務。
+- 建立 `tests/` 目錄結構，對應三個服務（詳細測試案例請參考 [test-plan.md](./test-plan.md)）。
 - Location Service 測試：`POST /locations` 寫入成功、`GET /locations/nearby` 正確查詢、參數邊界（緯度經度範圍）。
 - Event Service 測試：`POST /events` 建立事件、附近查詢結果正確、通知推播呼叫符合預期。
 - Notification Service 測試：WebSocket 連線與斷線、通知接收。

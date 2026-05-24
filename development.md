@@ -81,7 +81,7 @@ Invoke-RestMethod `
 - Event Service：測試 `POST /events`，確認附近查詢與推播呼叫正確。
 - Notification Service：測試 WebSocket 連線與斷線行為。
 
-測試框架建議使用 `pytest` + `httpx.AsyncClient`，Redis 可使用 `fakeredis` 或 docker-compose 提供的實體 Redis。
+測試框架建議使用 `pytest` + `httpx.AsyncClient`，Redis 可使用 `fakeredis` 或 docker-compose 提供的實體 Redis。完整測試計畫與案例請參考 [docs/test-plan.md](./docs/test-plan.md)。
 
 ## 壓測模擬
 
