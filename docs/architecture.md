@@ -4,14 +4,14 @@
 
 ```mermaid
 flowchart LR
-    App["Web App<br/>Browser Geolocation + Map UI"] -->|POST /locations| Location["Location Service"]
-    Location -->|GEOADD| Redis[("Redis GEO")]
-    App -->|POST /events| Event["Event Service"]
-    Event -->|GEOSEARCH 500m| Redis
-    Event -->|POST /notify/{user_id}| Notify["Notification Service"]
-    Notify -->|PUBLISH user channel| Redis
-    Redis -->|SUBSCRIBE user channel| Notify
-    Notify -->|WebSocket| App
+    App["Web App - Browser Geolocation and Map UI"] -->|"POST /locations"| Location["Location Service"]
+    Location -->|"GEOADD"| RedisGeo["Redis GEO"]
+    App -->|"POST /events"| Event["Event Service"]
+    Event -->|"GEOSEARCH 500m"| RedisGeo
+    Event -->|"POST /notify user_id"| Notify["Notification Service"]
+    Notify -->|"PUBLISH user channel"| RedisPubSub["Redis Pub/Sub"]
+    RedisPubSub -->|"SUBSCRIBE user channel"| Notify
+    Notify -->|"WebSocket"| App
 ```
 
 ## 微服務職責
