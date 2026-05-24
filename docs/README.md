@@ -24,31 +24,35 @@
 
    看即時性定義、位置更新資料欄位、Redis GEO/last_seen 設計與地圖更新驗收標準。
 
-6. [project-plan.md](./project-plan.md)
+6. [external-services-and-secrets.md](./external-services-and-secrets.md)
+
+   看地圖服務選型、Google Maps API key、環境變數、CORS 與 secret 管理。
+
+7. [project-plan.md](./project-plan.md)
 
    看十週計畫、每階段交付物、Demo 腳本、風險與備案。
 
-7. [team-plan.md](./team-plan.md)
+8. [team-plan.md](./team-plan.md)
 
    看四位組員的職責、交付內容與 Demo 分工。
 
-8. [ui-ux-guidelines.md](./ui-ux-guidelines.md)
+9. [ui-ux-guidelines.md](./ui-ux-guidelines.md)
 
    看 Web App 設計注意事項，包含地圖、插旗、通知、定位與響應式設計。
 
-9. [test-plan.md](./test-plan.md)
+10. [test-plan.md](./test-plan.md)
 
    看後端、前端、WebSocket、跨服務整合與 E2E 測試規劃。
 
-10. [../development.md](../development.md)
+11. [../development.md](../development.md)
 
    看本機開發、API 測試、壓測與 K8s Demo 操作流程。
 
-11. [../k8s/README.md](../k8s/README.md)
+12. [../k8s/README.md](../k8s/README.md)
 
    看 Kubernetes 部署、HPA、Pod 容錯與常見問題。
 
-12. [../web-app/README.md](../web-app/README.md)
+13. [../web-app/README.md](../web-app/README.md)
 
     看前端專案建議結構、核心元件職責與環境變數。
 
@@ -61,6 +65,7 @@
 | `docs/architecture.md` | 全員 | 報告與簡報架構圖 |
 | `docs/demo-goals.md` | 全員、報告負責人 | 最後 Demo 目標與成功標準 |
 | `docs/realtime-location-requirements.md` | 前端、後端、資料庫 | 即時位置更新與地圖資料需求 |
+| `docs/external-services-and-secrets.md` | 前端、DevOps | 地圖 API key 與環境變數管理 |
 | `docs/project-plan.md` | 全員 | 十週進度與 Demo 管理 |
 | `docs/team-plan.md` | 全員 | 四人分工與交付物 |
 | `docs/ui-ux-guidelines.md` | 前端 | Web App 設計規格 |

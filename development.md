@@ -123,7 +123,14 @@ Invoke-RestMethod `
 
 ## 壓測模擬
 
-模擬 3,000 名虛擬使用者每秒上傳位置：
+初期建議先模擬 500-1,000 名虛擬使用者每秒上傳位置：
+
+```powershell
+python simulator/simulate_users.py --users 500 --target http://localhost:8001 --interval 1
+python simulator/simulate_users.py --users 1000 --target http://localhost:8001 --interval 1
+```
+
+進階展示或截圖時，再挑戰 3,000 人：
 
 ```powershell
 python simulator/simulate_users.py --users 3000 --target http://localhost:8001 --interval 1
@@ -138,8 +145,9 @@ python simulator/simulate_users.py --users 300 --target http://localhost:8001 --
 壓測時建議分三段：
 
 1. `--users 100`：確認服務能接收流量且沒有明顯錯誤。
-2. `--users 300`：本機 Demo 預演用，較不容易把電腦壓垮。
-3. `--users 3000`：正式展示或截圖用，觀察 HPA 與服務極限。
+2. `--users 500`：初期目標，適合一般筆電預演。
+3. `--users 1000`：初期進階目標，觀察 HPA 是否有擴展跡象。
+4. `--users 3000`：最終挑戰或截圖用，觀察服務極限，不作為初期成功標準。
 
 壓測時同步觀察：
 

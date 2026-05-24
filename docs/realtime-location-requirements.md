@@ -349,7 +349,7 @@ Pub/Sub channel
 | Redis GEO 無 per-member TTL | 查到離線使用者 | 搭配 last_seen TTL |
 | WebSocket 斷線 | 收不到即時通知 | reconnect with exponential backoff |
 | 多副本 Notification Service | 使用者連在不同 Pod | Redis Pub/Sub 同步通知 |
-| 壓測流量太高 | 本機卡住或 HPA 未觸發 | 先用 300/1000 人，再展示 3000 人設定 |
+| 壓測流量太高 | 本機卡住或 HPA 未觸發 | 初期先用 500/1,000 人，再展示 3,000 人進階設定 |
 
 ## 驗收標準
 
@@ -374,4 +374,3 @@ Kubernetes:
 - 壓測期間 Location Service 可水平擴展。
 - Pod 重啟後新請求仍可被服務。
 - Notification Service 多副本下仍可正確推播。
-

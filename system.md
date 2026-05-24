@@ -175,7 +175,7 @@ Message:
 效能：
 
 - Location Service 需承受大量短請求。
-- 壓測目標為 3,000 位虛擬使用者每秒更新一次座標。
+- 初期壓測目標為 500-1,000 位虛擬使用者每秒更新一次座標；進階展示可挑戰 3,000 人。
 - Event Service 發布事件時，500 位附近使用者的通知延遲目標小於 2 秒。
 
 可靠性：
@@ -217,7 +217,7 @@ Event Service -> Notification Service -> Redis Pub/Sub -> WebSocket -> Web App
 
 Auto-scaling:
 
-- 使用 Python 腳本模擬 3,000 位使用者。
+- 使用 Python 腳本先模擬 500-1,000 位使用者，進階展示再提高到 3,000 位。
 - 大量請求打到 Location Service。
 - HPA 偵測 CPU 使用率上升後，將 Pod 從 1 個擴展到最多 5 個。
 

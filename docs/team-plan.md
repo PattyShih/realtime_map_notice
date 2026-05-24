@@ -63,7 +63,7 @@
 - 撰寫 Dockerfile 與 Kubernetes YAML
 - **建立根目錄 .dockerignore，優化 Docker build 速度**
 - 設定 Deployment、Service、HPA、Resource requests/limits
-- 撰寫 3,000 虛擬使用者壓測腳本
+- 撰寫 500-1,000 虛擬使用者壓測腳本，保留 3,000 人進階參數
 - Demo 時展示 `kubectl get hpa -w` 與刪除 Pod 容錯
 - 交付 `k8s/`、`simulator/`、HPA 截圖與 Pod 容錯截圖
 - Demo 時負責操作終端機展示自動擴展與容錯

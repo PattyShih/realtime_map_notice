@@ -12,7 +12,7 @@
 - 定義即時位置更新資料、更新頻率與地圖標記同步策略。
 - 使用 WebSocket 讓伺服器主動推播事件到使用者端。
 - 使用 Kubernetes 展示高併發、自動擴展與容錯能力。
-- 使用 Python 腳本模擬 3,000 名虛擬使用者持續移動與上傳 GPS 座標。
+- 使用 Python 腳本模擬初期 500-1,000 名虛擬使用者持續移動與上傳 GPS 座標，進階展示可挑戰 3,000 人。
 
 ## 目前狀態
 
@@ -55,7 +55,7 @@ realtime_map_notice/
 │   ├── notification-service/    # WebSocket 即時推播
 │   └── shared/                  # 共用 schema、設定與 Redis client
 ├── web-app/                     # Web 前端草稿
-├── simulator/                   # 3,000 虛擬使用者壓測腳本
+├── simulator/                   # 500-1,000 虛擬使用者壓測腳本，進階可調到 3,000
 ├── k8s/                         # Kubernetes Deployment、Service、HPA
 ├── docs/                        # 補充文件
 ├── docker-compose.yml           # 本機開發環境
@@ -66,7 +66,7 @@ realtime_map_notice/
 
 ## 技術選型
 
-- Web App: React + Vite, browser Geolocation API, map library（待決定 Leaflet / MapLibre GL JS / Google Maps）
+- Web App: React + Vite, browser Geolocation API, map library（初期建議 Leaflet；也可選 MapLibre GL JS / Google Maps）
 - Backend API: Python FastAPI
 - CORS: fastapi.middleware.cors.CORSMiddleware（各服務需加入）
 - Realtime: WebSocket（需補上 ping/pong 心跳）
@@ -105,7 +105,7 @@ realtime_map_notice/
 
 第三階段（第 4-6 週）：即時推播整合與後端優化：多副本通知正確性、WebSocket 心跳、批次推送、冪等性。
 
-第四階段（第 6-8 週）：K8s 部署、HPA 自動擴展、Pod 容錯、3,000 人壓測。
+第四階段（第 6-8 週）：K8s 部署、HPA 自動擴展、Pod 容錯、500-1,000 人壓測；進階展示再挑戰 3,000 人。
 
 第五階段（第 8-10 週）：報告、架構圖、Demo 演練與最終展示。
 
@@ -116,6 +116,7 @@ realtime_map_notice/
 - [docs/README.md](./docs/README.md)：文件導覽與閱讀順序。
 - [docs/architecture.md](./docs/architecture.md)：架構圖、服務互動與資料流細節。
 - [docs/demo-goals.md](./docs/demo-goals.md)：最後 Demo 目標、成功標準、展示故事線與備案。
+- [docs/external-services-and-secrets.md](./docs/external-services-and-secrets.md)：地圖服務、Google Maps API key、環境變數與 secret 管理。
 - [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、分工、里程碑與驗收標準。
 - [docs/realtime-location-requirements.md](./docs/realtime-location-requirements.md)：即時性、位置更新、地圖資料與 Redis 設計需求。
 - [docs/team-plan.md](./docs/team-plan.md)：四人團隊分工、交付物與 Demo 責任。

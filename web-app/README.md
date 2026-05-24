@@ -17,9 +17,10 @@ UI/UX 注意事項請參考 [../docs/ui-ux-guidelines.md](../docs/ui-ux-guidelin
 建議技術：
 
 - React + Vite
-- 地圖元件可使用 Leaflet、MapLibre GL JS 或 Google Maps JavaScript API
+- 地圖元件初期建議 Leaflet + OpenStreetMap；也可使用 MapLibre GL JS 或 Google Maps JavaScript API
 - WebSocket client 串接 Notification Service
 - Fetch API 串接 Location Service 與 Event Service
+- 若使用 Google Maps，需準備 Google Maps JavaScript API key；詳見 [../docs/external-services-and-secrets.md](../docs/external-services-and-secrets.md)。
 
 建議目錄：
 
@@ -78,6 +79,13 @@ web-app/
 VITE_LOCATION_SERVICE_URL=http://localhost:8001
 VITE_EVENT_SERVICE_URL=http://localhost:8002
 VITE_NOTIFICATION_WS_URL=ws://localhost:8003
+
+# Only needed if choosing Google Maps.
+VITE_GOOGLE_MAPS_API_KEY=
+
+# Only needed if choosing MapLibre with an external provider.
+VITE_MAP_STYLE_URL=
+VITE_MAP_PROVIDER_TOKEN=
 ```
 
 前端完成條件：

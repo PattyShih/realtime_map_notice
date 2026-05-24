@@ -13,7 +13,7 @@
 - 後端使用 Redis GEO 儲存即時位置。
 - 發布緊急事件時，只通知半徑 500 公尺內使用者。
 - 使用 WebSocket 將事件主動推送到前端。
-- 使用 Python 腳本模擬 3,000 位虛擬使用者持續移動。
+- 使用 Python 腳本模擬初期 500-1,000 位虛擬使用者持續移動，進階展示可提高到 3,000 位。
 - 使用 Kubernetes 展示 Location Service 自動擴展。
 - 使用 Kubernetes 展示 Notification Service Pod 容錯。
 
@@ -143,7 +143,7 @@
 - 為服務設定 resource requests 與 limits。
 - 為 Location Service 設定 HPA。
 - 為服務設定 readiness probe 與 liveness probe。
-- 建立 3,000 人虛擬使用者壓測腳本。
+- 建立 500-1,000 人虛擬使用者壓測腳本，保留 3,000 人進階參數。
 - Demo 時觀察 Pod 數量變化與 HPA 狀態。
 - Demo 時刪除一個 Notification Service Pod，觀察自動重建。
 
@@ -295,7 +295,7 @@
 - 撰寫 Dockerfile。
 - 撰寫 Kubernetes YAML。
 - 設定 HPA、resource requests、readiness probe。
-- 撰寫 3,000 人壓測腳本。
+- 撰寫 500-1,000 人壓測腳本，保留 3,000 人進階參數。
 - 規劃 Demo 操作流程。
 
 建議交付：
@@ -353,7 +353,7 @@
 | 6 | 第 3 階段：後端優化 | Event Service asyncio.gather 批次推送、多副本冪等性（事件去重） | B | 500 人通知延遲 < 2 秒；多副本不重複推送 |
 | 7 | 第 4 階段：K8s 部署 | 建置 Docker image、部署到 K8s、Service 設定、port-forward 測試 | D 主導，全員協助 | `kubectl apply -f k8s/` 後所有 Pod Running；API 可透過 port-forward 呼叫 |
 | 7 | 跨階段：自動化測試 | pytest + httpx.AsyncClient 基礎測試、fakeredis 測試環境 | B、C | `pytest` 通過 location-service 與 event-service 基本 API 測試 |
-| 8 | 第 4 階段：HPA 與壓測 | metrics-server 啟用、HPA 設定、3,000 人壓測、觀察 Pod 自動擴展 | D 主導，全員協助 | `kubectl get hpa -w` 可看到 replica 從 1 → 5；壓測期間服務正常 |
+| 8 | 第 4 階段：HPA 與壓測 | metrics-server 啟用、HPA 設定、500-1,000 人壓測、觀察 Pod 自動擴展；3,000 人作為進階挑戰 | D 主導，全員協助 | `kubectl get hpa -w` 可看到 replica 有擴展跡象；壓測期間服務正常 |
 | 8 | 跨階段：測試補齊 | Notification Service WebSocket 測試、前端 API 串接測試 | A、C | WebSocket 連線/斷線測試通過 |
 | 9 | 第 5 階段：報告準備 | 架構圖、資料流圖、API 表格、K8s 部署圖、壓測截圖 | 全員 | 簡報初稿完成，包含所有圖表與截圖 |
 | 10 | 第 5 階段：Demo 演練 | Demo 腳本演練、時間控制、Q&A 準備、備案確認 | 全員 | Demo 可在 8-10 分鐘內完整跑完 |
@@ -373,9 +373,9 @@
 
 ## 風險與備案
 
-風險：本機效能不足以穩定模擬 3,000 人。
+風險：本機效能不足以穩定模擬 1,000 或 3,000 人。
 
-備案：先用 300 到 1,000 人展示流程，報告中說明參數可調，並保留 3,000 人腳本設定。
+備案：初期用 500 人展示流程，報告中說明參數可調；1,000 人作為初期進階目標，3,000 人作為最終挑戰或截圖補充。
 
 風險：HPA 沒有擴展。
 
