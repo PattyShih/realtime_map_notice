@@ -1,0 +1,41 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  location-service:
+    build:
+      context: .
+      dockerfile: backend/location-service/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8001:8000"
+    depends_on:
+      - redis
+
+  event-service:
+    build:
+      context: .
+      dockerfile: backend/event-service/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+    ports:
+      - "8002:8000"
+    depends_on:
+      - redis
+      - notification-service
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: backend/notification-service/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8003:8000"
+    depends_on:
+      - redis
+

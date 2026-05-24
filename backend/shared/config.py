@@ -1,0 +1,7 @@
+import os
+
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+USER_LOCATION_KEY = os.getenv("USER_LOCATION_KEY", "realtime_map_notice:user:locations")
+USER_LAST_SEEN_PREFIX = os.getenv("USER_LAST_SEEN_PREFIX", "realtime_map_notice:user:last_seen")
+DEFAULT_ALERT_RADIUS_METERS = int(os.getenv("DEFAULT_ALERT_RADIUS_METERS", "500"))

@@ -1,0 +1,144 @@
+# Development Guide
+
+這份文件描述 `realtime_map_notice` 的初步開發方式、測試方式與 Demo 流程。現階段目標是先完成可展示的專案骨架，後續再逐步補齊正式功能。
+
+## 環境需求
+
+建議安裝：
+
+- Python 3.12+
+- Docker Desktop
+- Kubernetes 環境，例如 Docker Desktop Kubernetes 或 minikube
+- kubectl
+- metrics-server，用於 HPA 指標
+- Xcode，用於 iOS App 開發
+
+## 本機開發流程
+
+建立 Python 虛擬環境：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+安裝壓測腳本依賴：
+
+```powershell
+pip install -r simulator/requirements.txt
+```
+
+啟動本機服務：
+
+```powershell
+docker compose up --build
+```
+
+預設服務位置：
+
+- Location Service: http://localhost:8001/docs
+- Event Service: http://localhost:8002/docs
+- Notification Service: ws://localhost:8003/ws/{user_id}
+- Redis: localhost:6379
+
+## API 初步測試
+
+更新使用者位置：
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8001/locations `
+  -ContentType application/json `
+  -Body '{"user_id":"u-0001","latitude":25.0173,"longitude":121.5397}'
+```
+
+查詢附近使用者：
+
+```powershell
+Invoke-RestMethod "http://localhost:8001/locations/nearby?latitude=25.0173&longitude=121.5397&radius_meters=500"
+```
+
+發布事件：
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8002/events `
+  -ContentType application/json `
+  -Body '{"title":"Library seats","message":"3F has seats near windows","latitude":25.0173,"longitude":121.5397,"severity":"info","radius_meters":500}'
+```
+
+## 壓測模擬
+
+模擬 3,000 名虛擬使用者每秒上傳位置：
+
+```powershell
+python simulator/simulate_users.py --users 3000 --target http://localhost:8001 --interval 1
+```
+
+若本機效能不足，可以先用較小數字測試：
+
+```powershell
+python simulator/simulate_users.py --users 300 --target http://localhost:8001 --interval 1
+```
+
+## Kubernetes Demo 流程
+
+建立 Docker image：
+
+```powershell
+docker build -t realtime-map-notice/location-service:latest -f backend/location-service/Dockerfile .
+docker build -t realtime-map-notice/event-service:latest -f backend/event-service/Dockerfile .
+docker build -t realtime-map-notice/notification-service:latest -f backend/notification-service/Dockerfile .
+```
+
+部署到 Kubernetes：
+
+```powershell
+kubectl apply -f k8s/
+```
+
+觀察 Pod：
+
+```powershell
+kubectl -n realtime-map-notice get pods -w
+```
+
+觀察 HPA：
+
+```powershell
+kubectl -n realtime-map-notice get hpa -w
+```
+
+刪除一個 Notification Service Pod 展示容錯：
+
+```powershell
+$pod = kubectl -n realtime-map-notice get pod -l app=notification-service -o jsonpath="{.items[0].metadata.name}"
+kubectl -n realtime-map-notice delete pod $pod
+```
+
+## 開發里程碑
+
+第一階段：專案骨架
+
+- 建立三個後端服務的基本 API。
+- 建立 Redis GEO 位置儲存雛形。
+- 建立 WebSocket 推播雛形。
+- 建立 Dockerfile、docker-compose 與 Kubernetes YAML。
+- 建立壓測腳本。
+
+第二階段：功能整合
+
+- iOS App 定位上傳。
+- iOS App 地圖插旗。
+- WebSocket 接收附近事件通知。
+- 事件分類、嚴重程度與基本登入。
+
+第三階段：Demo 強化
+
+- HPA 自動擴展示範。
+- Pod 刪除後自動復原展示。
+- 壓測數據截圖與報告整理。
+- API、架構圖與簡報素材整理。
+
