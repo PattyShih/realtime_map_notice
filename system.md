@@ -76,7 +76,7 @@ Notification Service:
 - 維護 WebSocket 連線。
 - 接收指定 user_id 的通知請求。
 - 使用 Redis Pub/Sub 支援多副本推播。
-- 需要在未來補上心跳、重連配合與離線通知策略。
+- 已有 app-level ping/pong 心跳；未來仍需補上訊息確認與離線通知策略。
 
 Redis:
 
@@ -199,7 +199,7 @@ Message:
 
 - GEO set 本身沒有針對單一 member 的 TTL。
 - 可用 `last_seen` 輔助判斷使用者是否仍在線。
-- Event Service 查到附近使用者後，應檢查 last_seen 是否仍有效，避免通知太久沒上線的人。
+- Location Service 的附近查詢與 Event Service 的事件通知都會檢查 last_seen 是否仍有效，避免回傳或通知太久沒上線的人。
 - Demo 建議 last_seen TTL 設為 60 秒；正式版本可依電量、移動速度與隱私需求調整。
 
 ## 即時地圖更新需求
@@ -284,7 +284,7 @@ Message:
 
 - Location Service CPU 會隨位置更新量線性上升。
 - Redis 可能成為單點瓶頸，因為 GEO 寫入、附近查詢與 Pub/Sub 都依賴它。
-- Event Service 若逐一 HTTP POST 通知附近使用者，會產生 fan-out 延遲。
+- Event Service 目前已用 `asyncio.gather` 併發通知附近使用者，但大量收件者仍會造成 HTTP fan-out 壓力。
 - Notification Service 需要處理大量 WebSocket 長連線。
 - Web App 在 marker 過多時可能卡頓，需要 clustering 或只顯示目前視窗範圍內事件。
 
@@ -360,19 +360,21 @@ http://localhost:5173,http://localhost:3000
 
 ### WebSocket 心跳
 
-Notification Service 目前沒有 ping/pong 機制。當使用者因為網路問題斷線時，服務端不會發現，導致 ghost connection 持續佔用資源。需補上 WebSocket 心跳：
+Notification Service 已加入 app-level ping/pong 心跳，用來降低 ghost connection 長時間佔用資源的風險：
 
-- 伺服器定時發送 ping frame。
-- 客戶端回覆 pong。
-- 逾時未回應則主動關閉連線並清理 pubsub subscription。
+- 伺服器每 15 秒發送 `{ "type": "ping" }`。
+- Web App 收到後回覆 `{ "type": "pong" }`，並忽略此控制訊息，不顯示成事件通知。
+- 後端同時持續讀取 WebSocket client 訊息，斷線時會取消推播 task 並清理 pubsub subscription。
+- 目前仍未實作完整訊息確認、重送與離線通知。
 
-### Event Service 同步通知瓶頸
+### Event Service 通知 fan-out 瓶頸
 
-目前 Event Service 對每個附近使用者發送一次 HTTP POST 給 Notification Service。若半徑內有 500 位使用者，Event Service 需要發送 500 次 HTTP 請求，且是序列執行（透過 `async for`），可能導致事件發布延遲數秒。
+目前 Event Service 對每個附近使用者發送一次 HTTP POST 給 Notification Service。已改用 `asyncio.gather` 併發發送，避免 500 位附近使用者時逐筆等待造成明顯延遲。
 
-考量方向：
+後續仍需注意：
 
-- 改用 `asyncio.gather` 批次發送，而不是逐個 await。
+- 若單一事件半徑內有大量使用者，仍會產生大量 HTTP request。
+- 可加入 concurrency limit，避免瞬間把 Notification Service 打滿。
 - 或讓 Event Service 直接發布 Redis Pub/Sub，跳過 HTTP 層，減少中間跳數。
 
 ### Event Service 多副本冪等性
@@ -383,5 +385,5 @@ Kubernetes 中 event-service 設為 2 個 replica。當多個副本同時收到�
 
 - 尚未設計正式使用者帳號與權限。
 - 即時位置目前只保留短期用途，不作長期軌跡分析。
-- WebSocket 推播為初步架構，正式產品需要補上斷線重連、訊息確認與離線通知。
+- WebSocket 推播已有斷線重連與 app-level 心跳；正式產品仍需要補上訊息確認、重送與離線通知。
 - 500 公尺為預設 Demo 半徑，未來可依事件類型調整。

@@ -1,10 +1,11 @@
+import asyncio
 import os
 from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI
 
-from backend.shared.config import USER_LOCATION_KEY
+from backend.shared.config import USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import EventCreate, EventNotification
@@ -17,6 +18,38 @@ NOTIFICATION_SERVICE_URL = os.getenv(
 app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0")
 configure_cors(app)
 redis = create_redis()
+
+
+async def filter_active_nearby_users(
+    nearby_users: list[tuple[str, float]],
+) -> list[tuple[str, float]]:
+    if not nearby_users:
+        return []
+
+    last_seen_values = await redis.mget(
+        [f"{USER_LAST_SEEN_PREFIX}:{user_id}" for user_id, _ in nearby_users],
+    )
+    return [
+        nearby_user
+        for nearby_user, last_seen in zip(nearby_users, last_seen_values)
+        if last_seen is not None
+    ]
+
+
+async def deliver_notification(
+    client: httpx.AsyncClient,
+    user_id: str,
+    notification: EventNotification,
+) -> str | None:
+    try:
+        response = await client.post(
+            f"{NOTIFICATION_SERVICE_URL}/notify/{user_id}",
+            json=notification.model_dump(),
+        )
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    return user_id
 
 
 @app.get("/healthz")
@@ -36,29 +69,32 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         unit="m",
         withdist=True,
     )
+    active_nearby_users = await filter_active_nearby_users(nearby_users)
 
-    delivered_to: list[str] = []
     async with httpx.AsyncClient(timeout=3.0) as client:
-        for user_id, distance in nearby_users:
-            notification = EventNotification(
-                event_id=event_id,
-                title=payload.title,
-                message=payload.message,
-                latitude=payload.latitude,
-                longitude=payload.longitude,
-                severity=payload.severity,
-                distance_meters=float(distance),
+        delivery_results = await asyncio.gather(
+            *(
+                deliver_notification(
+                    client,
+                    user_id,
+                    EventNotification(
+                        event_id=event_id,
+                        title=payload.title,
+                        message=payload.message,
+                        latitude=payload.latitude,
+                        longitude=payload.longitude,
+                        severity=payload.severity,
+                        distance_meters=float(distance),
+                    ),
+                )
+                for user_id, distance in active_nearby_users
             )
-            response = await client.post(
-                f"{NOTIFICATION_SERVICE_URL}/notify/{user_id}",
-                json=notification.model_dump(),
-            )
-            if response.status_code < 400:
-                delivered_to.append(user_id)
+        )
+    delivered_to = [user_id for user_id in delivery_results if user_id is not None]
 
     return {
         "event_id": event_id,
-        "nearby_user_count": len(nearby_users),
+        "nearby_user_count": len(active_nearby_users),
         "delivered_count": len(delivered_to),
         "delivered_to": delivered_to[:20],
     }

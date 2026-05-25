@@ -12,6 +12,20 @@ configure_cors(app)
 redis = create_redis()
 
 
+async def filter_active_users(user_ids: list[str]) -> list[str]:
+    if not user_ids:
+        return []
+
+    last_seen_values = await redis.mget(
+        [f"{USER_LAST_SEEN_PREFIX}:{user_id}" for user_id in user_ids],
+    )
+    return [
+        user_id
+        for user_id, last_seen in zip(user_ids, last_seen_values)
+        if last_seen is not None
+    ]
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     await redis.ping()
@@ -45,4 +59,4 @@ async def nearby_users(
         radius=radius_meters,
         unit="m",
     )
-    return {"users": users}
+    return {"users": await filter_active_users(users)}

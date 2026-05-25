@@ -587,16 +587,16 @@ pip install -r tests/requirements-test.txt
 
 ```powershell
 # 單元測試（快速，不需 docker）
-pytest tests/unit/ -v
+python -m pytest tests/unit/ -v
 
 # 個別 API 整合測試（需 fakeredis，不需 docker）
-pytest tests/integration/ -v
+python -m pytest tests/integration/ -v
 
 # 跨服務整合測試（需要 docker-compose）
 .\scripts\run-integration-tests.ps1
 
 # 全部後端測試
-pytest tests/unit/ tests/integration/ -v
+python -m pytest tests/unit/ tests/integration/ -v
 ```
 
 ### 執行前端測試
@@ -612,7 +612,7 @@ npm run test:ui   # Vitest UI mode（選擇性）
 
 ```powershell
 # 後端
-pytest --cov=backend --cov-report=term-missing
+python -m pytest --cov=backend --cov-report=term-missing
 
 # 前端
 cd web-app && npm run test -- --coverage

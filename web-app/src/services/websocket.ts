@@ -3,6 +3,31 @@
 const WS_BASE = import.meta.env.VITE_NOTIFICATION_WS_URL ?? "ws://localhost:8003";
 
 type NotificationCallback = (notification: EventNotification) => void;
+type WebSocketControlMessage = { type: "ping" | "pong" };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isControlMessage(value: unknown): value is WebSocketControlMessage {
+  return (
+    isRecord(value) &&
+    typeof value.type === "string" &&
+    (value.type === "ping" || value.type === "pong")
+  );
+}
+
+function isEventNotification(value: unknown): value is EventNotification {
+  return (
+    isRecord(value) &&
+    typeof value.event_id === "string" &&
+    typeof value.title === "string" &&
+    typeof value.message === "string" &&
+    typeof value.latitude === "number" &&
+    typeof value.longitude === "number" &&
+    typeof value.severity === "string"
+  );
+}
 
 export function createNotificationSocket(
   userId: string,
@@ -26,8 +51,17 @@ export function createNotificationSocket(
 
     ws.onmessage = (event) => {
       try {
-        const notification: EventNotification = JSON.parse(event.data);
-        onNotification(notification);
+        const message: unknown = JSON.parse(event.data);
+        if (isControlMessage(message)) {
+          if (message.type === "ping" && ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "pong" }));
+          }
+          return;
+        }
+
+        if (isEventNotification(message)) {
+          onNotification(message);
+        }
       } catch {
         // ignore malformed messages
       }

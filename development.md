@@ -113,11 +113,17 @@ Invoke-RestMethod `
 
 ## 基本測試
 
-專案目前沒有任何自動化測試。建議在第二階段開始前補上各服務的基礎 API 測試：
+專案目前已有第一批 schema 單元測試。建議接著補上各服務的基礎 API 測試：
 
 - Location Service：測試 `POST /locations`、`GET /locations/nearby`。
 - Event Service：測試 `POST /events`，確認附近查詢與推播呼叫正確。
 - Notification Service：測試 WebSocket 連線與斷線行為。
+
+執行目前已有的單元測試：
+
+```powershell
+python -m pytest tests/unit -v
+```
 
 測試框架建議使用 `pytest` + `httpx.AsyncClient`，Redis 可使用 `fakeredis` 或 docker-compose 提供的實體 Redis。完整測試計畫與案例請參考 [docs/test-plan.md](./docs/test-plan.md)。
 

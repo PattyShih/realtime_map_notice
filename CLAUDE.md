@@ -30,9 +30,9 @@ curl http://localhost:8003/healthz
 # Run the location simulator (500-1000 virtual users)
 python simulator/simulate_users.py --users 500 --target http://localhost:8001 --interval 1
 
-# Planned test command after tests/ is implemented
-# Test plan exists in docs/test-plan.md, but tests/ is not created yet.
-pytest tests/ -v
+# Run backend unit tests.
+# On Windows, prefer python -m pytest because direct pytest may hit shim issues.
+python -m pytest tests/unit -v
 ```
 
 ### Web App (React + Vite + Leaflet)
@@ -94,12 +94,12 @@ All three services import from this directory (copied into each Docker image). I
 - `redis_client.py` — `create_redis()` factory using `redis.asyncio`
 - `cors.py` — `configure_cors(app)` helper that applies `CORSMiddleware` from `CORS_ALLOW_ORIGINS`
 
-### Known issues / in-progress items (from `system.md`)
+### Implementation notes / known gaps (from `system.md`)
 
-1. **WebSocket heartbeat missing** — Notification Service has no ping/pong; ghost connections from network drops aren't cleaned up.
-2. **Event Service sequential fan-out** — `POST /events` iterates nearby users one-by-one and awaits each notification request; should use `asyncio.gather` for batch delivery.
+1. **WebSocket heartbeat exists** — Notification Service sends app-level `{type:"ping"}` messages every 15s, and the Web App replies with `{type:"pong"}`. Full delivery acknowledgement and offline notification are still not implemented.
+2. **Event Service fan-out is batched but still HTTP-based** — `POST /events` uses `asyncio.gather` to notify nearby users concurrently, but still sends one HTTP request per recipient. A later optimization could publish directly to Redis Pub/Sub.
 3. **No event idempotency** — With multiple Event Service replicas, the same event may be processed twice causing duplicate notifications.
-4. **No tests exist yet** — test plan is documented in `docs/test-plan.md` but not implemented. Framework: `pytest` + `httpx.AsyncClient` + `fakeredis` (backend), `Vitest` + `MSW` (frontend).
+4. **Initial schema unit tests exist** — `tests/unit/test_schemas.py` covers basic Pydantic validation. API, Redis, WebSocket, and frontend tests are still planned in `docs/test-plan.md`.
 5. **`.dockerignore` exists** but verify it's effective — excludes `.git`, `__pycache__`, `node_modules`, `.md` files (except readme.md).
 
 ## Environment variables
@@ -123,7 +123,7 @@ See `.env.example`. Key vars:
 | `realtime_map_notice:user:last_seen:{user_id}` | String (TTL 60s) | Last upload timestamp |
 | `realtime_map_notice:user:{user_id}:notifications` | Pub/Sub channel | Per-user notification channel |
 
-Location data has a 60s TTL via `last_seen` keys. The GEO set itself has no per-member TTL — stale entries are filtered by checking `last_seen` before notifying.
+Location data has a 60s TTL via `last_seen` keys. The GEO set itself has no per-member TTL — stale entries are filtered by checking `last_seen` in both `/locations/nearby` and `POST /events` before notifying.
 
 ## Key files
 

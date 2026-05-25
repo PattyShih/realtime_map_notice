@@ -1,3 +1,6 @@
+import asyncio
+from contextlib import suppress
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from backend.shared.cors import configure_cors
@@ -8,9 +11,45 @@ app = FastAPI(title="realtime_map_notice Notification Service", version="0.1.0")
 configure_cors(app)
 redis = create_redis()
 
+HEARTBEAT_INTERVAL_SECONDS = 15.0
+
 
 def user_channel(user_id: str) -> str:
     return f"realtime_map_notice:user:{user_id}:notifications"
+
+
+async def forward_user_notifications(
+    websocket: WebSocket,
+    user_id: str,
+    send_lock: asyncio.Lock,
+) -> None:
+    pubsub = redis.pubsub()
+    channel = user_channel(user_id)
+    await pubsub.subscribe(channel)
+    try:
+        while True:
+            message = await pubsub.get_message(
+                ignore_subscribe_messages=True,
+                timeout=1.0,
+            )
+            if message and message["type"] == "message":
+                async with send_lock:
+                    await websocket.send_text(message["data"])
+    finally:
+        await pubsub.unsubscribe(channel)
+        await pubsub.close()
+
+
+async def send_heartbeat(websocket: WebSocket, send_lock: asyncio.Lock) -> None:
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+        async with send_lock:
+            await websocket.send_json({"type": "ping"})
+
+
+async def receive_client_messages(websocket: WebSocket) -> None:
+    while True:
+        await websocket.receive_text()
 
 
 @app.get("/healthz")
@@ -22,21 +61,22 @@ async def healthz() -> dict[str, str]:
 @app.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
     await websocket.accept()
-    pubsub = redis.pubsub()
-    await pubsub.subscribe(user_channel(user_id))
+    send_lock = asyncio.Lock()
+    tasks = [
+        asyncio.create_task(forward_user_notifications(websocket, user_id, send_lock)),
+        asyncio.create_task(send_heartbeat(websocket, send_lock)),
+        asyncio.create_task(receive_client_messages(websocket)),
+    ]
     try:
-        while True:
-            message = await pubsub.get_message(
-                ignore_subscribe_messages=True,
-                timeout=1.0,
-            )
-            if message and message["type"] == "message":
-                await websocket.send_text(message["data"])
+        await asyncio.gather(*tasks)
     except WebSocketDisconnect:
         pass
     finally:
-        await pubsub.unsubscribe(user_channel(user_id))
-        await pubsub.close()
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 @app.post("/notify/{user_id}")
