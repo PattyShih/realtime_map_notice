@@ -1,121 +1,120 @@
-# Web App 初始方向
+﻿# realtime_map_notice
 
-這個資料夾保留給前端 Web App，以瀏覽器作為主要 Demo 介面。
+`realtime_map_notice` 是一個專屬校園或特定街區使用的「即時動態地圖 Web App」專題初步架構。使用者可以在地圖上插旗回報突發狀況，例如圖書館座位、學餐排隊、人潮、免費活動、遺失物或緊急事件。
 
-建議功能：
+專案核心亮點是：當有人發布緊急事件時，系統只通知目前位於該座標 500 公尺內的使用者，減少傳統論壇或群組常見的資訊延遲與無關通知。
 
-- 全螢幕地圖介面
-- 使用 browser Geolocation API 取得目前位置
-- 在地圖上新增事件插旗
-- 即時更新使用者位置 marker 與事件 marker
-- 事件列表與緊急通知 Banner
-- 透過 WebSocket 接收 500 公尺內事件通知
+## 專題目標
 
-建議技術：
+- 建立一個能展示即時地圖、即時定位與區域推播的 Web App 架構。
+- 使用微服務拆分位置更新、事件發布與通知推播。
+- 使用 Redis 暫存即時座標，支援快速查詢附近使用者。
+- 定義即時位置更新資料、更新頻率與地圖標記同步策略。
+- 使用 WebSocket 讓伺服器主動推播事件到使用者端。
+- 使用 Kubernetes 展示高併發、自動擴展與容錯能力。
+- 使用 Python 腳本模擬初期 500-1,000 名虛擬使用者持續移動與上傳 GPS 座標，進階展示可挑戰 3,000 人。
 
-- React + Vite
-- 地圖元件初期建議 Leaflet + OpenStreetMap；也可使用 MapLibre GL JS 或 Google Maps JavaScript API
-- WebSocket client 串接 Notification Service
-- Fetch API 串接 Location Service 與 Event Service
-- 若使用 Google Maps，需準備 Google Maps JavaScript API key。
+## 目前狀態
 
-地圖服務選項：
+目前 repo 已完成專題初步骨架與文件規劃：
 
-| 方案 | 是否需要 API key | 適合情境 |
-|------|------------------|----------|
-| Leaflet + OpenStreetMap tiles | 通常不需要 key | 初期開發與低風險 Demo |
-| MapLibre GL JS + 外部 tile/style provider | 視 provider 而定 | 需要較佳視覺與互動效果 |
-| Google Maps JavaScript API | 需要 key | 需要完整商用地圖能力 |
+- 已建立三個後端服務的目錄與初版 FastAPI 程式。
+- 已建立 Redis GEO 位置儲存與 WebSocket 通知的基本方向。
+- 已建立 Dockerfile、docker-compose 與 Kubernetes YAML。
+- 已建立壓測腳本，用來模擬大量虛擬使用者上傳座標。
+- 已建立 Web App 前端方向文件，但尚未實作完整 React + Vite 前端。
+- 已補上專案計畫、系統設計、測試計畫、Web App UI/UX 設計說明與 K8s 使用說明。
 
-Google Maps key 建議：
+後續開發的優先順序是：補 `.dockerignore`、完成 Web App、測試與 K8s Demo。CORS middleware 已先加入三個後端服務。
 
-- 啟用 Maps JavaScript API。
-- 限制 HTTP referrers，例如 `localhost:5173` 與正式網域。
-- 設定 quota 或 budget alert。
-- 不要把真實 key commit 到 GitHub。
+## 使用情境
 
-建議目錄：
+一般事件：
 
-```text
-web-app/
-├── src/
-│   ├── components/
-│   │   ├── MapView.tsx
-│   │   ├── EventForm.tsx
-│   │   ├── EventList.tsx
-│   │   └── NotificationBanner.tsx
-│   ├── hooks/
-│   │   ├── useGeolocation.ts
-│   │   └── useNotificationSocket.ts
-│   ├── services/
-│   │   ├── locationApi.ts
-│   │   ├── eventApi.ts
-│   │   └── websocket.ts
-│   ├── types/
-│   │   └── api.ts
-│   └── App.tsx
-├── package.json
-└── vite.config.ts
-```
+- 圖書館 3 樓目前有空位。
+- 學餐某攤排隊人潮很長。
+- 校園廣場有免費活動。
+- 某棟大樓附近有遺失物。
 
-設計重點：
+緊急事件：
 
-- 地圖是主畫面核心，資訊卡片與表單不可長時間遮住主要地圖內容。
-- 事件標記需依嚴重程度區分，一般事件低干擾，緊急事件明顯呈現。
-- 定位失敗時需提供手動選點或預設校園座標。
-- WebSocket 斷線時需顯示重連狀態。
-- 手機瀏覽器寬度下，事件列表建議使用底部抽屜。
+- 路上有走失的狗狗。
+- 某區域施工或封路。
+- 天橋或走道臨時無法通行。
+- 校內突發安全提醒。
 
-UI/UX 注意事項：
+緊急事件會依照事件座標查詢半徑 500 公尺內的使用者，再透過 WebSocket 推播。
 
-- 地圖永遠是主角，事件資訊不能長時間遮住主要地圖內容。
-- 使用者應能在 3 秒內判斷附近是否有重要事件。
-- 一般事件保持低干擾，緊急事件要明顯但不能造成恐慌。
-- 插旗表單要短，Demo 時最好 20 秒內可以送出事件。
-- 緊急通知 Banner 要顯示事件標題、距離、時間與「查看位置」動作。
-- 定位被拒絕時，要提供手動選點或預設校園座標。
-- 手機寬度下，按鈕觸控區域至少約 44px 高。
-
-核心元件職責：
-
-| 元件 | 職責 |
-|------|------|
-| `MapView` | 顯示地圖、使用者位置與事件標記 |
-| `EventForm` | 新增事件，包含類型、嚴重程度、標題與說明 |
-| `EventList` | 顯示附近事件，支援點擊後移動地圖 |
-| `NotificationBanner` | 顯示緊急事件通知與「查看位置」動作 |
-| `useGeolocation` | 封裝瀏覽器定位、權限錯誤與 fallback 座標 |
-| `useNotificationSocket` | 封裝 WebSocket 連線、斷線重連與訊息解析 |
-
-位置更新規則：
-
-- Demo 預設每 1 秒上傳一次目前位置。
-- 一般使用情境可改成每 2-3 秒，或移動超過 10 公尺才上傳。
-- 定位精度大於 100 公尺時，畫面需提示定位不準。
-- 定位失敗時使用手動選點或預設校園座標。
-- WebSocket 收到事件通知時，地圖要新增事件 marker，通知 Banner 的「查看位置」要能移動到該座標。
-
-環境變數建議：
+## 初步專案結構
 
 ```text
-VITE_LOCATION_SERVICE_URL=http://localhost:8001
-VITE_EVENT_SERVICE_URL=http://localhost:8002
-VITE_NOTIFICATION_WS_URL=ws://localhost:8003
-
-# Only needed if choosing Google Maps.
-VITE_GOOGLE_MAPS_API_KEY=
-
-# Only needed if choosing MapLibre with an external provider.
-VITE_MAP_STYLE_URL=
-VITE_MAP_PROVIDER_TOKEN=
+realtime_map_notice/
+├── backend/
+│   ├── location-service/        # 接收 GPS 座標更新
+│   ├── event-service/           # 發布事件與查詢附近使用者
+│   ├── notification-service/    # WebSocket 即時推播
+│   └── shared/                  # 共用 schema、設定與 Redis client
+├── web-app/                     # Web 前端（僅有 README，尚未實作）
+├── simulator/                   # 500-1,000 虛擬使用者壓測腳本，進階可調到 3,000
+├── k8s/                         # Kubernetes Deployment、Service、HPA
+├── docs/                        # 補充文件
+├── docker-compose.yml           # 本機開發環境
+├── readme.md                    # 專案總覽
+├── development.md               # 開發與 Demo 流程
+└── system.md                    # 系統架構設計
 ```
 
-前端完成條件：
+## 技術選型
 
-- 可以顯示地圖與目前位置。
-- 可以定期呼叫 `POST /locations`。
-- 目前位置 marker 會隨定位資料更新。
-- 可以發布事件並在地圖上看到標記。
-- 可以建立 WebSocket 連線並收到通知。
-- 收到通知後可以在地圖上看到事件 marker。
-- 定位失敗、API 失敗、WebSocket 斷線時都有畫面提示。
+- Web App: React + Vite, browser Geolocation API, map library（初期建議 Leaflet；也可選 MapLibre GL JS / Google Maps）
+- Backend API: Python FastAPI
+- CORS: fastapi.middleware.cors.CORSMiddleware（已加入各後端服務，可用 `CORS_ALLOW_ORIGINS` 設定）
+- Realtime: WebSocket（需補上 ping/pong 心跳）
+- Realtime Location Store: Redis GEO
+- Container: Docker
+- Orchestration: Kubernetes
+- Autoscaling: Horizontal Pod Autoscaler
+- Load Simulation: Python asyncio + httpx
+- Testing Plan: pytest, httpx.AsyncClient, fakeredis, Vitest, MSW, WebSocket tests
+
+## 核心 API 摘要
+
+| 服務 | Endpoint | 用途 |
+|------|----------|------|
+| Location Service | `POST /locations` | 接收使用者目前 GPS 座標並寫入 Redis GEO |
+| Location Service | `GET /locations/nearby` | 查詢指定座標半徑內的使用者 |
+| Event Service | `POST /events` | 建立事件並觸發附近使用者通知 |
+| Notification Service | `GET /healthz` | 健康檢查 |
+| Notification Service | `POST /notify/{user_id}` | 對指定使用者發布通知 |
+| Notification Service | `WS /ws/{user_id}` | 前端 WebSocket 即時通知連線 |
+
+## 四人分工
+
+- 成員 A：Web App、地圖介面、瀏覽器定位、UI/UX。
+- 成員 B：後端 API、事件發布、商業邏輯。
+- 成員 C：Redis GEO、WebSocket、即時推播。
+- 成員 D：Docker、Kubernetes、HPA、壓測與 Demo。
+
+## 專案階段（十週計畫）
+
+詳細每週進度表請見 [docs/project-plan.md](./docs/project-plan.md) 的「十週進度表」章節。
+
+第一階段（第 1-2 週）：先完成可展示的系統骨架：後端三個微服務、Redis GEO、WebSocket、Docker Compose、K8s YAML 與壓測腳本。
+
+第二階段（第 3-5 週）：完成 Web App 與後端整合：地圖顯示、瀏覽器定位、事件插旗、附近事件通知、基本錯誤處理與 Demo 資料。
+
+第三階段（第 4-6 週）：即時推播整合與後端優化：多副本通知正確性、WebSocket 心跳、批次推送、冪等性。
+
+第四階段（第 6-8 週）：K8s 部署、HPA 自動擴展、Pod 容錯、500-1,000 人壓測；進階展示再挑戰 3,000 人。
+
+第五階段（第 8-10 週）：報告、架構圖、Demo 演練與最終展示。
+
+## 相關文件
+
+- [development.md](./development.md)：開發環境、執行方式、Demo 流程。
+- [system.md](./system.md)：系統架構、API、即時位置、容量規劃、瓶頸與 K8s 展示重點。
+- [docs/README.md](./docs/README.md)：文件導覽與閱讀順序。
+- [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、Demo 目標、四人分工、里程碑與驗收標準。
+- [docs/test-plan.md](./docs/test-plan.md)：後端、前端、WebSocket 與跨服務測試規劃。
+- [k8s/README.md](./k8s/README.md)：Kubernetes 部署、HPA 與故障復原操作。
+- [web-app/README.md](./web-app/README.md)：Web App 前端開發方向、地圖服務、UI/UX 與 API key。
