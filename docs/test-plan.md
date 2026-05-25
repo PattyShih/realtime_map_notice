@@ -178,8 +178,25 @@ web-app/
 | `test_event_create_valid` | 建立合法的 EventCreate | 通過 validation |
 | `test_event_create_minimal` | 只給必填欄位（title, message, lat, lng） | 通過 validation，severity 預設 "info" |
 | `test_event_create_invalid_radius` | radius_meters < 50 | 拋出 ValidationError |
+| `test_event_create_rejects_unknown_severity` | severity 不是 info 或 urgent | 拋出 ValidationError |
 | `test_event_notification_all_fields` | 完整 EventNotification | 通過 validation |
 | `test_event_notification_no_distance` | distance_meters=None | 通過 validation |
+| `test_event_notification_rejects_unknown_severity` | severity 不是 info 或 urgent | 拋出 ValidationError |
+
+#### `tests/unit/test_location_service.py`
+
+| 測試名稱 | 測試內容 | 預期結果 |
+|----------|----------|----------|
+| `test_filter_active_users_keeps_only_users_with_last_seen` | 用假 Redis mget 回傳 last_seen 與 None | 只保留 last_seen 仍存在的 user_id |
+| `test_filter_active_users_returns_empty_without_redis_call` | 傳入空 user list | 回傳空陣列且不呼叫 Redis |
+
+#### `tests/unit/test_event_service.py`
+
+| 測試名稱 | 測試內容 | 預期結果 |
+|----------|----------|----------|
+| `test_filter_active_nearby_users_keeps_distance_with_active_users` | 用假 Redis mget 過濾附近使用者 | 只保留 active user，且保留 distance |
+| `test_deliver_notification_returns_user_id_on_success` | 假 Notification client 成功回應 | 回傳 user_id，送出正確 event payload |
+| `test_deliver_notification_returns_none_on_http_error` | 假 Notification client 丟出 HTTPError | 回傳 None，不中斷整體 fan-out |
 
 #### `tests/unit/test_config.py`
 

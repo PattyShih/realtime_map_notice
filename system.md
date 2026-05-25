@@ -149,12 +149,14 @@ Request:
 {
   "title": "Library seats",
   "message": "3F has seats near windows",
-  "latitude": 25.0173,
-  "longitude": 121.5397,
-  "severity": "info",
-  "radius_meters": 500
+    "latitude": 25.0173,
+    "longitude": 121.5397,
+    "severity": "info",
+    "radius_meters": 500
 }
 ```
+
+`severity` 目前只接受 `info` 或 `urgent`。一般事件使用 `info`，需要區域推播與明顯提醒的事件使用 `urgent`。
 
 Response:
 

@@ -60,6 +60,17 @@ def test_event_create_rejects_too_large_radius() -> None:
         )
 
 
+def test_event_create_rejects_unknown_severity() -> None:
+    with pytest.raises(ValidationError):
+        EventCreate(
+            title="Library seats",
+            message="3F has seats near windows",
+            latitude=25.0173,
+            longitude=121.5397,
+            severity="warning",
+        )
+
+
 def test_event_notification_accepts_optional_distance() -> None:
     payload = EventNotification(
         event_id="evt-1",
@@ -71,3 +82,15 @@ def test_event_notification_accepts_optional_distance() -> None:
     )
 
     assert payload.distance_meters is None
+
+
+def test_event_notification_rejects_unknown_severity() -> None:
+    with pytest.raises(ValidationError):
+        EventNotification(
+            event_id="evt-1",
+            title="Urgent notice",
+            message="Road blocked near library",
+            latitude=25.0173,
+            longitude=121.5397,
+            severity="warning",
+        )

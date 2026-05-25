@@ -90,7 +90,7 @@ The "any Notification Service pod" part is critical: because WebSocket connectio
 All three services import from this directory (copied into each Docker image). It contains:
 
 - `config.py` — env var reading (`REDIS_URL`, `USER_LOCATION_KEY`, `CORS_ALLOW_ORIGINS`, etc.)
-- `schemas.py` — Pydantic models (`LocationUpdate`, `EventCreate`, `EventNotification`)
+- `schemas.py` — Pydantic models (`LocationUpdate`, `EventCreate`, `EventNotification`); event severity is restricted to `info` or `urgent`
 - `redis_client.py` — `create_redis()` factory using `redis.asyncio`
 - `cors.py` — `configure_cors(app)` helper that applies `CORSMiddleware` from `CORS_ALLOW_ORIGINS`
 
@@ -99,7 +99,7 @@ All three services import from this directory (copied into each Docker image). I
 1. **WebSocket heartbeat exists** — Notification Service sends app-level `{type:"ping"}` messages every 15s, and the Web App replies with `{type:"pong"}`. Full delivery acknowledgement and offline notification are still not implemented.
 2. **Event Service fan-out is batched but still HTTP-based** — `POST /events` uses `asyncio.gather` to notify nearby users concurrently, but still sends one HTTP request per recipient. A later optimization could publish directly to Redis Pub/Sub.
 3. **No event idempotency** — With multiple Event Service replicas, the same event may be processed twice causing duplicate notifications.
-4. **Initial schema unit tests exist** — `tests/unit/test_schemas.py` covers basic Pydantic validation. API, Redis, WebSocket, and frontend tests are still planned in `docs/test-plan.md`.
+4. **Initial unit tests exist** — `tests/unit/` covers Pydantic validation, active-user filtering, and notification delivery helper behavior. API, Redis, WebSocket, and frontend tests are still planned in `docs/test-plan.md`.
 5. **`.dockerignore` exists** but verify it's effective — excludes `.git`, `__pycache__`, `node_modules`, `.md` files (except readme.md).
 
 ## Environment variables

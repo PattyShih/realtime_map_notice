@@ -113,7 +113,7 @@ Invoke-RestMethod `
 
 ## 基本測試
 
-專案目前已有第一批 schema 單元測試。建議接著補上各服務的基礎 API 測試：
+專案目前已有第一批後端單元測試，涵蓋 schema 驗證、active user 過濾與通知發送 helper。建議接著補上各服務的基礎 API 測試：
 
 - Location Service：測試 `POST /locations`、`GET /locations/nearby`。
 - Event Service：測試 `POST /events`，確認附近查詢與推播呼叫正確。

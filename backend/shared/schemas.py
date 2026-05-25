@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -12,7 +14,7 @@ class EventCreate(BaseModel):
     message: str = Field(..., examples=["About 10 seats near the windows."])
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
-    severity: str = Field("info", examples=["info", "urgent"])
+    severity: Literal["info", "urgent"] = Field("info", examples=["info", "urgent"])
     radius_meters: int = Field(500, ge=50, le=3000)
 
 
@@ -22,6 +24,5 @@ class EventNotification(BaseModel):
     message: str
     latitude: float
     longitude: float
-    severity: str
+    severity: Literal["info", "urgent"]
     distance_meters: float | None = None
-
