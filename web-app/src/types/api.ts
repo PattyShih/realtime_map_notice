@@ -11,6 +11,7 @@ export interface LocationNearbyResponse {
 }
 
 export interface EventCreate {
+  client_event_id?: string | null;
   title: string;
   message: string;
   latitude: number;
@@ -24,6 +25,7 @@ export interface EventCreateResponse {
   nearby_user_count: number;
   delivered_count: number;
   delivered_to: string[];
+  status?: "created" | "duplicate";
 }
 
 export interface EventNotification {

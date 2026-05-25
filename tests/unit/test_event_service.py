@@ -12,6 +12,10 @@ class FakeRedis:
         self.values = values
         self.keys: list[str] = []
         self.geosearch_kwargs: dict[str, object] | None = None
+        self.set_result: bool | None = True
+        self.set_args: tuple[str, str, int, bool] | None = None
+        self.get_result: str | None = None
+        self.get_key: str | None = None
 
     async def mget(self, keys: list[str]) -> list[str | None]:
         self.keys = keys
@@ -20,6 +24,14 @@ class FakeRedis:
     async def geosearch(self, key: str, **kwargs: object) -> list[tuple[str, float]]:
         self.geosearch_kwargs = {"key": key, **kwargs}
         return [("u-1", 10.5), ("u-2", 20.0), ("u-3", 30.5)]
+
+    async def set(self, key: str, value: str, ex: int, nx: bool) -> bool | None:
+        self.set_args = (key, value, ex, nx)
+        return self.set_result
+
+    async def get(self, key: str) -> str | None:
+        self.get_key = key
+        return self.get_result
 
 
 class FakeResponse:
@@ -41,6 +53,24 @@ class FakeSuccessClient:
 class FakeFailingClient:
     async def post(self, url: str, json: dict[str, object]) -> FakeResponse:
         raise httpx.ConnectError("notification service unavailable")
+
+
+class SpySemaphore:
+    def __init__(self, value: int) -> None:
+        self.value = value
+        self.entries = 0
+
+    async def __aenter__(self) -> "SpySemaphore":
+        self.entries += 1
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        return None
 
 
 def make_notification() -> EventNotification:
@@ -97,6 +127,66 @@ def test_deliver_notification_returns_none_on_http_error() -> None:
     assert result is None
 
 
+def test_deliver_notification_with_limit_uses_semaphore() -> None:
+    module = load_service_module("event-service")
+    client = FakeSuccessClient()
+    semaphore = SpySemaphore(100)
+
+    result = asyncio.run(
+        module.deliver_notification_with_limit(
+            semaphore,
+            client,
+            "u-1",
+            make_notification(),
+        ),
+    )
+
+    assert result == "u-1"
+    assert semaphore.entries == 1
+
+
+def test_reserve_event_idempotency_skips_when_client_event_id_missing() -> None:
+    module = load_service_module("event-service")
+    module.redis = FakeRedis([])
+
+    result = asyncio.run(module.reserve_event_idempotency(None, "evt-1"))
+
+    assert result is None
+    assert module.redis.set_args is None
+
+
+def test_reserve_event_idempotency_stores_first_request() -> None:
+    module = load_service_module("event-service")
+    module.redis = FakeRedis([])
+
+    result = asyncio.run(
+        module.reserve_event_idempotency("client-1", "evt-1"),
+    )
+
+    assert result is None
+    assert module.redis.set_args == (
+        "realtime_map_notice:event:idempotency:client-1",
+        "evt-1",
+        300,
+        True,
+    )
+    assert module.redis.get_key is None
+
+
+def test_reserve_event_idempotency_returns_existing_event_id() -> None:
+    module = load_service_module("event-service")
+    module.redis = FakeRedis([])
+    module.redis.set_result = None
+    module.redis.get_result = "evt-existing"
+
+    result = asyncio.run(
+        module.reserve_event_idempotency("client-1", "evt-new"),
+    )
+
+    assert result == "evt-existing"
+    assert module.redis.get_key == "realtime_map_notice:event:idempotency:client-1"
+
+
 def test_create_event_notifies_only_active_nearby_users() -> None:
     module = load_service_module("event-service")
     module.redis = FakeRedis(["timestamp", None, "timestamp"])
@@ -139,3 +229,45 @@ def test_create_event_notifies_only_active_nearby_users() -> None:
         "unit": "m",
         "withdist": True,
     }
+
+
+def test_create_event_duplicate_does_not_notify_again() -> None:
+    module = load_service_module("event-service")
+    module.redis = FakeRedis([])
+    module.redis.set_result = None
+    module.redis.get_result = "evt-existing"
+    delivered: list[str] = []
+
+    async def fake_deliver_notification(
+        client: object,
+        user_id: str,
+        notification: EventNotification,
+    ) -> str:
+        delivered.append(user_id)
+        return user_id
+
+    module.deliver_notification = fake_deliver_notification
+
+    result = asyncio.run(
+        module.create_event(
+            EventCreate(
+                client_event_id="client-1",
+                title="Road blocked",
+                message="Road blocked near library",
+                latitude=25.0173,
+                longitude=121.5397,
+                severity="urgent",
+                radius_meters=500,
+            ),
+        ),
+    )
+
+    assert result == {
+        "event_id": "evt-existing",
+        "nearby_user_count": 0,
+        "delivered_count": 0,
+        "delivered_to": [],
+        "status": "duplicate",
+    }
+    assert delivered == []
+    assert module.redis.geosearch_kwargs is None

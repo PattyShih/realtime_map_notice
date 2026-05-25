@@ -97,8 +97,8 @@ All three services import from this directory (copied into each Docker image). I
 ### Implementation notes / known gaps (from `system.md`)
 
 1. **WebSocket heartbeat exists** — Notification Service sends app-level `{type:"ping"}` messages every 15s, and the Web App replies with `{type:"pong"}`. Full delivery acknowledgement and offline notification are still not implemented.
-2. **Event Service fan-out is batched but still HTTP-based** — `POST /events` uses `asyncio.gather` to notify nearby users concurrently, but still sends one HTTP request per recipient. A later optimization could publish directly to Redis Pub/Sub.
-3. **No event idempotency** — With multiple Event Service replicas, the same event may be processed twice causing duplicate notifications.
+2. **Event Service fan-out is batched but still HTTP-based** — `POST /events` uses `asyncio.gather` with `NOTIFICATION_FANOUT_CONCURRENCY` to notify nearby users concurrently, but still sends one HTTP request per recipient. A later optimization could publish directly to Redis Pub/Sub.
+3. **Optional event idempotency exists** — `POST /events` accepts `client_event_id`; Event Service stores it with Redis `SET NX` for `EVENT_IDEMPOTENCY_TTL_SECONDS` to avoid duplicate notifications on client retry.
 4. **Initial unit tests exist** — `tests/unit/` covers Pydantic validation, active-user filtering, and notification delivery helper behavior. API, Redis, WebSocket, and frontend tests are still planned in `docs/test-plan.md`.
 5. **`.dockerignore` exists** but verify it's effective — excludes `.git`, `__pycache__`, `node_modules`, `.md` files (except readme.md).
 
@@ -111,6 +111,9 @@ See `.env.example`. Key vars:
 | `REDIS_URL` | `redis://localhost:6379/0` | All services |
 | `CORS_ALLOW_ORIGINS` | `http://localhost:5173,http://localhost:3000` | All services |
 | `NOTIFICATION_SERVICE_URL` | `http://localhost:8003` | Event Service |
+| `NOTIFICATION_FANOUT_CONCURRENCY` | `100` | Event Service |
+| `EVENT_IDEMPOTENCY_PREFIX` | `realtime_map_notice:event:idempotency` | Event Service |
+| `EVENT_IDEMPOTENCY_TTL_SECONDS` | `300` | Event Service |
 | `VITE_LOCATION_SERVICE_URL` | `http://localhost:8001` | Web App |
 | `VITE_EVENT_SERVICE_URL` | `http://localhost:8002` | Web App |
 | `VITE_NOTIFICATION_WS_URL` | `ws://localhost:8003` | Web App |

@@ -147,16 +147,19 @@ Request:
 
 ```json
 {
+  "client_event_id": "client-generated-uuid",
   "title": "Library seats",
   "message": "3F has seats near windows",
-    "latitude": 25.0173,
-    "longitude": 121.5397,
-    "severity": "info",
-    "radius_meters": 500
+  "latitude": 25.0173,
+  "longitude": 121.5397,
+  "severity": "info",
+  "radius_meters": 500
 }
 ```
 
 `severity` 目前只接受 `info` 或 `urgent`。一般事件使用 `info`，需要區域推播與明顯提醒的事件使用 `urgent`。
+
+`client_event_id` 為選填。前端或測試工具若提供穩定的 client-generated id，Event Service 會以 Redis `SET NX` 做 5 分鐘去重，避免重試或多副本情境下重複推播。
 
 Response:
 
@@ -165,9 +168,12 @@ Response:
   "event_id": "uuid",
   "nearby_user_count": 2,
   "delivered_count": 2,
-  "delivered_to": ["u-0001", "u-0002"]
+  "delivered_to": ["u-0001", "u-0002"],
+  "status": "created"
 }
 ```
+
+若收到相同 `client_event_id` 的重複請求，回應會使用既有 `event_id`，`status` 為 `duplicate`，且不會再次通知。
 
 ### `WS /ws/{user_id}`
 
@@ -277,7 +283,7 @@ Message:
 | 元件 | 壓力來源 | 調整方式 |
 |------|----------|----------|
 | Location Service | 高頻 `POST /locations` | HPA 增加 replicas |
-| Event Service | 事件發布與通知 fan-out | 增加 replicas、批次通知、背景任務 |
+| Event Service | 事件發布與通知 fan-out | 增加 replicas、調整 `NOTIFICATION_FANOUT_CONCURRENCY`、背景任務 |
 | Notification Service | WebSocket 連線數與 Pub/Sub 訊息量 | 增加 replicas、心跳清理 |
 | Redis | GEO 寫入、GEOSEARCH、Pub/Sub | 提高資源、分離 Redis、使用 managed Redis |
 | Web App | marker 太多、頻繁 render | marker clustering、viewport filtering、throttling |
@@ -286,7 +292,7 @@ Message:
 
 - Location Service CPU 會隨位置更新量線性上升。
 - Redis 可能成為單點瓶頸，因為 GEO 寫入、附近查詢與 Pub/Sub 都依賴它。
-- Event Service 目前已用 `asyncio.gather` 併發通知附近使用者，但大量收件者仍會造成 HTTP fan-out 壓力。
+- Event Service 目前已用 `asyncio.gather` 併發通知附近使用者，並以 `NOTIFICATION_FANOUT_CONCURRENCY` 限制同時送出的 HTTP request；大量收件者仍會造成 HTTP fan-out 壓力。
 - Notification Service 需要處理大量 WebSocket 長連線。
 - Web App 在 marker 過多時可能卡頓，需要 clustering 或只顯示目前視窗範圍內事件。
 
@@ -376,12 +382,17 @@ Notification Service 已加入 app-level ping/pong 心跳，用來降低 ghost c
 後續仍需注意：
 
 - 若單一事件半徑內有大量使用者，仍會產生大量 HTTP request。
-- 可加入 concurrency limit，避免瞬間把 Notification Service 打滿。
+- 可調整 `NOTIFICATION_FANOUT_CONCURRENCY`，避免瞬間把 Notification Service 打滿。
 - 或讓 Event Service 直接發布 Redis Pub/Sub，跳過 HTTP 層，減少中間跳數。
 
 ### Event Service 多副本冪等性
 
-Kubernetes 中 event-service 設為 2 個 replica。當多個副本同時收到同一事件時，目前沒有冪等機制，可能導致同一通知重複發送。Event Service 需要實作事件去重，或在通知流程中加入請求 ID 比對。
+Event Service 支援選填的 `client_event_id`。當前端或壓測工具在重試同一事件時提供相同 `client_event_id`，後端會使用 Redis `SET NX` 記錄 event id，TTL 預設 300 秒。重複請求會回傳 `status="duplicate"` 且不再次發送通知。
+
+限制：
+
+- 若 client 沒有提供 `client_event_id`，系統仍會視為新事件。
+- 此機制主要處理 client retry 與短時間重複提交，不是完整 exactly-once delivery。
 
 ## 初步限制
 

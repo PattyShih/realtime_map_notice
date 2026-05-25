@@ -36,6 +36,19 @@ def test_event_create_defaults_to_info_and_500m_radius() -> None:
 
     assert payload.severity == "info"
     assert payload.radius_meters == 500
+    assert payload.client_event_id is None
+
+
+def test_event_create_accepts_client_event_id() -> None:
+    payload = EventCreate(
+        client_event_id="client-1",
+        title="Library seats",
+        message="3F has seats near windows",
+        latitude=25.0173,
+        longitude=121.5397,
+    )
+
+    assert payload.client_event_id == "client-1"
 
 
 def test_event_create_rejects_too_small_radius() -> None:

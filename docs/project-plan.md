@@ -112,7 +112,7 @@
 - 使用 Redis GEO 的 `GEOADD` 儲存使用者位置。
 - 使用 Redis GEO 的 `GEOSEARCH` 查詢半徑內使用者，並用 last_seen TTL 過濾離線或過期使用者。
 - Event Service 對每個附近使用者併發送出通知請求**（已使用 asyncio.gather；後續可改成直接透過 Redis Pub/Sub 跳過 HTTP 層）。**
-- **Event Service 多副本冪等性：實作事件去重機制，避免同一通知被多個副本重複推送。**
+- **Event Service 已支援選填 `client_event_id` 去重，避免同一事件在 retry 時重複推播。**
 - **Notification Service 已補上 WebSocket app-level ping/pong 心跳，偵測並清理已斷線的 ghost connection。**
 - Notification Service 使用 Redis Pub/Sub 發布使用者專屬通知。
 - 持有 WebSocket 連線的 Pod 訂閱對應 channel 並推送給前端。
@@ -371,7 +371,7 @@ Demo 不追求正式會員註冊、正式上線、長期軌跡分析或原生手
 | 4 | 第 2 階段：Web App API 串接 | 定期呼叫 Location Service 上傳座標、事件發布表單、地圖插旗 | A 主導，B 協助 API 規格 | 可從地圖點擊發布事件，標記顯示在地圖上 |
 | 5 | 第 2 階段：WebSocket 通知 | WebSocket client 連線、斷線重連（exponential backoff）、通知 Banner/卡片 UI | A 主導，C 協助 WS 規格 | 收到緊急事件時前端即時顯示通知；網路斷開後自動重新連線 |
 | 6 | 第 3 階段：即時推播整合 | 查詢 500m 附近使用者邏輯、Notification Service Pub/Sub 同步、多副本通知正確性 | C 主導，B 協助 | 半徑內使用者收到通知、半徑外不收；多副本時通知仍正確送達 |
-| 6 | 第 3 階段：後端優化 | Event Service 已使用 asyncio.gather 批次推送；補多副本冪等性（事件去重） | B | 500 人通知延遲 < 2 秒；多副本不重複推送 |
+| 6 | 第 3 階段：後端優化 | Event Service 已使用 asyncio.gather 批次推送、fan-out concurrency limit、選填 client_event_id 去重 | B | 500 人通知延遲 < 2 秒；retry 不重複推送 |
 | 7 | 第 4 階段：K8s 部署 | 建置 Docker image、部署到 K8s、Service 設定、port-forward 測試 | D 主導，全員協助 | `kubectl apply -f k8s/` 後所有 Pod Running；API 可透過 port-forward 呼叫 |
 | 7 | 跨階段：自動化測試 | pytest + httpx.AsyncClient 基礎測試、fakeredis 測試環境 | B、C | `pytest` 通過 location-service 與 event-service 基本 API 測試 |
 | 8 | 第 4 階段：HPA 與壓測 | metrics-server 啟用、HPA 設定、500-1,000 人壓測、觀察 Pod 自動擴展；3,000 人作為進階挑戰 | D 主導，全員協助 | `kubectl get hpa -w` 可看到 replica 有擴展跡象；壓測期間服務正常 |

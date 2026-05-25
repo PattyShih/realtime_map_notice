@@ -5,7 +5,13 @@ from uuid import uuid4
 import httpx
 from fastapi import FastAPI
 
-from backend.shared.config import USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
+from backend.shared.config import (
+    EVENT_IDEMPOTENCY_PREFIX,
+    EVENT_IDEMPOTENCY_TTL_SECONDS,
+    NOTIFICATION_FANOUT_CONCURRENCY,
+    USER_LAST_SEEN_PREFIX,
+    USER_LOCATION_KEY,
+)
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import EventCreate, EventNotification
@@ -18,6 +24,31 @@ NOTIFICATION_SERVICE_URL = os.getenv(
 app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0")
 configure_cors(app)
 redis = create_redis()
+
+
+def event_idempotency_key(client_event_id: str) -> str:
+    return f"{EVENT_IDEMPOTENCY_PREFIX}:{client_event_id}"
+
+
+async def reserve_event_idempotency(
+    client_event_id: str | None,
+    event_id: str,
+) -> str | None:
+    if not client_event_id:
+        return None
+
+    key = event_idempotency_key(client_event_id)
+    created = await redis.set(
+        key,
+        event_id,
+        ex=EVENT_IDEMPOTENCY_TTL_SECONDS,
+        nx=True,
+    )
+    if created:
+        return None
+
+    existing_event_id = await redis.get(key)
+    return existing_event_id or event_id
 
 
 async def filter_active_nearby_users(
@@ -52,6 +83,16 @@ async def deliver_notification(
     return user_id
 
 
+async def deliver_notification_with_limit(
+    semaphore: asyncio.Semaphore,
+    client: httpx.AsyncClient,
+    user_id: str,
+    notification: EventNotification,
+) -> str | None:
+    async with semaphore:
+        return await deliver_notification(client, user_id, notification)
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     await redis.ping()
@@ -61,6 +102,19 @@ async def healthz() -> dict[str, str]:
 @app.post("/events")
 async def create_event(payload: EventCreate) -> dict[str, object]:
     event_id = str(uuid4())
+    duplicate_event_id = await reserve_event_idempotency(
+        payload.client_event_id,
+        event_id,
+    )
+    if duplicate_event_id is not None:
+        return {
+            "event_id": duplicate_event_id,
+            "nearby_user_count": 0,
+            "delivered_count": 0,
+            "delivered_to": [],
+            "status": "duplicate",
+        }
+
     nearby_users = await redis.geosearch(
         USER_LOCATION_KEY,
         longitude=payload.longitude,
@@ -72,9 +126,11 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
     active_nearby_users = await filter_active_nearby_users(nearby_users)
 
     async with httpx.AsyncClient(timeout=3.0) as client:
+        semaphore = asyncio.Semaphore(NOTIFICATION_FANOUT_CONCURRENCY)
         delivery_results = await asyncio.gather(
             *(
-                deliver_notification(
+                deliver_notification_with_limit(
+                    semaphore,
                     client,
                     user_id,
                     EventNotification(
@@ -97,4 +153,5 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         "nearby_user_count": len(active_nearby_users),
         "delivered_count": len(delivered_to),
         "delivered_to": delivered_to[:20],
+        "status": "created",
     }

@@ -10,6 +10,10 @@ class LocationUpdate(BaseModel):
 
 
 class EventCreate(BaseModel):
+    client_event_id: str | None = Field(
+        None,
+        examples=["client-generated-uuid"],
+    )
     title: str = Field(..., examples=["Library 3F has seats"])
     message: str = Field(..., examples=["About 10 seats near the windows."])
     latitude: float = Field(..., ge=-90, le=90)

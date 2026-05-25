@@ -177,6 +177,7 @@ web-app/
 | `test_location_update_invalid_longitude` | longitude < -180 | 拋出 ValidationError |
 | `test_event_create_valid` | 建立合法的 EventCreate | 通過 validation |
 | `test_event_create_minimal` | 只給必填欄位（title, message, lat, lng） | 通過 validation，severity 預設 "info" |
+| `test_event_create_accepts_client_event_id` | 傳入 client_event_id | 通過 validation |
 | `test_event_create_invalid_radius` | radius_meters < 50 | 拋出 ValidationError |
 | `test_event_create_rejects_unknown_severity` | severity 不是 info 或 urgent | 拋出 ValidationError |
 | `test_event_notification_all_fields` | 完整 EventNotification | 通過 validation |
@@ -197,6 +198,10 @@ web-app/
 | `test_filter_active_nearby_users_keeps_distance_with_active_users` | 用假 Redis mget 過濾附近使用者 | 只保留 active user，且保留 distance |
 | `test_deliver_notification_returns_user_id_on_success` | 假 Notification client 成功回應 | 回傳 user_id，送出正確 event payload |
 | `test_deliver_notification_returns_none_on_http_error` | 假 Notification client 丟出 HTTPError | 回傳 None，不中斷整體 fan-out |
+| `test_deliver_notification_with_limit_uses_semaphore` | 通知發送經過 semaphore | fan-out 會套用 concurrency limit |
+| `test_reserve_event_idempotency_stores_first_request` | 第一次 client_event_id 寫入 Redis | 使用 SET NX 與 TTL |
+| `test_reserve_event_idempotency_returns_existing_event_id` | 重複 client_event_id | 回傳既有 event_id |
+| `test_create_event_duplicate_does_not_notify_again` | 重複事件建立 | 不執行 nearby 查詢與通知 fan-out |
 
 #### `tests/unit/test_config.py`
 
