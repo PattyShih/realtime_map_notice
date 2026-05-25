@@ -55,14 +55,14 @@ docker build -t realtime-map-notice/event-service:latest -f backend/event-servic
 docker build -t realtime-map-notice/notification-service:latest -f backend/notification-service/Dockerfile .
 
 # Deploy
-kubectl apply -f k8s/
+.\scripts\k8s-deploy.ps1
 
 # Watch HPA scaling during load test
 kubectl -n realtime-map-notice get hpa -w
 kubectl -n realtime-map-notice get pods -w
 
 # Demo: kill a pod to show fault tolerance
-kubectl -n realtime-map-notice delete pod <notification-pod-name>
+.\scripts\k8s-delete-notification-pod.ps1
 ```
 
 ## Architecture
@@ -137,9 +137,11 @@ Location data has a 60s TTL via `last_seen` keys. The GEO set itself has no per-
 - `backend/event-service/app/main.py` — event creation + nearby lookup + notification dispatch
 - `backend/notification-service/app/main.py` — WebSocket management + Pub/Sub relay
 - `simulator/simulate_users.py` — asyncio-based GPS traffic generator
+- `scripts/k8s-*.ps1` — K8s build, deploy, port-forward, health check, load test, and pod-failure demo helpers
 - `docker-compose.yml` — local dev environment (Redis + 3 services)
 - `system.md` — architecture, data flow, capacity planning, bottlenecks
 - `development.md` — dev setup, API test commands (PowerShell), K8s demo flow
+- `docs/progress.md` — live project progress, blockers, next steps, and update history
 - `docs/test-plan.md` — detailed test strategy and cases (not yet implemented)
 
 ## Frontend details

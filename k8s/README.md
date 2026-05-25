@@ -23,24 +23,19 @@ kubectl get nodes
 若使用 Docker Desktop Kubernetes：
 
 ```powershell
-docker build -t realtime-map-notice/location-service:latest -f backend/location-service/Dockerfile .
-docker build -t realtime-map-notice/event-service:latest -f backend/event-service/Dockerfile .
-docker build -t realtime-map-notice/notification-service:latest -f backend/notification-service/Dockerfile .
+.\scripts\k8s-build-images.ps1
 ```
 
 若使用 minikube，先執行：
 
 ```powershell
-minikube image load realtime-map-notice/location-service:latest
-minikube image load realtime-map-notice/event-service:latest
-minikube image load realtime-map-notice/notification-service:latest
+.\scripts\k8s-build-images.ps1 -LoadToMinikube
 ```
 
 ## 部署
 
 ```powershell
-kubectl apply -f k8s/
-kubectl -n realtime-map-notice get pods
+.\scripts\k8s-deploy.ps1
 ```
 
 等待所有 Pod 就緒：
@@ -52,15 +47,13 @@ kubectl -n realtime-map-notice wait --for=condition=Ready pod --all --timeout=18
 查看服務：
 
 ```powershell
-kubectl -n realtime-map-notice get svc
+.\scripts\k8s-status.ps1
 ```
 
 ## Port Forward
 
 ```powershell
-kubectl -n realtime-map-notice port-forward svc/location-service 8001:8000
-kubectl -n realtime-map-notice port-forward svc/event-service 8002:8000
-kubectl -n realtime-map-notice port-forward svc/notification-service 8003:8000
+.\scripts\k8s-port-forward.ps1
 ```
 
 建議分三個 PowerShell 視窗分別執行 port-forward，避免單一終端機被阻塞後不好操作。
@@ -68,9 +61,36 @@ kubectl -n realtime-map-notice port-forward svc/notification-service 8003:8000
 健康檢查：
 
 ```powershell
-Invoke-RestMethod http://localhost:8001/healthz
-Invoke-RestMethod http://localhost:8002/healthz
-Invoke-RestMethod http://localhost:8003/healthz
+.\scripts\k8s-health-check.ps1
+```
+
+## 500-1,000 人壓測
+
+先確認已經執行 port-forward，讓本機 `http://localhost:8001` 可以連到 K8s 中的 Location Service。
+
+初期 Demo 目標：
+
+```powershell
+.\scripts\k8s-load-test.ps1 -Users 500 -Interval 1
+```
+
+進階目標：
+
+```powershell
+.\scripts\k8s-load-test.ps1 -Users 1000 -Interval 1
+```
+
+若需要觀察極限或準備截圖，可再嘗試：
+
+```powershell
+.\scripts\k8s-load-test.ps1 -Users 3000 -Interval 1
+```
+
+壓測時建議同時開另一個 PowerShell 視窗：
+
+```powershell
+kubectl -n realtime-map-notice get hpa -w
+kubectl -n realtime-map-notice get pods -w
 ```
 
 ## 觀察 HPA
@@ -94,8 +114,7 @@ kubectl -n realtime-map-notice describe hpa location-service-hpa
 刪除一個 Notification Service Pod：
 
 ```powershell
-$pod = kubectl -n realtime-map-notice get pod -l app=notification-service -o jsonpath="{.items[0].metadata.name}"
-kubectl -n realtime-map-notice delete pod $pod
+.\scripts\k8s-delete-notification-pod.ps1
 ```
 
 觀察 Kubernetes 自動補回：
@@ -110,6 +129,39 @@ kubectl -n realtime-map-notice get pods -w
 - ReplicaSet 建立新的 Pod。
 - 新 Pod 從 Pending 變成 Running。
 - Service 仍保留穩定 DNS 名稱 `notification-service`。
+
+## 第四階段 Demo 截圖清單
+
+建議至少準備下列截圖，避免現場網路或 K8s 環境不穩時沒有備案：
+
+| 截圖 | 指令 |
+|------|------|
+| 所有 Pod Running | `kubectl -n realtime-map-notice get pods -o wide` |
+| Service 與 HPA | `kubectl -n realtime-map-notice get svc,hpa` |
+| HPA 擴展前 | `kubectl -n realtime-map-notice get hpa` |
+| HPA 擴展中 | `kubectl -n realtime-map-notice get hpa -w` |
+| Pod 容錯前 | `kubectl -n realtime-map-notice get pods` |
+| 刪除 Notification Pod 後自動重建 | `.\scripts\k8s-delete-notification-pod.ps1` |
+
+## 第四階段完成條件
+
+Repo 交付物已包含：
+
+- Redis、Location Service、Event Service、Notification Service 的 K8s YAML。
+- Location Service HPA。
+- 所有服務的 resource requests/limits。
+- Redis、Location Service、Event Service、Notification Service 的 readiness/liveness probe。
+- 500-1,000 人壓測腳本入口。
+- Pod 容錯 Demo 腳本。
+- HPA / Pod / Service 觀察指令。
+
+實機完成條件：
+
+- `.\scripts\k8s-build-images.ps1` 成功。
+- `.\scripts\k8s-deploy.ps1` 成功，所有 Pod Running。
+- `.\scripts\k8s-port-forward.ps1` 後 `.\scripts\k8s-health-check.ps1` 成功。
+- `.\scripts\k8s-load-test.ps1 -Users 500` 可執行，HPA 有擴展跡象。
+- `.\scripts\k8s-delete-notification-pod.ps1` 後 Kubernetes 自動補回 Pod。
 
 ## 常見問題
 

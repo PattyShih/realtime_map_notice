@@ -22,10 +22,10 @@
 - 已建立 Redis GEO 位置儲存與 WebSocket 通知的基本方向。
 - 已建立 Dockerfile、docker-compose 與 Kubernetes YAML。
 - 已建立壓測腳本，用來模擬大量虛擬使用者上傳座標。
-- 已建立 Web App 前端方向文件，但尚未實作完整 React + Vite 前端。
-- 已補上專案計畫、系統設計、測試計畫、Web App UI/UX 設計說明與 K8s 使用說明。
+- 已建立 React + Vite + Leaflet Web App 基礎，可顯示地圖、表單與通知元件。
+- 已補上專案計畫、進度追蹤表、系統設計、測試計畫、Web App UI/UX 設計說明與 K8s 使用說明。
 
-後續開發的優先順序是：補 `.dockerignore`、完成 Web App、測試與 K8s Demo。CORS middleware 已先加入三個後端服務。
+後續開發的優先順序是：修好 Docker/K8s 實機環境、跑 docker-compose 整合測試、跑 K8s HPA/Pod 容錯 Demo、補跨服務測試與整理展示截圖。CORS middleware 已先加入三個後端服務。
 
 ## 使用情境
 
@@ -54,9 +54,10 @@ realtime_map_notice/
 │   ├── event-service/           # 發布事件與查詢附近使用者
 │   ├── notification-service/    # WebSocket 即時推播
 │   └── shared/                  # 共用 schema、設定與 Redis client
-├── web-app/                     # Web 前端（僅有 README，尚未實作）
+├── web-app/                     # React + Vite + Leaflet Web 前端
 ├── simulator/                   # 500-1,000 虛擬使用者壓測腳本，進階可調到 3,000
 ├── k8s/                         # Kubernetes Deployment、Service、HPA
+├── scripts/                     # K8s 部署、觀察、壓測與容錯 Demo 腳本
 ├── docs/                        # 補充文件
 ├── docker-compose.yml           # 本機開發環境
 ├── readme.md                    # 專案總覽
@@ -69,7 +70,7 @@ realtime_map_notice/
 - Web App: React + Vite, browser Geolocation API, map library（初期建議 Leaflet；也可選 MapLibre GL JS / Google Maps）
 - Backend API: Python FastAPI
 - CORS: fastapi.middleware.cors.CORSMiddleware（已加入各後端服務，可用 `CORS_ALLOW_ORIGINS` 設定）
-- Realtime: WebSocket（需補上 ping/pong 心跳）
+- Realtime: WebSocket（已加入 app-level ping/pong 心跳）
 - Realtime Location Store: Redis GEO
 - Container: Docker
 - Orchestration: Kubernetes
@@ -115,6 +116,7 @@ realtime_map_notice/
 - [system.md](./system.md)：系統架構、API、即時位置、容量規劃、瓶頸與 K8s 展示重點。
 - [docs/README.md](./docs/README.md)：文件導覽與閱讀順序。
 - [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、Demo 目標、四人分工、里程碑與驗收標準。
+- [docs/progress.md](./docs/progress.md)：目前進度、阻塞、下一步與更新紀錄。
 - [docs/test-plan.md](./docs/test-plan.md)：後端、前端、WebSocket 與跨服務測試規劃。
 - [k8s/README.md](./k8s/README.md)：Kubernetes 部署、HPA 與故障復原操作。
 - [web-app/README.md](./web-app/README.md)：Web App 前端開發方向、地圖服務、UI/UX 與 API key。

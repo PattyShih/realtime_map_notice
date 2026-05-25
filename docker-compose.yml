@@ -23,6 +23,9 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       NOTIFICATION_SERVICE_URL: http://notification-service:8000
+      NOTIFICATION_FANOUT_CONCURRENCY: 100
+      EVENT_IDEMPOTENCY_PREFIX: realtime_map_notice:event:idempotency
+      EVENT_IDEMPOTENCY_TTL_SECONDS: 300
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
     ports:
       - "8002:8000"

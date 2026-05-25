@@ -147,12 +147,13 @@
 - 建立 500-1,000 人虛擬使用者壓測腳本，保留 3,000 人進階參數。
 - Demo 時觀察 Pod 數量變化與 HPA 狀態。
 - Demo 時刪除一個 Notification Service Pod，觀察自動重建。
+- 提供固定 PowerShell 腳本，降低 Demo 現場手動輸入錯誤。
 
 交付物：
 
 - `k8s/` 部署檔。
 - `simulator/` 壓測腳本。
-- Demo 操作指令。
+- `scripts/k8s-*.ps1` Demo 操作腳本。
 - HPA 與 Pod 狀態截圖。
 
 驗收標準：
@@ -161,6 +162,8 @@
 - 壓測期間 Location Service Pod 會自動擴展。
 - 刪除 Pod 後 Kubernetes 會自動補回副本。
 - 系統在 Demo 過程中仍可處理位置更新與事件推播。
+
+目前 repo 已完成第 4 階段所需的 YAML、HPA、resource requests/limits、readiness/liveness probes、壓測入口與 Demo 腳本。實機驗證仍需 Docker/Kubernetes 環境可用後執行。
 
 ### 跨階段工作：自動化測試
 
@@ -372,7 +375,7 @@ Demo 不追求正式會員註冊、正式上線、長期軌跡分析或原生手
 | 5 | 第 2 階段：WebSocket 通知 | WebSocket client 連線、斷線重連（exponential backoff）、通知 Banner/卡片 UI | A 主導，C 協助 WS 規格 | 收到緊急事件時前端即時顯示通知；網路斷開後自動重新連線 |
 | 6 | 第 3 階段：即時推播整合 | 查詢 500m 附近使用者邏輯、Notification Service Pub/Sub 同步、多副本通知正確性 | C 主導，B 協助 | 半徑內使用者收到通知、半徑外不收；多副本時通知仍正確送達 |
 | 6 | 第 3 階段：後端優化 | Event Service 已使用 asyncio.gather 批次推送、fan-out concurrency limit、選填 client_event_id 去重 | B | 500 人通知延遲 < 2 秒；retry 不重複推送 |
-| 7 | 第 4 階段：K8s 部署 | 建置 Docker image、部署到 K8s、Service 設定、port-forward 測試 | D 主導，全員協助 | `kubectl apply -f k8s/` 後所有 Pod Running；API 可透過 port-forward 呼叫 |
+| 7 | 第 4 階段：K8s 部署 | 建置 Docker image、部署到 K8s、Service 設定、port-forward 測試、Demo 腳本 | D 主導，全員協助 | `.\scripts\k8s-deploy.ps1` 後所有 Pod Running；API 可透過 port-forward 呼叫 |
 | 7 | 跨階段：自動化測試 | pytest + httpx.AsyncClient 基礎測試、fakeredis 測試環境 | B、C | `pytest` 通過 location-service 與 event-service 基本 API 測試 |
 | 8 | 第 4 階段：HPA 與壓測 | metrics-server 啟用、HPA 設定、500-1,000 人壓測、觀察 Pod 自動擴展；3,000 人作為進階挑戰 | D 主導，全員協助 | `kubectl get hpa -w` 可看到 replica 有擴展跡象；壓測期間服務正常 |
 | 8 | 跨階段：測試補齊 | Notification Service WebSocket 測試、前端 API 串接測試 | A、C | WebSocket 連線/斷線測試通過 |

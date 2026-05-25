@@ -166,15 +166,13 @@ docker compose logs -f location-service
 建立 Docker image：
 
 ```powershell
-docker build -t realtime-map-notice/location-service:latest -f backend/location-service/Dockerfile .
-docker build -t realtime-map-notice/event-service:latest -f backend/event-service/Dockerfile .
-docker build -t realtime-map-notice/notification-service:latest -f backend/notification-service/Dockerfile .
+.\scripts\k8s-build-images.ps1
 ```
 
 部署到 Kubernetes：
 
 ```powershell
-kubectl apply -f k8s/
+.\scripts\k8s-deploy.ps1
 ```
 
 觀察 Pod：
@@ -192,8 +190,7 @@ kubectl -n realtime-map-notice get hpa -w
 刪除一個 Notification Service Pod 展示容錯：
 
 ```powershell
-$pod = kubectl -n realtime-map-notice get pod -l app=notification-service -o jsonpath="{.items[0].metadata.name}"
-kubectl -n realtime-map-notice delete pod $pod
+.\scripts\k8s-delete-notification-pod.ps1
 ```
 
 Demo 前檢查清單：
