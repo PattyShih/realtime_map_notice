@@ -16,7 +16,10 @@ import iconUrl from "leaflet/dist/images/marker-icon.png";
 import iconRetinaUrl from "leaflet/dist/images/marker-icon-2x.png";
 import shadowUrl from "leaflet/dist/images/marker-shadow.png";
 
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+const defaultIconPrototype = L.Icon.Default.prototype as L.Icon.Default & {
+  _getIconUrl?: unknown;
+};
+delete defaultIconPrototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl });
 
 const urgentIcon = new L.Icon({
@@ -44,23 +47,31 @@ interface MapViewProps {
   events: MapEvent[];
   onMapClick: (lat: number, lng: number) => void;
   pendingLocation: { latitude: number; longitude: number } | null;
+  focusLocation: { latitude: number; longitude: number } | null;
 }
 
 function MapController({
   userLocation,
+  focusLocation,
 }: {
   userLocation: { latitude: number; longitude: number } | null;
+  focusLocation: { latitude: number; longitude: number } | null;
 }) {
   const map = useMap();
 
   useEffect(() => {
+    if (focusLocation) {
+      map.setView([focusLocation.latitude, focusLocation.longitude], 17);
+      return;
+    }
+
     if (userLocation) {
       map.setView(
         [userLocation.latitude, userLocation.longitude],
         map.getZoom(),
       );
     }
-  }, [userLocation, map]);
+  }, [focusLocation, userLocation, map]);
 
   return null;
 }
@@ -83,6 +94,7 @@ export default function MapView({
   events,
   onMapClick,
   pendingLocation,
+  focusLocation,
 }: MapViewProps) {
   const defaultCenter: [number, number] = userLocation
     ? [userLocation.latitude, userLocation.longitude]
@@ -98,7 +110,7 @@ export default function MapView({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      <MapController userLocation={userLocation} />
+      <MapController userLocation={userLocation} focusLocation={focusLocation} />
       <ClickHandler onClick={onMapClick} />
 
       {/* User location marker */}

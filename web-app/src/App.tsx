@@ -1,4 +1,4 @@
-﻿import { useState, useCallback, useRef } from "react";
+﻿import { useState, useCallback, useEffect } from "react";
 import MapView from "./components/MapView";
 import EventForm from "./components/EventForm";
 import NotificationBanner from "./components/NotificationBanner";
@@ -27,6 +27,10 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [formError, setFormError] = useState<string | null>(null);
+  const [focusLocation, setFocusLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
   // Local events (created by this user via the form)
   const [localEvents, setLocalEvents] = useState<
@@ -49,9 +53,8 @@ export default function App() {
   ];
 
   // Periodic location upload
-  const uploadTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  useState(() => {
-    uploadTimer.current = setInterval(() => {
+  useEffect(() => {
+    const uploadTimer = setInterval(() => {
       if (geolocation.latitude !== null && geolocation.longitude !== null) {
         updateLocation({
           user_id: USER_ID,
@@ -62,10 +65,8 @@ export default function App() {
         });
       }
     }, 1500);
-    return () => {
-      if (uploadTimer.current) clearInterval(uploadTimer.current);
-    };
-  });
+    return () => clearInterval(uploadTimer);
+  }, [geolocation.latitude, geolocation.longitude]);
 
   const handleMapClick = useCallback(
     (lat: number, lng: number) => {
@@ -118,9 +119,8 @@ export default function App() {
       : [];
 
   const handleNotificationView = useCallback(
-    (_lat: number, _lng: number) => {
-      // MapView recenters via MapController when userLocation changes;
-      // for notification view we can set a temporary target
+    (lat: number, lng: number) => {
+      setFocusLocation({ latitude: lat, longitude: lng });
     },
     [],
   );
@@ -149,6 +149,7 @@ export default function App() {
         events={allEvents}
         onMapClick={handleMapClick}
         pendingLocation={pendingLocation}
+        focusLocation={focusLocation}
       />
 
       {/* Event form modal */}

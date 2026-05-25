@@ -11,23 +11,21 @@ export interface GeolocationState {
 const FALLBACK_COORDS = { latitude: 25.0173, longitude: 121.5397 }; // NTU center
 
 export function useGeolocation() {
+  const geolocationSupported =
+    typeof navigator !== "undefined" && "geolocation" in navigator;
   const [state, setState] = useState<GeolocationState>({
-    latitude: null,
-    longitude: null,
+    latitude: geolocationSupported ? null : FALLBACK_COORDS.latitude,
+    longitude: geolocationSupported ? null : FALLBACK_COORDS.longitude,
     accuracy: null,
-    error: null,
-    loading: true,
+    error: geolocationSupported
+      ? null
+      : "Geolocation not supported by this browser",
+    loading: geolocationSupported,
   });
   const watchId = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!navigator.geolocation) {
-      setState((s) => ({
-        ...s,
-        error: "Geolocation not supported by this browser",
-        loading: false,
-        ...FALLBACK_COORDS,
-      }));
+    if (!geolocationSupported) {
       return;
     }
 
@@ -57,7 +55,7 @@ export function useGeolocation() {
         navigator.geolocation.clearWatch(watchId.current);
       }
     };
-  }, []);
+  }, [geolocationSupported]);
 
   return state;
 }
