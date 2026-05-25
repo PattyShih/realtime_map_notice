@@ -1,4 +1,4 @@
-# 專案詳細計畫
+﻿# 專案詳細計畫
 
 這份文件把 `realtime_map_notice` 拆成可執行的開發階段、四人分工、Demo 流程與驗收標準。目標不是一次做成正式產品，而是在專題期限內完成一個技術重點清楚、展示效果強、分工明確的系統。
 
@@ -365,8 +365,8 @@ Demo 不追求正式會員註冊、正式上線、長期軌跡分析或原生手
 
 | 週次 | 階段 | 目標 | 負責人 | 週末驗收里程碑 |
 |------|------|------|--------|----------------|
-| 1 | 第 1 階段：後端骨架 | 建立三個微服務基本 API、shared 模組、Redis 連線 | B、C | `POST /locations` 可寫入 Redis；`GET /locations/nearby` 可查詢；WebSocket `/ws/{user_id}` 可連線 |
-| 2 | 第 1 階段：後端骨架 | Dockerfile、docker-compose、CORS middleware、.dockerignore、healthz endpoint | D 主導，B、C 協助 | `docker compose up --build` 可啟動全部服務；API 可從不同 origin 呼叫 |
+| 1 | 第 1 階段：後端骨架 | 建立三個微服務基本 API、shared 模組、Redis 連線 | B、C | `POST /locations` 可寫入 Redis；`GET /locations/nearby` 可查詢；WebSocket `/ws/{user_id}` 可連線 ✅ |
+| 2 | 第 1 階段：後端骨架 | Dockerfile、docker-compose、CORS middleware、.dockerignore、healthz endpoint | D 主導，B、C 協助 | `docker compose up --build` 可啟動全部服務；API 可從不同 origin 呼叫 ✅（.dockerignore 待補） |
 | 3 | 第 2 階段：Web App 啟動 | 決定地圖函式庫（Leaflet 優先建議）、建立 Vite/React 專案、全螢幕地圖顯示、瀏覽器定位 | A | 瀏覽器打開可看到地圖，允許定位後地圖上有使用者標記 |
 | 4 | 第 2 階段：Web App API 串接 | 定期呼叫 Location Service 上傳座標、事件發布表單、地圖插旗 | A 主導，B 協助 API 規格 | 可從地圖點擊發布事件，標記顯示在地圖上 |
 | 5 | 第 2 階段：WebSocket 通知 | WebSocket client 連線、斷線重連（exponential backoff）、通知 Banner/卡片 UI | A 主導，C 協助 WS 規格 | 收到緊急事件時前端即時顯示通知；網路斷開後自動重新連線 |

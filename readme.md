@@ -1,4 +1,4 @@
-# realtime_map_notice
+﻿# realtime_map_notice
 
 `realtime_map_notice` 是一個專屬校園或特定街區使用的「即時動態地圖 Web App」專題初步架構。使用者可以在地圖上插旗回報突發狀況，例如圖書館座位、學餐排隊、人潮、免費活動、遺失物或緊急事件。
 
@@ -54,7 +54,7 @@ realtime_map_notice/
 │   ├── event-service/           # 發布事件與查詢附近使用者
 │   ├── notification-service/    # WebSocket 即時推播
 │   └── shared/                  # 共用 schema、設定與 Redis client
-├── web-app/                     # Web 前端草稿
+├── web-app/                     # Web 前端（僅有 README，尚未實作）
 ├── simulator/                   # 500-1,000 虛擬使用者壓測腳本，進階可調到 3,000
 ├── k8s/                         # Kubernetes Deployment、Service、HPA
 ├── docs/                        # 補充文件

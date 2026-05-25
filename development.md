@@ -1,4 +1,4 @@
-# Development Guide
+﻿# Development Guide
 
 這份文件描述 `realtime_map_notice` 的初步開發方式、測試方式與 Demo 流程。現階段目標是先完成可展示的專案骨架，後續再逐步補齊正式功能。
 
@@ -212,11 +212,11 @@ Demo 前檢查清單：
 
 完成條件：
 
-- `docker compose up --build` 可以啟動 Redis 與三個後端服務。
-- Location Service 可以接收座標並寫入 Redis。
-- Event Service 可以查詢 500 公尺內使用者。
-- Notification Service 可以透過 WebSocket 推送事件。
-- simulator 可以產生可調整人數的座標更新流量。
+- `docker compose up --build` 可以啟動 Redis 與三個後端服務。 ✅
+- Location Service 可以接收座標並寫入 Redis。 ✅
+- Event Service 可以查詢 500 公尺內使用者。 ✅
+- Notification Service 可以透過 WebSocket 推送事件。 ✅
+- simulator 可以產生可調整人數的座標更新流量。 ✅
 
 ### 第二階段：功能整合
 

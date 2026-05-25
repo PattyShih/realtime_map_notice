@@ -54,7 +54,7 @@ async def run(users: int, target: str, interval: float) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Campus GPS traffic simulator")
-    parser.add_argument("--users", type=int, default=3000)
+    parser.add_argument("--users", type=int, default=500)
     parser.add_argument("--target", default="http://localhost:8001")
     parser.add_argument("--interval", type=float, default=1.0)
     return parser.parse_args()
