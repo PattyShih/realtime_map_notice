@@ -32,6 +32,7 @@ cd web-app
 npm run dev       # Vite dev server on :5173
 npm run build     # TypeScript check + production build
 npm run lint      # ESLint
+npm test          # Vitest frontend unit tests
 ```
 
 ### Load Simulation
@@ -86,6 +87,7 @@ Browser ← Notification Service (:8003) ← WebSocket / Redis Pub/Sub
 - Unit tests in `tests/unit/`, integration tests in `tests/integration/`
 - Test files map to services: `test_location_service.py`, `test_event_service.py`, `test_notification_service.py`, `test_schemas.py`
 - Integration tests cover API contracts and WebSocket connection behavior
+- Frontend Vitest tests currently cover WebSocket client ping/pong, notification parsing, and reconnect behavior
 
 ## Language
 
