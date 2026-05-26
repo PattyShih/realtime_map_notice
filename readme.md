@@ -22,11 +22,13 @@
 - 已建立 Redis GEO 位置儲存與 WebSocket 通知的基本方向。
 - 已建立 Dockerfile、docker-compose 與 Kubernetes YAML。
 - 已建立 Docker Compose smoke test，可一鍵驗證 healthz、位置寫入、附近查詢、urgent event fan-out 與 `client_event_id` 去重。
+- 已建立 K8s metrics-server 安裝腳本，支援 HPA CPU 指標觀察。
+- 已建立 K8s cluster 內部壓測 Job 腳本，避免大量流量受 `kubectl port-forward` 限制。
 - 已建立壓測腳本，用來模擬大量虛擬使用者上傳座標。
 - 已建立 React + Vite + Leaflet Web App 基礎，可顯示地圖、表單與通知元件。
 - 已補上專案計畫、進度追蹤表、系統設計、測試計畫、Web App UI/UX 設計說明與 K8s 使用說明。
 
-後續開發的優先順序是：修好 Docker/K8s 實機環境、跑 docker-compose 整合測試、跑 K8s HPA/Pod 容錯 Demo、補跨服務測試與整理展示截圖。CORS middleware 已先加入三個後端服務。
+後續開發的優先順序是：跑 Pod 容錯 Demo、補跨服務測試、串接 Web App 真實後端流程，並整理展示截圖。CORS middleware 已先加入三個後端服務。
 
 ## 使用情境
 

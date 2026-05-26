@@ -18,6 +18,18 @@ kubectl config current-context
 kubectl get nodes
 ```
 
+安裝 metrics-server：
+
+```powershell
+.\scripts\k8s-install-metrics-server.ps1
+```
+
+若是在正式 cluster，且不需要本機 kubelet TLS workaround，可以改用：
+
+```powershell
+.\scripts\k8s-install-metrics-server.ps1 -SkipInsecureTlsPatch
+```
+
 ## 建立本機 Image
 
 若使用 Docker Desktop Kubernetes：
@@ -37,6 +49,8 @@ kubectl get nodes
 ```powershell
 .\scripts\k8s-deploy.ps1
 ```
+
+部署腳本會先建立 namespace，再依序套用 Redis、Notification Service、Location Service 與 Event Service，避免第一次部署時 namespace 尚未可用造成部分 manifest 失敗。
 
 等待所有 Pod 就緒：
 
@@ -73,6 +87,20 @@ kubectl -n realtime-map-notice wait --for=condition=Ready pod --all --timeout=18
 ```powershell
 .\scripts\k8s-load-test.ps1 -Users 500 -Interval 1
 ```
+
+若要固定跑一段時間後自動停止：
+
+```powershell
+.\scripts\k8s-load-test.ps1 -Users 500 -Interval 1 -DurationSeconds 60
+```
+
+`k8s-load-test.ps1` 會透過本機 port-forward 打進 K8s，適合小流量 smoke test。若要展示 HPA，建議改用 cluster 內部 Job，避免 port-forward 先成為瓶頸：
+
+```powershell
+.\scripts\k8s-load-test-job.ps1 -Users 500 -Interval 1 -DurationSeconds 60 -TimeoutSeconds 5
+```
+
+目前實測結果：500 users / 60s cluster 內部壓測完成 `success=12331 failed=3`，HPA 最高觀察到 `cpu: 259%/60%`，Location Service 從 1 個 Pod 擴展到 5 個 Pod。
 
 進階目標：
 
@@ -158,6 +186,7 @@ Repo 交付物已包含：
 實機完成條件：
 
 - `.\scripts\k8s-build-images.ps1` 成功。
+- `.\scripts\k8s-install-metrics-server.ps1` 成功，且 `kubectl top nodes` 可顯示指標。
 - `.\scripts\k8s-deploy.ps1` 成功，所有 Pod Running。
 - `.\scripts\k8s-port-forward.ps1` 後 `.\scripts\k8s-health-check.ps1` 成功。
 - `.\scripts\k8s-load-test.ps1 -Users 500` 可執行，HPA 有擴展跡象。

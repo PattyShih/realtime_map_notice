@@ -4,7 +4,7 @@
 
 > **CORS 注意：** 三個後端服務已加入 CORS middleware，預設允許 `http://localhost:5173` 與 `http://localhost:3000`。若前端改用其他 port 或正式網域，請更新 `CORS_ALLOW_ORIGINS`。
 
-> **.dockerignore 注意：** 根目錄目前沒有 `.dockerignore`。Docker build 時會把 `.git`、`__pycache__` 等不必要檔案送入 build context，導致建置變慢。
+> **.dockerignore 注意：** 根目錄已有 `.dockerignore`，會排除 `.git`、`.venv`、`__pycache__`、`node_modules` 與多數 Markdown 文件，減少 Docker build context。
 
 ## 環境需求
 
@@ -148,6 +148,12 @@ python simulator/simulate_users.py --users 500 --target http://localhost:8001 --
 python simulator/simulate_users.py --users 1000 --target http://localhost:8001 --interval 1
 ```
 
+若只想跑固定時間，避免壓測一直佔住終端機，可加上 `--duration`：
+
+```powershell
+python simulator/simulate_users.py --users 500 --target http://localhost:8001 --interval 1 --duration 60
+```
+
 進階展示或截圖時，再挑戰 3,000 人：
 
 ```powershell
@@ -181,6 +187,12 @@ docker compose logs -f location-service
 .\scripts\k8s-build-images.ps1
 ```
 
+若尚未安裝 metrics-server，先執行下列指令，讓 HPA 可以讀到 CPU 指標。Docker Desktop Kubernetes 或 minikube 本機環境預設會套用 kubelet TLS patch：
+
+```powershell
+.\scripts\k8s-install-metrics-server.ps1
+```
+
 部署到 Kubernetes：
 
 ```powershell
@@ -199,6 +211,20 @@ kubectl -n realtime-map-notice get pods -w
 kubectl -n realtime-map-notice get hpa -w
 ```
 
+固定跑 60 秒的 K8s 壓測：
+
+```powershell
+.\scripts\k8s-load-test.ps1 -Users 500 -Interval 1 -DurationSeconds 60
+```
+
+大量壓測建議改用 cluster 內部 Job，直接打 Kubernetes Service，避免 `kubectl port-forward` 先成為瓶頸：
+
+```powershell
+.\scripts\k8s-load-test-job.ps1 -Users 500 -Interval 1 -DurationSeconds 60 -TimeoutSeconds 5
+```
+
+實測時，500 users / 60s 的 cluster 內部壓測可觸發 Location Service HPA 從 1 個 Pod 擴到 5 個 Pod。
+
 刪除一個 Notification Service Pod 展示容錯：
 
 ```powershell
@@ -210,6 +236,7 @@ Demo 前檢查清單：
 - `kubectl -n realtime-map-notice get pods` 顯示所有 Pod Running。
 - `kubectl -n realtime-map-notice get svc` 顯示三個服務與 Redis。
 - `kubectl -n realtime-map-notice get hpa` 不應長期顯示 `<unknown>`。
+- `kubectl top nodes` 與 `kubectl top pods -n realtime-map-notice` 可以看到 CPU / memory 指標。
 - 已準備好 HPA 擴展截圖與 Pod 重建截圖作為備案。
 - 壓測腳本先用 300 人做 smoke test，正式 Demo 目標使用 500 人起跳，確認不會在 Demo 現場立刻失敗。
 

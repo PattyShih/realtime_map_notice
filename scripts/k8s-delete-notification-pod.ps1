@@ -7,4 +7,5 @@ if ([string]::IsNullOrWhiteSpace($pod)) {
 
 Write-Host "Deleting notification-service pod: $pod"
 kubectl -n realtime-map-notice delete pod $pod
-kubectl -n realtime-map-notice get pods -w
+kubectl -n realtime-map-notice rollout status deployment/notification-service --timeout=180s
+kubectl -n realtime-map-notice get pods -l app=notification-service
