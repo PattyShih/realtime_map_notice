@@ -213,6 +213,33 @@ Demo 前檢查清單：
 - 已準備好 HPA 擴展截圖與 Pod 重建截圖作為備案。
 - 壓測腳本先用 300 人做 smoke test，正式 Demo 目標使用 500 人起跳，確認不會在 Demo 現場立刻失敗。
 
+## 公開網址與 Cloudflare Tunnel 規劃
+
+若後續要讓非開發者容易使用，不建議要求對方連 `localhost`、記三個後端 port，或手動開前端 dev server。建議改成：
+
+```text
+使用者 -> https://map.example.com -> Cloudflare -> Cloudflare Tunnel -> 本機 / K8s 入口
+```
+
+建議工作項目：
+
+1. 註冊一個專題展示用網域，並把 DNS 交給 Cloudflare 管理。
+2. 建立 Cloudflare Tunnel，讓 `cloudflared` 從本機或展示主機主動連到 Cloudflare。
+3. 加入反向代理或 Kubernetes Ingress，把多個服務整理成單一公開入口：
+
+```text
+https://map.example.com/              -> Web App
+https://map.example.com/api/location  -> Location Service
+https://map.example.com/api/events    -> Event Service
+wss://map.example.com/ws/{user_id}    -> Notification Service
+```
+
+4. 更新前端環境變數，讓 API 與 WebSocket 指向正式網域。
+5. 更新三個後端服務的 `CORS_ALLOW_ORIGINS`，只允許正式網域與必要的本機開發 origin。
+6. Demo 前確認 Cloudflare proxy 下 WebSocket 連線、ping/pong heartbeat 與通知推播都正常。
+
+最短 Demo 方案可以先使用 Cloudflare Tunnel 暫時網址，但正式展示建議使用固定網域，避免每次重啟 tunnel 後網址改變。
+
 ## 開發里程碑
 
 詳細分工與驗收標準請參考 [docs/project-plan.md](./docs/project-plan.md)。

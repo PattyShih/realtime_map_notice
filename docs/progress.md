@@ -25,7 +25,7 @@
 | 第 3 階段：即時資料與推播整合 | 4-6 | Partial | 84% | Redis GEO、last_seen 過濾、WebSocket Pub/Sub、pong timeout heartbeat、WebSocket route contract test、fan-out limit、client_event_id 去重已實作 | 補真實 Redis/WebSocket 整合測試與 Docker 實測 |
 | 第 4 階段：Kubernetes 與壓測 | 6-8 | Partial | 85% | Docker Compose 已可跑；Docker Desktop Kubernetes 已 Ready；K8s YAML、HPA、resources、readiness/liveness probes、simulator、`scripts/k8s-*.ps1` 已存在 | 跑 K8s 實機部署、HPA、500-1,000 人壓測 |
 | 跨階段：自動化測試 | 7-8 | Partial | 56% | `tests/requirements-test.txt` 已補齊 FastAPI/Redis 測試相依；後端 unit + API/WebSocket contract tests 31 個通過；前端 Vitest 4 個通過 | 補真實 Redis、更多前端元件測試 |
-| 第 5 階段：報告與展示整理 | 8-10 | Partial | 30% | project-plan、system、demo 腳本初稿已存在 | 產出實測截圖、壓測數據、Demo 錄影或備案素材 |
+| 第 5 階段：報告與展示整理 | 8-10 | Partial | 32% | project-plan、system、demo 腳本初稿已存在；已補 Cloudflare Tunnel 對外入口規劃 | 產出實測截圖、壓測數據、Demo 錄影或備案素材 |
 
 ## 必做功能進度
 
@@ -64,6 +64,7 @@
 | 阻塞 | 影響 | 解法 | 優先級 |
 |------|------|------|--------|
 | 真實 Redis / WebSocket integration tests 尚未建立 | 改動後仍缺少端到端回歸保障 | 基於 Docker Compose 補 Redis/PubSub/WebSocket smoke tests | P1 |
+| 尚未規劃正式公開入口實作 | 非開發者仍需依賴 localhost 或現場機器操作 | 後續註冊網域、設定 Cloudflare Tunnel、加入反向代理或 Ingress | P2 |
 
 ## 接下來建議工作順序
 
@@ -74,13 +75,14 @@
 | 3 | 手動測完整資料流 | Web App 位置寫入、事件建立、WebSocket 通知成功 | A、B、C |
 | 4 | Demo 素材整理 | Docker Compose smoke test 截圖、K8s 備案說明 | 全員 |
 | 5 | 500-1,000 人壓測 | 壓測結果與 Demo 截圖 | D |
-| 7 | 500-1,000 人壓測 | 壓測結果與 Demo 截圖 | D |
-| 8 | Demo 演練與報告素材整理 | 8-10 分鐘 Demo 可跑完 | 全員 |
+| 6 | 公開網址與 Cloudflare Tunnel 規劃實作 | 固定展示網址、HTTPS、WebSocket 可連 | D、A |
+| 7 | Demo 演練與報告素材整理 | 8-10 分鐘 Demo 可跑完 | 全員 |
 
 ## 更新紀錄
 
 | 日期 | 更新內容 | 驗證 |
 |------|----------|------|
+| 2026-05-26 | 新增後續公開入口需求：註冊網域、Cloudflare DNS/Tunnel、反向代理或 K8s Ingress，整理單一公開網址與 WebSocket 路由 | 文件更新 |
 | 2026-05-26 | Docker Desktop Kubernetes 後續自動完成初始化，`docker-desktop` context 已建立，control plane 與 system pods Running | `kubectl cluster-info` 成功；`kubectl get nodes -o wide` 顯示 `desktop-control-plane` Ready |
 | 2026-05-26 | 診斷 Docker Desktop Kubernetes：設定已啟用，但 kubeconfig 仍為空；Docker logs 顯示 kind control-plane 初始化後 `Timed out waiting for Ready`，尚未可用 | `kubectl config get-contexts` 無 context；`kubectl cluster-info` 仍連 localhost:8080 |
 | 2026-05-26 | 新增 Docker Compose smoke test 腳本，可自動啟動 compose 並驗證 healthz、位置寫入、附近查詢、urgent event fan-out 與 `client_event_id` 去重 | `.\scripts\compose-smoke-test.ps1` 通過 |

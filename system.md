@@ -92,6 +92,24 @@ Kubernetes:
 - 使用 HPA 讓 Location Service 依 CPU 自動擴展。
 - 使用多副本 Notification Service 展示容錯。
 
+對外入口（後續展示/正式化需求）：
+
+- Demo 初期可以使用 `localhost` 與 Docker Compose/Kubernetes port-forward。
+- 若要讓教授、同學或非開發者更容易使用，建議註冊正式網域並交由 Cloudflare DNS 管理。
+- 使用 Cloudflare Tunnel 將公開 hostname 連到本機或實驗室主機，不需要打開本機防火牆 inbound port。
+- Cloudflare Tunnel 前方可提供 HTTPS、DNS proxy、基礎 WAF 與 DDoS 保護。
+- WebSocket 可透過 Cloudflare proxy/Tunnel 轉發；Notification Service 仍需保留 ping/pong heartbeat，避免長連線閒置或中斷後殘留。
+- 不建議直接把 `8001`、`8002`、`8003` 三個後端 port 分別暴露給使用者。正式入口應加一層反向代理，整理成單一網域與清楚路由，例如：
+
+```text
+https://map.example.com/              -> Web App
+https://map.example.com/api/location  -> Location Service
+https://map.example.com/api/events    -> Event Service
+wss://map.example.com/ws/{user_id}    -> Notification Service
+```
+
+這層反向代理可以用 Nginx、Traefik 或 Kubernetes Ingress 實作。前端環境變數與後端 `CORS_ALLOW_ORIGINS` 需同步改成正式網域。
+
 ## API Contract
 
 ### `POST /locations`
