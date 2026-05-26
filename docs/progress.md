@@ -53,7 +53,7 @@
 | Frontend build | Done | `npm run build` 通過 | 無 |
 | Frontend unit tests | Partial | `npm test`，4 passed | 尚未補 Map/Form/Banner 元件測試 |
 | Web App smoke test | Done | `http://127.0.0.1:5173` 可開，地圖載入 | 仍需串後端 |
-| Docker Compose | Done | `docker compose up --build -d` 成功，Redis + 三個 FastAPI services 均 healthy | 尚未加入自動化 compose smoke script |
+| Docker Compose | Done | `.\scripts\compose-smoke-test.ps1` 通過，Redis + 三個 FastAPI services 均 healthy，位置/nearby/event fan-out/idempotency 均驗證 | 無 |
 | API integration tests | Partial | 已建立第一批不依賴 Docker 的 Location/Event/Notification API contract tests | 補真實 Redis / PubSub 測試 |
 | WebSocket integration tests | Partial | 已補 heartbeat pong timeout unit tests 與 `/ws/{user_id}` route contract test | 補真實 Redis Pub/Sub、多副本與前端斷線重連測試 |
 | K8s deployment test | Partial | Repo 交付物完成；尚未實機跑 | Pod Running、Service、HPA、port-forward 截圖 |
@@ -63,7 +63,7 @@
 
 | 阻塞 | 影響 | 解法 | 優先級 |
 |------|------|------|--------|
-| Kubernetes 尚未啟用或 cluster 尚未 ready | 無法展示 HPA 和 Pod 容錯截圖 | 在 Docker Desktop Settings 啟用 Kubernetes，確認 `kubectl cluster-info` 成功 | P0 |
+| Docker Desktop Kubernetes 初始化卡在 control-plane Ready timeout | 無法展示 HPA 和 Pod 容錯截圖 | Docker Desktop 已設定 `KubernetesEnabled=true`，但 kubeconfig 未生成；建議 Reset Kubernetes cluster 後重啟 Docker Desktop | P0 |
 | 真實 Redis / WebSocket integration tests 尚未建立 | 改動後仍缺少端到端回歸保障 | 基於 Docker Compose 補 Redis/PubSub/WebSocket smoke tests | P1 |
 
 ## 接下來建議工作順序
@@ -72,9 +72,9 @@
 |------|------|----------|----------|
 | 1 | 啟用 Docker Desktop Kubernetes | `kubectl cluster-info` 可執行 | D |
 | 2 | K8s 部署與 HPA 驗證 | Pod/HPA 截圖、容錯截圖 | D |
-| 3 | 補 compose smoke script | 一鍵驗證 healthz、位置寫入、附近查詢、事件 fan-out | B、C、D |
-| 4 | 補真實 Redis / Notification integration tests | Redis GEO、Pub/Sub、Notification API 基礎整合測試 | B、C |
-| 5 | 手動測完整資料流 | Web App 位置寫入、事件建立、WebSocket 通知成功 | A、B、C |
+| 3 | 補真實 Redis / Notification integration tests | Redis GEO、Pub/Sub、Notification API 基礎整合測試 | B、C |
+| 4 | 手動測完整資料流 | Web App 位置寫入、事件建立、WebSocket 通知成功 | A、B、C |
+| 5 | Demo 素材整理 | Docker Compose smoke test 截圖、K8s 備案說明 | 全員 |
 | 6 | K8s 部署與 HPA 驗證 | Pod/HPA 截圖、容錯截圖 | D |
 | 7 | 500-1,000 人壓測 | 壓測結果與 Demo 截圖 | D |
 | 8 | Demo 演練與報告素材整理 | 8-10 分鐘 Demo 可跑完 | 全員 |
@@ -83,6 +83,8 @@
 
 | 日期 | 更新內容 | 驗證 |
 |------|----------|------|
+| 2026-05-26 | 診斷 Docker Desktop Kubernetes：設定已啟用，但 kubeconfig 仍為空；Docker logs 顯示 kind control-plane 初始化後 `Timed out waiting for Ready`，尚未可用 | `kubectl config get-contexts` 無 context；`kubectl cluster-info` 仍連 localhost:8080 |
+| 2026-05-26 | 新增 Docker Compose smoke test 腳本，可自動啟動 compose 並驗證 healthz、位置寫入、附近查詢、urgent event fan-out 與 `client_event_id` 去重 | `.\scripts\compose-smoke-test.ps1` 通過 |
 | 2026-05-26 | Docker Desktop 安裝完成，Docker CLI/Compose/kubectl CLI 可用；Docker Compose 實機建置並啟動 Redis + 三個後端服務；完成 healthz、位置寫入、附近查詢、urgent event fan-out smoke test | `docker compose up --build -d` 成功；三個 `/healthz` 回 `ok`；Event API `delivered_count=2` |
 | 2026-05-26 | 新增前端 Vitest 測試，覆蓋 WebSocket client 連線路徑、ping/pong、通知解析與斷線重連 | `npm test` 4 passed；`npm run lint`、`npm run build` 通過 |
 | 2026-05-26 | 新增 WebSocket route contract test，驗證 `/ws/{user_id}` 會把 Redis Pub/Sub 訊息推到前端；修正正常斷線時 background task 的清理例外 | `python -m pytest tests -q` 31 passed |

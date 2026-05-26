@@ -65,6 +65,18 @@ Invoke-RestMethod http://localhost:8003/healthz
 - `docker compose logs event-service`
 - `docker compose logs notification-service`
 
+啟動 `docker compose up --build -d` 後，也可以直接跑一鍵 smoke test。這會檢查三個服務健康狀態、寫入兩個測試使用者位置、查詢 500 公尺附近使用者、建立 urgent event 並確認通知 fan-out：
+
+```powershell
+.\scripts\compose-smoke-test.ps1
+```
+
+成功時最後會看到：
+
+```text
+COMPOSE SMOKE TEST PASSED
+```
+
 ## API 初步測試
 
 更新使用者位置：

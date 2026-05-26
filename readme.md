@@ -21,6 +21,7 @@
 - 已建立三個後端服務的目錄與初版 FastAPI 程式。
 - 已建立 Redis GEO 位置儲存與 WebSocket 通知的基本方向。
 - 已建立 Dockerfile、docker-compose 與 Kubernetes YAML。
+- 已建立 Docker Compose smoke test，可一鍵驗證 healthz、位置寫入、附近查詢、urgent event fan-out 與 `client_event_id` 去重。
 - 已建立壓測腳本，用來模擬大量虛擬使用者上傳座標。
 - 已建立 React + Vite + Leaflet Web App 基礎，可顯示地圖、表單與通知元件。
 - 已補上專案計畫、進度追蹤表、系統設計、測試計畫、Web App UI/UX 設計說明與 K8s 使用說明。
