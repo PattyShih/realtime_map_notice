@@ -23,7 +23,7 @@
 | 第 1 階段：後端骨架 | 1-2 | Done | 95% | 三個 FastAPI service、shared module、Dockerfile、docker-compose、CORS、`.dockerignore` 已存在；`docker compose up --build -d` 已實測成功 | 補更完整的跨服務自動化測試 |
 | 第 2 階段：Web App 前端 | 3-5 | Partial | 78% | React + Vite + Leaflet 可 build，地圖 smoke test 可開啟，WebSocket client 已有 Vitest 測試 | 串接真實後端服務並測事件發布與通知 |
 | 第 3 階段：即時資料與推播整合 | 4-6 | Partial | 84% | Redis GEO、last_seen 過濾、WebSocket Pub/Sub、pong timeout heartbeat、WebSocket route contract test、fan-out limit、client_event_id 去重已實作 | 補真實 Redis/WebSocket 整合測試與 Docker 實測 |
-| 第 4 階段：Kubernetes 與壓測 | 6-8 | Partial | 82% | Docker Compose 已可跑；K8s YAML、HPA、resources、readiness/liveness probes、simulator、`scripts/k8s-*.ps1` 已存在 | 啟用 Docker Desktop Kubernetes 後跑 K8s 實機部署、HPA、500-1,000 人壓測 |
+| 第 4 階段：Kubernetes 與壓測 | 6-8 | Partial | 85% | Docker Compose 已可跑；Docker Desktop Kubernetes 已 Ready；K8s YAML、HPA、resources、readiness/liveness probes、simulator、`scripts/k8s-*.ps1` 已存在 | 跑 K8s 實機部署、HPA、500-1,000 人壓測 |
 | 跨階段：自動化測試 | 7-8 | Partial | 56% | `tests/requirements-test.txt` 已補齊 FastAPI/Redis 測試相依；後端 unit + API/WebSocket contract tests 31 個通過；前端 Vitest 4 個通過 | 補真實 Redis、更多前端元件測試 |
 | 第 5 階段：報告與展示整理 | 8-10 | Partial | 30% | project-plan、system、demo 腳本初稿已存在 | 產出實測截圖、壓測數據、Demo 錄影或備案素材 |
 
@@ -56,26 +56,24 @@
 | Docker Compose | Done | `.\scripts\compose-smoke-test.ps1` 通過，Redis + 三個 FastAPI services 均 healthy，位置/nearby/event fan-out/idempotency 均驗證 | 無 |
 | API integration tests | Partial | 已建立第一批不依賴 Docker 的 Location/Event/Notification API contract tests | 補真實 Redis / PubSub 測試 |
 | WebSocket integration tests | Partial | 已補 heartbeat pong timeout unit tests 與 `/ws/{user_id}` route contract test | 補真實 Redis Pub/Sub、多副本與前端斷線重連測試 |
-| K8s deployment test | Partial | Repo 交付物完成；尚未實機跑 | Pod Running、Service、HPA、port-forward 截圖 |
+| K8s deployment test | Partial | Docker Desktop Kubernetes context 已建立，node `desktop-control-plane` Ready；尚未部署專案 manifests | Pod Running、Service、HPA、port-forward 截圖 |
 | Load test | Partial | `scripts/k8s-load-test.ps1` 已建立；尚未實測 | 500、1,000 users 結果與截圖 |
 
 ## 目前阻塞
 
 | 阻塞 | 影響 | 解法 | 優先級 |
 |------|------|------|--------|
-| Docker Desktop Kubernetes 初始化卡在 control-plane Ready timeout | 無法展示 HPA 和 Pod 容錯截圖 | Docker Desktop 已設定 `KubernetesEnabled=true`，但 kubeconfig 未生成；建議 Reset Kubernetes cluster 後重啟 Docker Desktop | P0 |
 | 真實 Redis / WebSocket integration tests 尚未建立 | 改動後仍缺少端到端回歸保障 | 基於 Docker Compose 補 Redis/PubSub/WebSocket smoke tests | P1 |
 
 ## 接下來建議工作順序
 
 | 順序 | 工作 | 預期產出 | 負責角色 |
 |------|------|----------|----------|
-| 1 | 啟用 Docker Desktop Kubernetes | `kubectl cluster-info` 可執行 | D |
-| 2 | K8s 部署與 HPA 驗證 | Pod/HPA 截圖、容錯截圖 | D |
-| 3 | 補真實 Redis / Notification integration tests | Redis GEO、Pub/Sub、Notification API 基礎整合測試 | B、C |
-| 4 | 手動測完整資料流 | Web App 位置寫入、事件建立、WebSocket 通知成功 | A、B、C |
-| 5 | Demo 素材整理 | Docker Compose smoke test 截圖、K8s 備案說明 | 全員 |
-| 6 | K8s 部署與 HPA 驗證 | Pod/HPA 截圖、容錯截圖 | D |
+| 1 | K8s 部署與 HPA 驗證 | Pod/HPA 截圖、容錯截圖 | D |
+| 2 | 補真實 Redis / Notification integration tests | Redis GEO、Pub/Sub、Notification API 基礎整合測試 | B、C |
+| 3 | 手動測完整資料流 | Web App 位置寫入、事件建立、WebSocket 通知成功 | A、B、C |
+| 4 | Demo 素材整理 | Docker Compose smoke test 截圖、K8s 備案說明 | 全員 |
+| 5 | 500-1,000 人壓測 | 壓測結果與 Demo 截圖 | D |
 | 7 | 500-1,000 人壓測 | 壓測結果與 Demo 截圖 | D |
 | 8 | Demo 演練與報告素材整理 | 8-10 分鐘 Demo 可跑完 | 全員 |
 
@@ -83,6 +81,7 @@
 
 | 日期 | 更新內容 | 驗證 |
 |------|----------|------|
+| 2026-05-26 | Docker Desktop Kubernetes 後續自動完成初始化，`docker-desktop` context 已建立，control plane 與 system pods Running | `kubectl cluster-info` 成功；`kubectl get nodes -o wide` 顯示 `desktop-control-plane` Ready |
 | 2026-05-26 | 診斷 Docker Desktop Kubernetes：設定已啟用，但 kubeconfig 仍為空；Docker logs 顯示 kind control-plane 初始化後 `Timed out waiting for Ready`，尚未可用 | `kubectl config get-contexts` 無 context；`kubectl cluster-info` 仍連 localhost:8080 |
 | 2026-05-26 | 新增 Docker Compose smoke test 腳本，可自動啟動 compose 並驗證 healthz、位置寫入、附近查詢、urgent event fan-out 與 `client_event_id` 去重 | `.\scripts\compose-smoke-test.ps1` 通過 |
 | 2026-05-26 | Docker Desktop 安裝完成，Docker CLI/Compose/kubectl CLI 可用；Docker Compose 實機建置並啟動 Redis + 三個後端服務；完成 healthz、位置寫入、附近查詢、urgent event fan-out smoke test | `docker compose up --build -d` 成功；三個 `/healthz` 回 `ok`；Event API `delivered_count=2` |
