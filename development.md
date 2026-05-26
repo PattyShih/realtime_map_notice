@@ -251,20 +251,20 @@ Demo 前檢查清單：
 若後續要讓非開發者容易使用，不建議要求對方連 `localhost`、記三個後端 port，或手動開前端 dev server。建議改成：
 
 ```text
-使用者 -> https://map.example.com -> Cloudflare -> Cloudflare Tunnel -> 本機 / K8s 入口
+使用者 -> https://map.avision-gb10.org -> Cloudflare -> Cloudflare Tunnel -> 本機 / K8s 入口
 ```
 
 建議工作項目：
 
-1. 註冊一個專題展示用網域，並把 DNS 交給 Cloudflare 管理。
+1. 使用既有 Cloudflare zone `avision-gb10.org`。
 2. 建立 Cloudflare Tunnel，讓 `cloudflared` 從本機或展示主機主動連到 Cloudflare。
 3. 加入反向代理或 Kubernetes Ingress，把多個服務整理成單一公開入口：
 
 ```text
-https://map.example.com/              -> Web App
-https://map.example.com/api/location  -> Location Service
-https://map.example.com/api/events    -> Event Service
-wss://map.example.com/ws/{user_id}    -> Notification Service
+https://map.avision-gb10.org/              -> Web App
+https://map.avision-gb10.org/api/location  -> Location Service
+https://map.avision-gb10.org/api/events    -> Event Service
+wss://map.avision-gb10.org/ws/{user_id}    -> Notification Service
 ```
 
 4. 更新前端環境變數，讓 API 與 WebSocket 指向正式網域。
@@ -272,6 +272,8 @@ wss://map.example.com/ws/{user_id}    -> Notification Service
 6. Demo 前確認 Cloudflare proxy 下 WebSocket 連線、ping/pong heartbeat 與通知推播都正常。
 
 最短 Demo 方案可以先使用 Cloudflare Tunnel 暫時網址，但正式展示建議使用固定網域，避免每次重啟 tunnel 後網址改變。
+
+本 repo 已先建立 Cloudflare 對外入口骨架，請參考 [infra/cloudflare/README.md](./infra/cloudflare/README.md)。
 
 ## 開發里程碑
 

@@ -10,3 +10,5 @@ __pycache__/
 dist/
 build/
 node_modules/
+infra/cloudflare/cloudflared/config.yml
+infra/cloudflare/cloudflared/*.json

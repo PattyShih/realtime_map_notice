@@ -60,6 +60,7 @@ realtime_map_notice/
 ├── web-app/                     # React + Vite + Leaflet Web 前端
 ├── simulator/                   # 500-1,000 虛擬使用者壓測腳本，進階可調到 3,000
 ├── k8s/                         # Kubernetes Deployment、Service、HPA
+├── infra/cloudflare/             # Cloudflare Tunnel 與 edge proxy 對外入口設定
 ├── scripts/                     # K8s 部署、觀察、壓測與容錯 Demo 腳本
 ├── docs/                        # 補充文件
 ├── docker-compose.yml           # 本機開發環境
@@ -122,4 +123,5 @@ realtime_map_notice/
 - [docs/progress.md](./docs/progress.md)：目前進度、阻塞、下一步與更新紀錄。
 - [docs/test-plan.md](./docs/test-plan.md)：後端、前端、WebSocket 與跨服務測試規劃。
 - [k8s/README.md](./k8s/README.md)：Kubernetes 部署、HPA 與故障復原操作。
+- [infra/cloudflare/README.md](./infra/cloudflare/README.md)：Cloudflare Tunnel、`map.avision-gb10.org` 與 edge proxy 設定。
 - [web-app/README.md](./web-app/README.md)：Web App 前端開發方向、地圖服務、UI/UX 與 API key。

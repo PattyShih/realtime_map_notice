@@ -65,7 +65,7 @@
 | 阻塞 | 影響 | 解法 | 優先級 |
 |------|------|------|--------|
 | 真實 Redis / WebSocket integration tests 尚未建立 | 改動後仍缺少端到端回歸保障 | 基於 Docker Compose 補 Redis/PubSub/WebSocket smoke tests | P1 |
-| 尚未規劃正式公開入口實作 | 非開發者仍需依賴 localhost 或現場機器操作 | 後續註冊網域、設定 Cloudflare Tunnel、加入反向代理或 Ingress | P2 |
+| 尚未完成 Cloudflare Tunnel 實際連線 | 非開發者仍需依賴 localhost 或現場機器操作 | 已建立 `map.avision-gb10.org` 入口骨架；後續需建立 tunnel、填入 credentials 並實測 | P2 |
 
 ## 接下來建議工作順序
 
@@ -83,6 +83,7 @@
 
 | 日期 | 更新內容 | 驗證 |
 |------|----------|------|
+| 2026-05-26 | 建立 Cloudflare 對外入口骨架，使用 `map.avision-gb10.org`、edge proxy、cloudflared config 範本與前端正式環境變數 | 文件與設定檔更新；尚未建立實際 Tunnel credentials |
 | 2026-05-26 | 補強第 2、3 階段：新增前端 EventForm、NotificationBanner、Location/Event API client 測試；新增 Docker Compose cross-service integration test 腳本與完整鏈路/WebSocket no-cross-talk 測試檔 | `npm test` 15 passed；`npm run lint`、`npm run build` 通過；`python -m pytest tests -q` 31 passed, 1 skipped |
 | 2026-05-26 | 新增 simulator 固定時間、timeout、成功/失敗統計；新增 cluster 內部 K8s load test Job，避免 port-forward 壓測瓶頸；完成 500 users / 60s HPA 實測 | `success=12331 failed=3`；HPA `cpu: 259%/60%`；Location Service 擴到 5 Pods |
 | 2026-05-26 | 修正 Notification Pod 容錯 Demo 腳本，刪除 Pod 後等待 Deployment rollout 完成並自動退出；完成 Pod 自動補回實測 | `notification-service` 刪除 1 Pod 後自動回到 `3/3 Running` |

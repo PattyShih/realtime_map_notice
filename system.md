@@ -102,10 +102,10 @@ Kubernetes:
 - 不建議直接把 `8001`、`8002`、`8003` 三個後端 port 分別暴露給使用者。正式入口應加一層反向代理，整理成單一網域與清楚路由，例如：
 
 ```text
-https://map.example.com/              -> Web App
-https://map.example.com/api/location  -> Location Service
-https://map.example.com/api/events    -> Event Service
-wss://map.example.com/ws/{user_id}    -> Notification Service
+https://map.avision-gb10.org/              -> Web App
+https://map.avision-gb10.org/api/location  -> Location Service
+https://map.avision-gb10.org/api/events    -> Event Service
+wss://map.avision-gb10.org/ws/{user_id}    -> Notification Service
 ```
 
 這層反向代理可以用 Nginx、Traefik 或 Kubernetes Ingress 實作。前端環境變數與後端 `CORS_ALLOW_ORIGINS` 需同步改成正式網域。
