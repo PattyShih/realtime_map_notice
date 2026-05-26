@@ -163,7 +163,7 @@
 - 刪除 Pod 後 Kubernetes 會自動補回副本。
 - 系統在 Demo 過程中仍可處理位置更新與事件推播。
 
-目前 repo 已完成第 4 階段所需的 YAML、HPA、resource requests/limits、readiness/liveness probes、壓測入口與 Demo 腳本。實機驗證仍需 Docker/Kubernetes 環境可用後執行。
+目前 repo 已完成第 4 階段所需的 YAML、HPA、resource requests/limits、readiness/liveness probes、壓測入口與 Demo 腳本。Docker Desktop Kubernetes 實測已完成：500 users / 60s cluster 內部壓測可觸發 Location Service HPA 擴展到 5 個 Pod，Notification Service Pod 刪除後可自動補回。
 
 ### 跨階段工作：自動化測試
 
@@ -186,11 +186,15 @@
 - `tests/` 測試目錄。
 - 每個服務至少 2-3 個基本測試案例。
 - 可透過 `pytest` 一次性執行所有測試。
+- Web App 元件與 API client 測試。
+- Docker Compose cross-service integration test 腳本。
 
 驗收標準：
 
 - `pytest` 通過所有 API 測試。
 - 修改 API payload 後，測試會正確失敗提醒。
+- `npm test` 通過 WebSocket client、事件表單、通知 Banner 與 API client 測試。
+- `.\scripts\run-integration-tests.ps1` 可在 Docker Compose 環境驗證 Location → Redis → Event → Notification → WebSocket 完整鏈路。
 
 ### 第 5 階段：報告與展示整理
 

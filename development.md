@@ -137,6 +137,12 @@ Invoke-RestMethod `
 python -m pytest tests/unit -v
 ```
 
+執行跨服務整合測試時，需要 Docker Desktop 正在執行。此腳本會啟動 docker-compose、等待三個服務健康，然後驗證 Location → Redis → Event → Notification → WebSocket 的 Demo 核心鏈路：
+
+```powershell
+.\scripts\run-integration-tests.ps1
+```
+
 測試框架建議使用 `pytest` + `httpx.AsyncClient`，Redis 可使用 `fakeredis` 或 docker-compose 提供的實體 Redis。完整測試計畫與案例請參考 [docs/test-plan.md](./docs/test-plan.md)。
 
 ## 壓測模擬

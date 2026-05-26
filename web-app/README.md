@@ -16,6 +16,7 @@
 npm install
 npm run dev
 npm run lint
+npm test
 npm run build
 npm run preview
 ```
@@ -49,6 +50,7 @@ VITE_NOTIFICATION_WS_URL=ws://localhost:8003
 | 事件 marker | 已有 | 本機建立事件與 WebSocket 收到事件都會顯示 |
 | WebSocket 通知 | 已有 | 支援斷線重連與 app-level ping/pong |
 | 通知 Banner | 已有 | 收到通知後可顯示並移動到事件位置 |
+| 前端測試 | 已有 | WebSocket client、EventForm、NotificationBanner、Location/Event API client |
 | 手機版細節 | 待加強 | 需要更多 responsive QA |
 
 ## UI/UX 注意事項

@@ -5,7 +5,7 @@
 最後更新：2026-05-26  
 目前分支：`dev`  
 目前定位：第 7 週末 / 第 8 週初  
-整體進度估計：84%
+整體進度估計：86%
 
 ## 狀態標記
 
@@ -21,8 +21,8 @@
 | 階段 | 計畫週次 | 狀態 | 完成度 | 目前證據 | 下一步 |
 |------|----------|------|--------|----------|--------|
 | 第 1 階段：後端骨架 | 1-2 | Done | 95% | 三個 FastAPI service、shared module、Dockerfile、docker-compose、CORS、`.dockerignore` 已存在；`docker compose up --build -d` 已實測成功 | 補更完整的跨服務自動化測試 |
-| 第 2 階段：Web App 前端 | 3-5 | Partial | 78% | React + Vite + Leaflet 可 build，地圖 smoke test 可開啟，WebSocket client 已有 Vitest 測試 | 串接真實後端服務並測事件發布與通知 |
-| 第 3 階段：即時資料與推播整合 | 4-6 | Partial | 84% | Redis GEO、last_seen 過濾、WebSocket Pub/Sub、pong timeout heartbeat、WebSocket route contract test、fan-out limit、client_event_id 去重已實作 | 補真實 Redis/WebSocket 整合測試與 Docker 實測 |
+| 第 2 階段：Web App 前端 | 3-5 | Partial | 84% | React + Vite + Leaflet 可 build，地圖 smoke test 可開啟；WebSocket client、EventForm、NotificationBanner 與 API client 已有 Vitest 測試 | 串接真實後端服務並做瀏覽器端完整流程 QA |
+| 第 3 階段：即時資料與推播整合 | 4-6 | Partial | 88% | Redis GEO、last_seen 過濾、WebSocket Pub/Sub、pong timeout heartbeat、WebSocket route contract test、fan-out limit、client_event_id 去重已實作；已新增 docker-compose cross-service 測試入口 | 啟動 Docker 後跑跨服務測試並保存結果 |
 | 第 4 階段：Kubernetes 與壓測 | 6-8 | Done | 96% | Docker Compose 已可跑；Docker Desktop Kubernetes 已 Ready；K8s 實機部署成功；metrics-server 已可提供 CPU 指標；500 人 cluster 內部壓測已觸發 HPA 擴到 5 個 Pod；Notification Pod 刪除後可自動補回 | 整理 HPA 與 Pod 容錯截圖，補 1,000 人壓測結果 |
 | 跨階段：自動化測試 | 7-8 | Partial | 56% | `tests/requirements-test.txt` 已補齊 FastAPI/Redis 測試相依；後端 unit + API/WebSocket contract tests 31 個通過；前端 Vitest 4 個通過 | 補真實 Redis、更多前端元件測試 |
 | 第 5 階段：報告與展示整理 | 8-10 | Partial | 32% | project-plan、system、demo 腳本初稿已存在；已補 Cloudflare Tunnel 對外入口規劃 | 產出實測截圖、壓測數據、Demo 錄影或備案素材 |
@@ -37,7 +37,7 @@
 | 地圖 marker 隨資料更新 | Partial | 70% | local events 與 WS events 可顯示；仍需真實後端測試 |
 | Redis GEO 即時位置 | Partial | 88% | GEOADD/GEOSEARCH 與 last_seen 過濾已實作；Docker Compose 實體 Redis smoke test 通過 |
 | 500 公尺區域通知 | Partial | 85% | Event Service 查 nearby + 通知 active users 已實作；Docker Compose 下 urgent event fan-out smoke test 通過 |
-| WebSocket 主動推播 | Partial | 90% | Pub/Sub + WebSocket + pong timeout heartbeat 已實作，並已有後端 WebSocket route contract test 與前端 WebSocket client tests；缺真實多 pod 測試 |
+| WebSocket 主動推播 | Partial | 92% | Pub/Sub + WebSocket + pong timeout heartbeat 已實作，並已有後端 WebSocket route contract test、前端 WebSocket client tests 與 cross-service WebSocket 測試檔；缺 Docker 實跑結果 |
 | 500-1,000 人 simulator | Partial | 85% | 本機 simulator 支援固定 duration、timeout 與成功/失敗統計；cluster 內部 Job 可避免 port-forward 瓶頸；500 人壓測已成功 | 尚未跑 1,000 人測試與長時間穩定性測試 |
 | K8s Location Service HPA | Done | 95% | metrics-server 可讀 CPU；500 users / 60s cluster 內部壓測 `success=12331 failed=3`，HPA 最高 `cpu: 259%/60%`，Location Service 從 1 擴到 5 Pod | 保存 Demo 截圖與補 1,000 人結果 |
 | K8s Notification Pod 容錯 | Done | 95% | 多副本 YAML 與刪 Pod 腳本已存在；實測刪除 Pod 後 Deployment 自動補回至 3/3 Running | 保存 Demo 截圖 |
@@ -51,11 +51,11 @@
 | Python syntax check | Done | `python -m py_compile ...` 通過 | 無 |
 | Frontend lint | Done | `npm run lint` 通過 | 無 |
 | Frontend build | Done | `npm run build` 通過 | 無 |
-| Frontend unit tests | Partial | `npm test`，4 passed | 尚未補 Map/Form/Banner 元件測試 |
+| Frontend unit tests | Partial | `npm test`，15 passed | 尚未補 Map 元件與 App 整合測試 |
 | Web App smoke test | Done | `http://127.0.0.1:5173` 可開，地圖載入 | 仍需串後端 |
 | Docker Compose | Done | `.\scripts\compose-smoke-test.ps1` 通過，Redis + 三個 FastAPI services 均 healthy，位置/nearby/event fan-out/idempotency 均驗證 | 無 |
 | API integration tests | Partial | 已建立第一批不依賴 Docker 的 Location/Event/Notification API contract tests | 補真實 Redis / PubSub 測試 |
-| WebSocket integration tests | Partial | 已補 heartbeat pong timeout unit tests 與 `/ws/{user_id}` route contract test | 補真實 Redis Pub/Sub、多副本與前端斷線重連測試 |
+| WebSocket integration tests | Partial | 已補 heartbeat pong timeout unit tests、`/ws/{user_id}` route contract test、cross-service WebSocket no-cross-talk 測試檔 | Docker 開啟後執行 `.\scripts\run-integration-tests.ps1` |
 | K8s deployment test | Done | `.\scripts\k8s-build-images.ps1`、`.\scripts\k8s-deploy.ps1`、port-forward health check 均成功；Redis 1、Location 1、Event 2、Notification 3 全部 Running | 尚需保存 Demo 截圖 |
 | K8s metrics-server | Done | `.\scripts\k8s-install-metrics-server.ps1` 成功；`kubectl top nodes` 與 `kubectl top pods -n realtime-map-notice` 可顯示 CPU / memory；HPA 顯示 `cpu: 2%/60%` | 尚需壓測時觀察 HPA 擴展 |
 | Load test | Partial | `scripts/k8s-load-test.ps1` 與 `scripts/k8s-load-test-job.ps1` 已建立；500 users / 60s cluster 內部壓測成功並觸發 HPA；port-forward 壓測已確認不適合大量流量 | 1,000 users 結果與截圖 |
@@ -83,6 +83,7 @@
 
 | 日期 | 更新內容 | 驗證 |
 |------|----------|------|
+| 2026-05-26 | 補強第 2、3 階段：新增前端 EventForm、NotificationBanner、Location/Event API client 測試；新增 Docker Compose cross-service integration test 腳本與完整鏈路/WebSocket no-cross-talk 測試檔 | `npm test` 15 passed；`npm run lint`、`npm run build` 通過；`python -m pytest tests -q` 31 passed, 1 skipped |
 | 2026-05-26 | 新增 simulator 固定時間、timeout、成功/失敗統計；新增 cluster 內部 K8s load test Job，避免 port-forward 壓測瓶頸；完成 500 users / 60s HPA 實測 | `success=12331 failed=3`；HPA `cpu: 259%/60%`；Location Service 擴到 5 Pods |
 | 2026-05-26 | 修正 Notification Pod 容錯 Demo 腳本，刪除 Pod 後等待 Deployment rollout 完成並自動退出；完成 Pod 自動補回實測 | `notification-service` 刪除 1 Pod 後自動回到 `3/3 Running` |
 | 2026-05-26 | 修正 K8s 部署腳本，改為先建立 namespace 再依序套用服務，避免首次部署 race；新增 metrics-server 安裝腳本並完成 Docker Desktop Kubernetes 實測 | `.\scripts\k8s-deploy.ps1` 成功；`.\scripts\k8s-install-metrics-server.ps1` 成功；HPA 顯示 `cpu: 2%/60%` |
