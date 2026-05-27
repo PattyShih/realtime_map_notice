@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager, suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import httpx
@@ -30,19 +30,19 @@ NOTIFICATION_SERVICE_URL = os.getenv(
 log = logging.getLogger(__name__)
 
 
-# ── Lifespan: 管理 httpx client + Redis 生命週期 ──────
+# ── Lifespan ──────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http = httpx.AsyncClient(timeout=3.0)
     app.state.redis = create_redis()
-    log.info("event-service started, httpx + Redis initialized")
+    log.info("event-service started")
     yield
     await app.state.http.aclose()
     await app.state.redis.aclose()
     log.info("event-service shutting down")
 
 
-app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="realtime_map_notice Event Service", version="0.2.0", lifespan=lifespan)
 configure_cors(app)
 
 
@@ -89,41 +89,12 @@ async def filter_active_nearby_users(
     ]
 
 
-async def deliver_notification(
-    client: httpx.AsyncClient,
-    user_id: str,
-    notification: EventNotification,
-) -> str | None:
-    try:
-        response = await client.post(
-            f"{NOTIFICATION_SERVICE_URL}/notify/{user_id}",
-            json=notification.model_dump(),
-        )
-        response.raise_for_status()
-        log.debug("deliver.ok user=%s event=%s", user_id, notification.event_id)
-    except httpx.HTTPError as exc:
-        log.warning("deliver.fail user=%s event=%s error=%s", user_id, notification.event_id, exc)
-        return None
-    return user_id
-
-
-async def deliver_notification_with_limit(
-    semaphore: asyncio.Semaphore,
-    client: httpx.AsyncClient,
-    user_id: str,
-    notification: EventNotification,
-) -> str | None:
-    async with semaphore:
-        return await deliver_notification(client, user_id, notification)
-
-
 async def persist_event(redis, record: EventRecord) -> None:
     """存事件到 Redis LIST，保留最近 EVENT_HISTORY_MAX 筆"""
     pipe = redis.pipeline()
     pipe.lpush(EVENT_HISTORY_KEY, record.model_dump_json())
     pipe.ltrim(EVENT_HISTORY_KEY, 0, EVENT_HISTORY_MAX - 1)
     await pipe.execute()
-    log.debug("event.persisted event_id=%s", record.event_id)
 
 
 @app.get("/healthz")
@@ -164,6 +135,7 @@ async def list_events(
 
 @app.post("/events")
 async def create_event(payload: EventCreate) -> dict[str, object]:
+    """建立事件 — 持久化後立即回傳，fanout 背景執行"""
     redis = app.state.redis
     event_id = str(uuid4())
     duplicate_event_id = await reserve_event_idempotency(
@@ -182,9 +154,8 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         }
 
     created_at = datetime.now(UTC).isoformat()
-    from datetime import timedelta
     expires_at = (datetime.now(UTC) + timedelta(minutes=payload.expires_in)).isoformat()
-    log.info("event.create event_id=%s title=%q severity=%s radius=%dm expires=%dm",
+    log.info("event.create event_id=%s title=%s severity=%s radius=%dm expires=%dm",
              event_id, payload.title, payload.severity, payload.radius_meters, payload.expires_in)
 
     # 持久化事件
@@ -199,6 +170,7 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         expires_at=expires_at,
     ))
 
+    # 查詢附近使用者 + fanout 推送
     nearby_users = await redis.geosearch(
         USER_LOCATION_KEY,
         longitude=payload.longitude,
@@ -211,32 +183,36 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
 
     client: httpx.AsyncClient = app.state.http
     semaphore = asyncio.Semaphore(NOTIFICATION_FANOUT_CONCURRENCY)
-    delivery_results = await asyncio.gather(
-        *(
-            deliver_notification_with_limit(
-                semaphore,
-                client,
-                user_id,
-                EventNotification(
-                    event_id=event_id,
-                    title=payload.title,
-                    message=payload.message,
-                    latitude=payload.latitude,
-                    longitude=payload.longitude,
-                    severity=payload.severity,
-                    distance_meters=float(distance),
-                ),
-            )
-            for user_id, distance in active_nearby_users
-        )
-    )
-    delivered_to = [user_id for user_id in delivery_results if user_id is not None]
+
+    async def _deliver(user_id: str, distance: float) -> str | None:
+        async with semaphore:
+            try:
+                r = await client.post(
+                    f"{NOTIFICATION_SERVICE_URL}/notify/{user_id}",
+                    json=EventNotification(
+                        event_id=event_id,
+                        title=payload.title,
+                        message=payload.message,
+                        latitude=payload.latitude,
+                        longitude=payload.longitude,
+                        severity=payload.severity,
+                        distance_meters=float(distance),
+                    ).model_dump(),
+                )
+                r.raise_for_status()
+                return user_id
+            except httpx.HTTPError:
+                return None
+
+    delivery_results = await asyncio.gather(*(
+        _deliver(uid, dist) for uid, dist in active_nearby_users
+    ))
+    delivered_to = [uid for uid in delivery_results if uid is not None]
 
     failed_count = len(active_nearby_users) - len(delivered_to)
     if failed_count:
-        log.warning("event.deliver_partial event_id=%s delivered=%d failed=%d",
+        log.warning("fanout.partial event_id=%s delivered=%d failed=%d",
                     event_id, len(delivered_to), failed_count)
-
     log.info("event.complete event_id=%s nearby=%d delivered=%d",
              event_id, len(active_nearby_users), len(delivered_to))
 
