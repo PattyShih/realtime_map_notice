@@ -20,3 +20,13 @@ services:
       - edge-proxy
     profiles:
       - cloudflare
+
+  cloudflared-token:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --url http://edge-proxy:8080
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - edge-proxy
+    profiles:
+      - cloudflare-token

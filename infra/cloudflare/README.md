@@ -95,7 +95,20 @@ wss://map.avision-gb10.org/ws/u-demo
 重新開啟 PowerShell 後執行：
 
 ```powershell
+.\scripts\cloudflare-build-web.ps1
 .\scripts\cloudflare-start-tunnel-token.ps1
+```
+
+這個腳本會用 Docker Compose 啟動 Redis、三個後端服務、`edge-proxy` 與 `cloudflared-token`。`cloudflared-token` 會和 `edge-proxy` 位於同一個 Docker network，因此 Tunnel 的 public hostname 服務目標可設定成：
+
+```text
+http://edge-proxy:8080
+```
+
+若 DNS 沒有自動建立，請在 `avision-gb10.org` zone 補一筆 proxied CNAME：
+
+```text
+map -> <tunnel-id>.cfargotunnel.com
 ```
 
 注意：不要把 token 寫進 repo、commit、issue、文件或聊天紀錄。若 token 已經外流，測完請到 Cloudflare rotate 或 revoke。
