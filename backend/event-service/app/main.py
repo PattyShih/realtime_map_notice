@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import os
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import httpx
@@ -21,7 +23,20 @@ NOTIFICATION_SERVICE_URL = os.getenv(
     "http://localhost:8003",
 )
 
-app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0")
+log = logging.getLogger(__name__)
+
+
+# ── Lifespan: 管理 httpx client 生命週期 ─────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http = httpx.AsyncClient(timeout=3.0)
+    log.info("event-service started, httpx client initialized")
+    yield
+    await app.state.http.aclose()
+    log.info("event-service shutting down, httpx client closed")
+
+
+app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0", lifespan=lifespan)
 configure_cors(app)
 redis = create_redis()
 
@@ -78,7 +93,9 @@ async def deliver_notification(
             json=notification.model_dump(),
         )
         response.raise_for_status()
-    except httpx.HTTPError:
+        log.debug("deliver.ok user=%s event=%s", user_id, notification.event_id)
+    except httpx.HTTPError as exc:
+        log.warning("deliver.fail user=%s event=%s error=%s", user_id, notification.event_id, exc)
         return None
     return user_id
 
@@ -95,8 +112,12 @@ async def deliver_notification_with_limit(
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    await redis.ping()
-    return {"status": "ok"}
+    try:
+        await redis.ping()
+        return {"status": "ok"}
+    except Exception:
+        log.exception("healthz: Redis ping failed")
+        raise
 
 
 @app.post("/events")
@@ -107,6 +128,7 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         event_id,
     )
     if duplicate_event_id is not None:
+        log.info("event.duplicate client_event_id=%s existing_event_id=%s", payload.client_event_id, duplicate_event_id)
         return {
             "event_id": duplicate_event_id,
             "nearby_user_count": 0,
@@ -114,6 +136,9 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
             "delivered_to": [],
             "status": "duplicate",
         }
+
+    log.info("event.create event_id=%s title=%q severity=%s radius=%dm",
+             event_id, payload.title, payload.severity, payload.radius_meters)
 
     nearby_users = await redis.geosearch(
         USER_LOCATION_KEY,
@@ -125,28 +150,37 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
     )
     active_nearby_users = await filter_active_nearby_users(nearby_users)
 
-    async with httpx.AsyncClient(timeout=3.0) as client:
-        semaphore = asyncio.Semaphore(NOTIFICATION_FANOUT_CONCURRENCY)
-        delivery_results = await asyncio.gather(
-            *(
-                deliver_notification_with_limit(
-                    semaphore,
-                    client,
-                    user_id,
-                    EventNotification(
-                        event_id=event_id,
-                        title=payload.title,
-                        message=payload.message,
-                        latitude=payload.latitude,
-                        longitude=payload.longitude,
-                        severity=payload.severity,
-                        distance_meters=float(distance),
-                    ),
-                )
-                for user_id, distance in active_nearby_users
+    # 使用 lifespan 管理的 httpx client（不再每次新建）
+    client: httpx.AsyncClient = app.state.http
+    semaphore = asyncio.Semaphore(NOTIFICATION_FANOUT_CONCURRENCY)
+    delivery_results = await asyncio.gather(
+        *(
+            deliver_notification_with_limit(
+                semaphore,
+                client,
+                user_id,
+                EventNotification(
+                    event_id=event_id,
+                    title=payload.title,
+                    message=payload.message,
+                    latitude=payload.latitude,
+                    longitude=payload.longitude,
+                    severity=payload.severity,
+                    distance_meters=float(distance),
+                ),
             )
+            for user_id, distance in active_nearby_users
         )
+    )
     delivered_to = [user_id for user_id in delivery_results if user_id is not None]
+
+    failed_count = len(active_nearby_users) - len(delivered_to)
+    if failed_count:
+        log.warning("event.deliver_partial event_id=%s delivered=%d failed=%d",
+                    event_id, len(delivered_to), failed_count)
+
+    log.info("event.complete event_id=%s nearby=%d delivered=%d",
+             event_id, len(active_nearby_users), len(delivered_to))
 
     return {
         "event_id": event_id,

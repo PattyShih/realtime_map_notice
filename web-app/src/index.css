@@ -109,6 +109,17 @@ html, body, #root {
 .event-form textarea {
   resize: vertical;
 }
+.radius-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #666;
+}
+.radius-slider {
+  flex: 1;
+  accent-color: #2563eb;
+}
 .form-actions {
   display: flex;
   gap: 8px;

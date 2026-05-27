@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 from contextlib import suppress
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import EventNotification
+
+log = logging.getLogger(__name__)
 
 app = FastAPI(title="realtime_map_notice Notification Service", version="0.1.0")
 configure_cors(app)
@@ -35,6 +38,7 @@ async def forward_user_notifications(
     pubsub = redis.pubsub()
     channel = user_channel(user_id)
     await pubsub.subscribe(channel)
+    log.info("pubsub.subscribe user=%s channel=%s", user_id, channel)
     try:
         while True:
             message = await pubsub.get_message(
@@ -44,9 +48,11 @@ async def forward_user_notifications(
             if message and message["type"] == "message":
                 async with send_lock:
                     await websocket.send_text(message["data"])
+                log.debug("ws.forward user=%s", user_id)
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.close()
+        log.info("pubsub.unsubscribe user=%s", user_id)
 
 
 async def send_heartbeat(
@@ -57,6 +63,7 @@ async def send_heartbeat(
     while True:
         await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
         if time.monotonic() - state.last_pong_at > HEARTBEAT_TIMEOUT_SECONDS:
+            log.warning("heartbeat.timeout user closing connection")
             await websocket.close(code=1001, reason="heartbeat timeout")
             return
 
@@ -78,13 +85,18 @@ async def receive_client_messages(
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    await redis.ping()
-    return {"status": "ok"}
+    try:
+        await redis.ping()
+        return {"status": "ok"}
+    except Exception:
+        log.exception("healthz: Redis ping failed")
+        raise
 
 
 @app.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
     await websocket.accept()
+    log.info("ws.connect user=%s", user_id)
     send_lock = asyncio.Lock()
     state = ConnectionState(last_pong_at=time.monotonic())
     tasks = [
@@ -104,6 +116,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
         for task in tasks:
             with suppress(asyncio.CancelledError, WebSocketDisconnect):
                 await task
+        log.info("ws.disconnect user=%s", user_id)
 
 
 @app.post("/notify/{user_id}")
@@ -112,6 +125,8 @@ async def notify_user(user_id: str, notification: EventNotification) -> dict[str
         user_channel(user_id),
         notification.model_dump_json(),
     )
+    log.info("notify.publish user=%s event=%s subscribers=%d",
+             user_id, notification.event_id, subscriber_count)
     return {
         "user_id": user_id,
         "subscriber_count": subscriber_count,

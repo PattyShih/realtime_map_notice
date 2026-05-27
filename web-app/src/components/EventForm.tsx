@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import type { EventCreate } from "../types/api";
 
 interface EventFormProps {
@@ -19,17 +19,19 @@ export default function EventForm({
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [severity, setSeverity] = useState<"info" | "urgent">("info");
+  const [radiusMeters, setRadiusMeters] = useState(500);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !message.trim()) return;
     onSubmit({
+      client_event_id: crypto.randomUUID(),
       title: title.trim(),
       message: message.trim(),
       latitude,
       longitude,
       severity,
-      radius_meters: 500,
+      radius_meters: radiusMeters,
     });
     setTitle("");
     setMessage("");
@@ -79,6 +81,23 @@ export default function EventForm({
             <option value="info">Info — general notice</option>
             <option value="urgent">Urgent — needs attention</option>
           </select>
+        </label>
+
+        <label>
+          Notify Radius: {radiusMeters}m
+          <div className="radius-slider-row">
+            <span>100</span>
+            <input
+              type="range"
+              min={100}
+              max={2000}
+              step={100}
+              value={radiusMeters}
+              onChange={(e) => setRadiusMeters(Number(e.target.value))}
+              className="radius-slider"
+            />
+            <span>2000</span>
+          </div>
         </label>
 
         <div className="form-actions">

@@ -1,5 +1,14 @@
+import logging
 import os
 
+# ── 結構化日誌 ──────────────────────────────────────
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logger = logging.getLogger("realtime_map_notice")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 USER_LOCATION_KEY = os.getenv("USER_LOCATION_KEY", "realtime_map_notice:user:locations")
