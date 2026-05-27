@@ -13,6 +13,8 @@ from backend.shared.schemas import EventNotification
 
 log = logging.getLogger(__name__)
 
+PENDING_MAX = 200  # 每用戶最多暫存 200 條離線通知
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,6 +39,10 @@ class ConnectionState:
 
 def user_channel(user_id: str) -> str:
     return f"realtime_map_notice:user:{user_id}:notifications"
+
+
+def pending_key(user_id: str) -> str:
+    return f"realtime_map_notice:user:{user_id}:pending"
 
 
 async def forward_user_notifications(
@@ -93,6 +99,25 @@ async def receive_client_messages(
                 state.last_pong_at = time.monotonic()
 
 
+async def replay_pending(redis, websocket: WebSocket, user_id: str, send_lock: asyncio.Lock) -> int:
+    """重連時回放離線期間的暫存通知，回傳回放數量"""
+    key = pending_key(user_id)
+    raw_items = await redis.lrange(key, 0, -1)
+    if not raw_items:
+        return 0
+
+    count = 0
+    for raw in raw_items:
+        async with send_lock:
+            await websocket.send_text(raw)
+        count += 1
+
+    # 清空已回放的通知
+    await redis.delete(key)
+    log.info("pending.replay user=%s count=%d", user_id, count)
+    return count
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     redis = app.state.redis
@@ -111,6 +136,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
     log.info("ws.connect user=%s", user_id)
     send_lock = asyncio.Lock()
     state = ConnectionState(last_pong_at=time.monotonic())
+
+    # 回放離線暫存
+    replayed = await replay_pending(redis, websocket, user_id, send_lock)
+    if replayed:
+        log.info("ws.replay user=%s replayed=%d", user_id, replayed)
+
     tasks = [
         asyncio.create_task(forward_user_notifications(redis, websocket, user_id, send_lock)),
         asyncio.create_task(send_heartbeat(websocket, send_lock, state)),
@@ -134,14 +165,27 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
 @app.post("/notify/{user_id}")
 async def notify_user(user_id: str, notification: EventNotification) -> dict[str, object]:
     redis = app.state.redis
+    payload_json = notification.model_dump_json()
     subscriber_count = await redis.publish(
         user_channel(user_id),
-        notification.model_dump_json(),
+        payload_json,
     )
-    log.info("notify.publish user=%s event=%s subscribers=%d",
-             user_id, notification.event_id, subscriber_count)
+
+    # 如果用戶不在線（沒有 Pub/Sub 訂閱者），暫存通知
+    if subscriber_count == 0:
+        key = pending_key(user_id)
+        pipe = redis.pipeline()
+        pipe.rpush(key, payload_json)
+        pipe.ltrim(key, -PENDING_MAX, -1)
+        await pipe.execute()
+        log.info("notify.queued user=%s event=%s (offline)", user_id, notification.event_id)
+    else:
+        log.info("notify.delivered user=%s event=%s subscribers=%d",
+                 user_id, notification.event_id, subscriber_count)
+
     return {
         "user_id": user_id,
         "subscriber_count": subscriber_count,
+        "queued": subscriber_count == 0,
         "status": "published",
     }

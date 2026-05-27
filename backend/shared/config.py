@@ -24,6 +24,11 @@ EVENT_IDEMPOTENCY_PREFIX = os.getenv(
 EVENT_IDEMPOTENCY_TTL_SECONDS = int(
     os.getenv("EVENT_IDEMPOTENCY_TTL_SECONDS", "300"),
 )
+EVENT_HISTORY_KEY = os.getenv(
+    "EVENT_HISTORY_KEY",
+    "realtime_map_notice:events:history",
+)
+EVENT_HISTORY_MAX = int(os.getenv("EVENT_HISTORY_MAX", "100"))
 CORS_ALLOW_ORIGINS = [
     origin.strip()
     for origin in os.getenv(

@@ -1,13 +1,17 @@
 import asyncio
+import json
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 
 from backend.shared.config import (
+    EVENT_HISTORY_KEY,
+    EVENT_HISTORY_MAX,
     EVENT_IDEMPOTENCY_PREFIX,
     EVENT_IDEMPOTENCY_TTL_SECONDS,
     NOTIFICATION_FANOUT_CONCURRENCY,
@@ -16,7 +20,7 @@ from backend.shared.config import (
 )
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
-from backend.shared.schemas import EventCreate, EventNotification
+from backend.shared.schemas import EventCreate, EventNotification, EventRecord
 
 NOTIFICATION_SERVICE_URL = os.getenv(
     "NOTIFICATION_SERVICE_URL",
@@ -113,6 +117,15 @@ async def deliver_notification_with_limit(
         return await deliver_notification(client, user_id, notification)
 
 
+async def persist_event(redis, record: EventRecord) -> None:
+    """存事件到 Redis LIST，保留最近 EVENT_HISTORY_MAX 筆"""
+    pipe = redis.pipeline()
+    pipe.lpush(EVENT_HISTORY_KEY, record.model_dump_json())
+    pipe.ltrim(EVENT_HISTORY_KEY, 0, EVENT_HISTORY_MAX - 1)
+    await pipe.execute()
+    log.debug("event.persisted event_id=%s", record.event_id)
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     redis = app.state.redis
@@ -122,6 +135,20 @@ async def healthz() -> dict[str, str]:
     except Exception:
         log.exception("healthz: Redis ping failed")
         raise
+
+
+@app.get("/events")
+async def list_events(
+    limit: int = Query(default=50, ge=1, le=100),
+) -> list[EventRecord]:
+    """取得最近的事件歷史（最新在前）"""
+    redis = app.state.redis
+    raw_events = await redis.lrange(EVENT_HISTORY_KEY, 0, limit - 1)
+    events = []
+    for raw in raw_events:
+        with suppress(json.JSONDecodeError, ValueError):
+            events.append(EventRecord.model_validate_json(raw))
+    return events
 
 
 @app.post("/events")
@@ -143,8 +170,20 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
             "status": "duplicate",
         }
 
+    created_at = datetime.now(UTC).isoformat()
     log.info("event.create event_id=%s title=%q severity=%s radius=%dm",
              event_id, payload.title, payload.severity, payload.radius_meters)
+
+    # 持久化事件
+    await persist_event(redis, EventRecord(
+        event_id=event_id,
+        title=payload.title,
+        message=payload.message,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        severity=payload.severity,
+        created_at=created_at,
+    ))
 
     nearby_users = await redis.geosearch(
         USER_LOCATION_KEY,

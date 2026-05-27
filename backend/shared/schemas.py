@@ -30,3 +30,14 @@ class EventNotification(BaseModel):
     longitude: float
     severity: Literal["info", "urgent"]
     distance_meters: float | None = None
+
+
+class EventRecord(BaseModel):
+    """持久化的事件記錄，用於歷史查詢"""
+    event_id: str
+    title: str
+    message: str
+    latitude: float
+    longitude: float
+    severity: Literal["info", "urgent"]
+    created_at: str

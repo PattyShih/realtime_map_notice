@@ -1,6 +1,7 @@
 ﻿import type { EventNotification } from "../types/api";
 
-const WS_BASE = import.meta.env.VITE_NOTIFICATION_WS_URL ?? "ws://localhost:8003";
+const WS_BASE = import.meta.env.VITE_NOTIFICATION_WS_URL
+  ?? `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
 
 type NotificationCallback = (notification: EventNotification) => void;
 type WebSocketControlMessage = { type: "ping" | "pong" };

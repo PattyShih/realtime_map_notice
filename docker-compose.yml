@@ -10,7 +10,7 @@ services:
       dockerfile: backend/location-service/Dockerfile
     environment:
       REDIS_URL: redis://redis:6379/0
-      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000,https://map.avision-gb10.org
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000,https://map.avision-gb10.org,https://map2.avision-gb10.org
     ports:
       - "8001:8000"
     depends_on:
@@ -26,7 +26,7 @@ services:
       NOTIFICATION_FANOUT_CONCURRENCY: 100
       EVENT_IDEMPOTENCY_PREFIX: realtime_map_notice:event:idempotency
       EVENT_IDEMPOTENCY_TTL_SECONDS: 300
-      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000,https://map.avision-gb10.org
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000,https://map.avision-gb10.org,https://map2.avision-gb10.org
     ports:
       - "8002:8000"
     depends_on:
@@ -39,8 +39,19 @@ services:
       dockerfile: backend/notification-service/Dockerfile
     environment:
       REDIS_URL: redis://redis:6379/0
-      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000,https://map.avision-gb10.org
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000,https://map.avision-gb10.org,https://map2.avision-gb10.org
     ports:
       - "8003:8000"
     depends_on:
       - redis
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "8090:8080"
+    depends_on:
+      - location-service
+      - event-service
+      - notification-service
