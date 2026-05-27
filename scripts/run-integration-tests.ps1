@@ -47,7 +47,7 @@ try {
     Remove-Item Env:\RUN_CROSS_SERVICE_TESTS -ErrorAction SilentlyContinue
     if (-not $KeepRunning -and -not $SkipComposeUp) {
         Write-Host "Stopping Docker Compose services..."
-        docker compose down | Out-Host
+        docker compose down --remove-orphans | Out-Host
     }
 }
 
