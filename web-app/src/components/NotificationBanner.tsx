@@ -15,13 +15,13 @@ export default function NotificationBanner({
     <div className={`notification-banner notification-${notification.severity}`}>
       <div className="notification-content">
         <span className="notification-badge">
-          {notification.severity === "urgent" ? "URGENT" : "INFO"}
+          {notification.severity === "urgent" ? "緊急" : "一般"}
         </span>
         <div>
           <strong>{notification.title}</strong>
           <p>{notification.message}</p>
           {notification.distance_meters != null && (
-            <small>{Math.round(notification.distance_meters)}m from you</small>
+            <small>距離你 {Math.round(notification.distance_meters)} 公尺</small>
           )}
         </div>
       </div>
@@ -31,10 +31,10 @@ export default function NotificationBanner({
             onView(notification.latitude, notification.longitude)
           }
         >
-          View
+          查看
         </button>
         <button onClick={onDismiss} className="dismiss-btn">
-          Dismiss
+          略過
         </button>
       </div>
     </div>

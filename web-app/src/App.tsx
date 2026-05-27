@@ -1,4 +1,4 @@
-﻿import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import MapView from "./components/MapView";
 import EventForm from "./components/EventForm";
 import NotificationBanner from "./components/NotificationBanner";
@@ -84,7 +84,7 @@ export default function App() {
       try {
         const result = await createEvent(event);
         setStatusMsg(
-          `Event posted! Delivered to ${result.delivered_count} nearby user(s).`,
+          `事件已發布！已推送給 ${result.delivered_count} 位附近使用者。`,
         );
         setLocalEvents((prev) => [
           {
@@ -99,7 +99,7 @@ export default function App() {
         setShowForm(false);
         setPendingLocation(null);
       } catch {
-        setFormError("Failed to create event. Is the backend running?");
+        setFormError("事件發布失敗。請確認後端服務是否運行中。");
       } finally {
         setSubmitting(false);
       }
@@ -127,16 +127,16 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Status bar */}
+      {/* 狀態列 */}
       <div className="status-bar">
         <span className={`connection-dot ${connected ? "connected" : "disconnected"}`} />
-        <span>{connected ? "Live" : "Disconnected"}</span>
+        <span>{connected ? "即時連線中" : "已斷線"}</span>
         {geolocation.error && (
-          <span className="geo-warning">GPS: {geolocation.error}</span>
+          <span className="geo-warning">GPS：{geolocation.error}</span>
         )}
       </div>
 
-      {/* Map */}
+      {/* 地圖 */}
       <MapView
         userLocation={
           geolocation.latitude !== null && geolocation.longitude !== null
@@ -152,7 +152,7 @@ export default function App() {
         focusLocation={focusLocation}
       />
 
-      {/* Event form modal */}
+      {/* 事件表單 */}
       {showForm && pendingLocation && (
         <EventForm
           latitude={pendingLocation.latitude}
@@ -163,15 +163,15 @@ export default function App() {
         />
       )}
 
-      {/* Form error */}
+      {/* 表單錯誤 */}
       {formError && (
         <div className="form-error-banner">
           <span>{formError}</span>
-          <button onClick={() => setFormError(null)}>Dismiss</button>
+          <button onClick={() => setFormError(null)}>關閉</button>
         </div>
       )}
 
-      {/* Notification banners */}
+      {/* 通知橫幅 */}
       {activeNotifications.map((n) => (
         <NotificationBanner
           key={n.event_id}
@@ -183,7 +183,7 @@ export default function App() {
         />
       ))}
 
-      {/* Status message toast */}
+      {/* 狀態訊息 */}
       {statusMsg && (
         <div className="toast" onClick={() => setStatusMsg(null)}>
           {statusMsg}

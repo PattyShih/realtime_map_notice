@@ -116,7 +116,7 @@ export default function MapView({
       {/* User location marker */}
       {userLocation && (
         <Marker position={[userLocation.latitude, userLocation.longitude]}>
-          <Popup>You are here</Popup>
+          <Popup>你的位置</Popup>
         </Marker>
       )}
 
@@ -136,7 +136,7 @@ export default function MapView({
             <strong>{event.title}</strong>
             <p>{event.message}</p>
             {event.distance_meters != null && (
-              <small>{Math.round(event.distance_meters)}m away</small>
+              <small>距離 {Math.round(event.distance_meters)} 公尺</small>
             )}
           </Popup>
         </Marker>

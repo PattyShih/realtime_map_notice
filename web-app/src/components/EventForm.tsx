@@ -41,29 +41,29 @@ export default function EventForm({
   return (
     <div className="event-form-overlay">
       <form className="event-form" onSubmit={handleSubmit}>
-        <h3>Post an Event</h3>
+        <h3>發布事件</h3>
         <p className="form-location">
-          at {latitude.toFixed(5)}, {longitude.toFixed(5)}
+          座標：{latitude.toFixed(5)}, {longitude.toFixed(5)}
         </p>
 
         <label>
-          Title
+          標題
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Library 3F has seats"
+            placeholder="例：圖書館 3 樓有空位"
             required
             maxLength={80}
           />
         </label>
 
         <label>
-          Message
+          描述
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="Brief description..."
+            placeholder="簡短描述..."
             required
             maxLength={200}
             rows={3}
@@ -71,20 +71,20 @@ export default function EventForm({
         </label>
 
         <label>
-          Severity
+          嚴重程度
           <select
             value={severity}
             onChange={(e) =>
               setSeverity(e.target.value as "info" | "urgent")
             }
           >
-            <option value="info">Info — general notice</option>
-            <option value="urgent">Urgent — needs attention</option>
+            <option value="info">一般 — 一般通知</option>
+            <option value="urgent">緊急 — 需要注意</option>
           </select>
         </label>
 
         <label>
-          Notify Radius: {radiusMeters}m
+          通知範圍：{radiusMeters} 公尺
           <div className="radius-slider-row">
             <span>100</span>
             <input
@@ -102,10 +102,10 @@ export default function EventForm({
 
         <div className="form-actions">
           <button type="submit" disabled={submitting}>
-            {submitting ? "Posting..." : "Post Event"}
+            {submitting ? "發布中..." : "發布事件"}
           </button>
           <button type="button" onClick={onCancel} className="cancel-btn">
-            Cancel
+            取消
           </button>
         </div>
       </form>
