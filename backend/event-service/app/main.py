@@ -14,7 +14,6 @@ from backend.shared.config import (
     EVENT_HISTORY_MAX,
     EVENT_IDEMPOTENCY_PREFIX,
     EVENT_IDEMPOTENCY_TTL_SECONDS,
-    NOTIFICATION_FANOUT_CONCURRENCY,
     USER_LAST_SEEN_PREFIX,
     USER_LOCATION_KEY,
 )
@@ -22,12 +21,10 @@ from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import Comment, CommentCreate, EventCreate, EventNotification, EventRecord
 
-NOTIFICATION_SERVICE_URL = os.getenv(
-    "NOTIFICATION_SERVICE_URL",
-    "http://localhost:8003",
-)
-
 log = logging.getLogger(__name__)
+
+# Redis channel: event-service 發布新事件，notification-service 訂閱
+EVENT_FANOUT_CHANNEL = "realtime_map_notice:events:fanout"
 
 
 # ── Lifespan ──────────────────────────────────────────────
@@ -42,7 +39,7 @@ async def lifespan(app: FastAPI):
     log.info("event-service shutting down")
 
 
-app = FastAPI(title="realtime_map_notice Event Service", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="realtime_map_notice Event Service", version="0.3.0", lifespan=lifespan)
 configure_cors(app)
 
 
@@ -70,23 +67,6 @@ async def reserve_event_idempotency(
 
     existing_event_id = await redis.get(key)
     return existing_event_id or event_id
-
-
-async def filter_active_nearby_users(
-    redis,
-    nearby_users: list[tuple[str, float]],
-) -> list[tuple[str, float]]:
-    if not nearby_users:
-        return []
-
-    last_seen_values = await redis.mget(
-        [f"{USER_LAST_SEEN_PREFIX}:{user_id}" for user_id, _ in nearby_users],
-    )
-    return [
-        nearby_user
-        for nearby_user, last_seen in zip(nearby_users, last_seen_values)
-        if last_seen is not None
-    ]
 
 
 async def persist_event(redis, record: EventRecord) -> None:
@@ -135,7 +115,7 @@ async def list_events(
 
 @app.post("/events")
 async def create_event(payload: EventCreate) -> dict[str, object]:
-    """建立事件 — 持久化後立即回傳，fanout 背景執行"""
+    """建立事件 — 持久化 + Redis PUBLISH，不做 HTTP fanout"""
     redis = app.state.redis
     event_id = str(uuid4())
     duplicate_event_id = await reserve_event_idempotency(
@@ -147,9 +127,6 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         log.info("event.duplicate client_event_id=%s existing_event_id=%s", payload.client_event_id, duplicate_event_id)
         return {
             "event_id": duplicate_event_id,
-            "nearby_user_count": 0,
-            "delivered_count": 0,
-            "delivered_to": [],
             "status": "duplicate",
         }
 
@@ -170,58 +147,25 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         expires_at=expires_at,
     ))
 
-    # 查詢附近使用者 + fanout 推送
-    nearby_users = await redis.geosearch(
-        USER_LOCATION_KEY,
-        longitude=payload.longitude,
+    # 發布到 Redis channel（notification-service 會訂閱並做 geosearch + 推播）
+    fanout_msg = EventNotification(
+        event_id=event_id,
+        title=payload.title,
+        message=payload.message,
         latitude=payload.latitude,
-        radius=payload.radius_meters,
-        unit="m",
-        withdist=True,
-    )
-    active_nearby_users = await filter_active_nearby_users(redis, nearby_users)
+        longitude=payload.longitude,
+        severity=payload.severity,
+        distance_meters=0,  # notification-service 會重算
+        expires_at=expires_at,
+    ).model_dump_json()
 
-    client: httpx.AsyncClient = app.state.http
-    semaphore = asyncio.Semaphore(NOTIFICATION_FANOUT_CONCURRENCY)
-
-    async def _deliver(user_id: str, distance: float) -> str | None:
-        async with semaphore:
-            try:
-                r = await client.post(
-                    f"{NOTIFICATION_SERVICE_URL}/notify/{user_id}",
-                    json=EventNotification(
-                        event_id=event_id,
-                        title=payload.title,
-                        message=payload.message,
-                        latitude=payload.latitude,
-                        longitude=payload.longitude,
-                        severity=payload.severity,
-                        distance_meters=float(distance),
-                    ).model_dump(),
-                )
-                r.raise_for_status()
-                return user_id
-            except httpx.HTTPError:
-                return None
-
-    delivery_results = await asyncio.gather(*(
-        _deliver(uid, dist) for uid, dist in active_nearby_users
-    ))
-    delivered_to = [uid for uid in delivery_results if uid is not None]
-
-    failed_count = len(active_nearby_users) - len(delivered_to)
-    if failed_count:
-        log.warning("fanout.partial event_id=%s delivered=%d failed=%d",
-                    event_id, len(delivered_to), failed_count)
-    log.info("event.complete event_id=%s nearby=%d delivered=%d",
-             event_id, len(active_nearby_users), len(delivered_to))
+    subscriber_count = await redis.publish(EVENT_FANOUT_CHANNEL, fanout_msg)
+    log.info("event.fanout_published event_id=%s subscribers=%d", event_id, subscriber_count)
 
     return {
         "event_id": event_id,
-        "nearby_user_count": len(active_nearby_users),
-        "delivered_count": len(delivered_to),
-        "delivered_to": delivered_to[:20],
         "status": "created",
+        "fanout_subscribers": subscriber_count,
     }
 
 
