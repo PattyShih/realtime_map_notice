@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>即時校園地圖通知系統 — 系統架構圖</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+
+    .container { max-width: 1300px; margin: 0 auto; }
+
+    .header { margin-bottom: 2rem; }
+
+    .header-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .pulse-dot {
+      width: 12px; height: 12px;
+      background: #22d3ee;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+
+    .subtitle {
+      color: #94a3b8;
+      font-size: 0.875rem;
+      margin-left: 1.75rem;
+    }
+
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+
+    svg { width: 100%; min-width: 1100px; display: block; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.75rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan    { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet  { background: #a78bfa; }
+    .card-dot.amber   { background: #fbbf24; }
+    .card-dot.rose    { background: #fb7185; }
+    .card-dot.orange  { background: #fb923c; }
+
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+
+    .footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      color: #475569;
+      font-size: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- ========== Header ========== -->
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>即時校園地圖通知系統 — 系統架構</h1>
+      </div>
+      <p class="subtitle">Real-Time Campus Map Notification System · WebSocket + Redis GEO + Pub/Sub</p>
+    </div>
+
+    <!-- ========== Main Diagram ========== -->
+    <div class="diagram-container">
+      <svg viewBox="0 0 1200 860">
+
+        <!-- ===== Definitions ===== -->
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+          </marker>
+          <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+          </marker>
+          <marker id="arrow-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+          </marker>
+          <marker id="arrow-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa"/>
+          </marker>
+          <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fb923c"/>
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)"/>
+
+        <!-- ============================================================
+             BOUNDARY: 內部伺服器叢集 (Internal Server Cluster)
+             ============================================================ -->
+        <rect x="180" y="30" width="990" height="580" rx="12"
+              fill="rgba(120, 53, 15, 0.04)" stroke="#fbbf24"
+              stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="194" y="52" fill="#fbbf24" font-size="10" font-weight="600">
+          🖥 內部伺服器叢集 · DGX Spark (192.168.x.x)
+        </text>
+
+        <!-- ============================================================
+             BOUNDARY: 服務層 (Service Layer)
+             ============================================================ -->
+        <rect x="200" y="180" width="680" height="170" rx="8"
+              fill="transparent" stroke="#34d399"
+              stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="212" y="196" fill="#34d399" font-size="8">服務層 · Gunicorn Workers</text>
+
+        <!-- ============================================================
+             ARROWS (drawn first so components render on top)
+             ============================================================ -->
+
+        <!-- Cloudflare → nginx -->
+        <path d="M 130 115 L 130 200 Q 130 220 150 220 L 268 220"
+              fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <text x="190" y="212" fill="#fbbf24" font-size="8" text-anchor="middle">map2.avision-gb10.org</text>
+
+        <!-- Browser → nginx (HTTP) -->
+        <line x1="130" y1="430" x2="268" y2="290"
+              stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <text x="178" y="370" fill="#94a3b8" font-size="8" transform="rotate(-35, 178, 370)">HTTP :8095</text>
+
+        <!-- Browser → nginx (WebSocket) -->
+        <line x1="160" y1="430" x2="280" y2="300"
+              stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-cyan)"/>
+        <text x="240" y="380" fill="#22d3ee" font-size="7" transform="rotate(-30, 240, 380)">WSS /ws/*</text>
+
+        <!-- nginx → Location Service -->
+        <path d="M 380 240 L 380 290 Q 380 310 400 310 L 418 310"
+              fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <text x="395" y="280" fill="#94a3b8" font-size="7">/api/location</text>
+
+        <!-- nginx → Event Service -->
+        <path d="M 380 260 L 380 360 Q 380 380 400 380 L 418 380"
+              fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <text x="395" y="346" fill="#94a3b8" font-size="7">/api/events</text>
+
+        <!-- Location Service → Redis (GEO) -->
+        <line x1="570" y1="310" x2="838" y2="240"
+              stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+        <text x="710" y="265" fill="#a78bfa" font-size="7">GEOADD</text>
+
+        <!-- Event Service → Redis (LIST + Pub/Sub) -->
+        <line x1="570" y1="380" x2="838" y2="300"
+              stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+        <text x="680" y="348" fill="#94a3b8" font-size="7">LPUSH + PUBLISH event_channel</text>
+
+        <!-- Redis Pub/Sub → Notification Service (subscribe) -->
+        <path d="M 940 370 L 940 460 Q 940 480 920 480 L 770 480 Q 750 480 750 500 L 750 540"
+              fill="none" stroke="#fb923c" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-orange)"/>
+        <text x="950" y="420" fill="#fb923c" font-size="7">SUBSCRIBE</text>
+        <text x="950" y="432" fill="#fb923c" font-size="7">event_channel</text>
+
+        <!-- Notification → Redis GEOSEARCH (query back) -->
+        <line x1="850" y1="560" x2="860" y2="370"
+              stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arrow-violet)"/>
+        <text x="870" y="470" fill="#a78bfa" font-size="7">GEOSEARCH</text>
+
+        <!-- Notification → Browser (WebSocket push) -->
+        <path d="M 630 560 L 200 560 Q 180 560 180 540 L 180 460 Q 180 440 160 440 L 160 440"
+              fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+        <text x="400" y="552" fill="#22d3ee" font-size="8" font-weight="600">WebSocket 推播通知</text>
+
+        <!-- Offline queue arrow (Redis LIST → Notification → Browser) -->
+        <path d="M 838 340 L 770 510 Q 760 530 740 530 L 640 530"
+              fill="none" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="740" y="490" fill="#a78bfa" font-size="7">離線佇列</text>
+
+        <!-- nginx → Notification (WebSocket upgrade proxy) -->
+        <path d="M 320 300 L 320 540 Q 320 560 340 560 L 628 560"
+              fill="none" stroke="#34d399" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrow-emerald)"/>
+        <text x="280" y="500" fill="#34d399" font-size="7">/ws/notify</text>
+
+        <!-- ============================================================
+             COMPONENTS
+             ============================================================ -->
+
+        <!-- ===== Cloudflare Tunnel (External) ===== -->
+        <rect x="30" y="70" width="200" height="80" rx="6"
+              fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="130" y="95" fill="white" font-size="12" font-weight="600" text-anchor="middle">Cloudflare Tunnel</text>
+        <text x="130" y="113" fill="#94a3b8" font-size="9" text-anchor="middle">map2.avision-gb10.org</text>
+        <text x="130" y="130" fill="#fbbf24" font-size="8" text-anchor="middle">→ localhost:8095</text>
+        <text x="130" y="143" fill="#fbbf24" font-size="7" text-anchor="middle">TLS 終端 · DDoS 防護</text>
+
+        <!-- ===== Browser (Frontend) ===== -->
+        <rect x="40" y="390" width="200" height="130" rx="8"
+              fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <!-- opaque bg mask -->
+        <rect x="40" y="390" width="200" height="130" rx="8"
+              fill="#0f172a"/>
+        <rect x="40" y="390" width="200" height="130" rx="8"
+              fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="140" y="416" fill="white" font-size="12" font-weight="600" text-anchor="middle">🌐 瀏覽器</text>
+        <text x="140" y="436" fill="#94a3b8" font-size="9" text-anchor="middle">React + Leaflet 地圖</text>
+        <text x="140" y="454" fill="#94a3b8" font-size="8" text-anchor="middle">• GPS 定位 (Geolocation API)</text>
+        <text x="140" y="468" fill="#94a3b8" font-size="8" text-anchor="middle">• WebSocket 即時接收</text>
+        <text x="140" y="482" fill="#94a3b8" font-size="8" text-anchor="middle">• 事件回報表單</text>
+        <text x="140" y="502" fill="#22d3ee" font-size="7" text-anchor="middle">斷線重連 · 離線佇列重播</text>
+
+        <!-- ===== nginx ===== -->
+        <rect x="270" y="210" width="140" height="90" rx="6"
+              fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <rect x="270" y="210" width="140" height="90" rx="6" fill="#0f172a"/>
+        <rect x="270" y="210" width="140" height="90" rx="6"
+              fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="340" y="235" fill="white" font-size="12" font-weight="600" text-anchor="middle">nginx</text>
+        <text x="340" y="255" fill="#94a3b8" font-size="9" text-anchor="middle">反向代理 :8080→:8095</text>
+        <text x="340" y="272" fill="#34d399" font-size="8" text-anchor="middle">/api/* → 後端服務</text>
+        <text x="340" y="286" fill="#34d399" font-size="8" text-anchor="middle">/ws/* → WebSocket 升級</text>
+
+        <!-- ===== Location Service ===== -->
+        <rect x="420" y="280" width="150" height="60" rx="6"
+              fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <rect x="420" y="280" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="420" y="280" width="150" height="60" rx="6"
+              fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="495" y="304" fill="white" font-size="11" font-weight="600" text-anchor="middle">📍 定位服務</text>
+        <text x="495" y="322" fill="#94a3b8" font-size="9" text-anchor="middle">Location Service</text>
+        <text x="495" y="336" fill="#34d399" font-size="8" text-anchor="middle">:8001 · gunicorn × 4</text>
+
+        <!-- ===== Event Service ===== -->
+        <rect x="420" y="355" width="150" height="60" rx="6"
+              fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <rect x="420" y="355" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="420" y="355" width="150" height="60" rx="6"
+              fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="495" y="379" fill="white" font-size="11" font-weight="600" text-anchor="middle">📋 事件服務</text>
+        <text x="495" y="397" fill="#94a3b8" font-size="9" text-anchor="middle">Event Service</text>
+        <text x="495" y="411" fill="#34d399" font-size="8" text-anchor="middle">:8002 · gunicorn × 4</text>
+
+        <!-- ===== Redis 7 ===== -->
+        <rect x="840" y="200" width="170" height="170" rx="6"
+              fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <rect x="840" y="200" width="170" height="170" rx="6" fill="#0f172a"/>
+        <rect x="840" y="200" width="170" height="170" rx="6"
+              fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="925" y="226" fill="white" font-size="13" font-weight="700" text-anchor="middle">⚡ Redis 7</text>
+        <text x="925" y="248" fill="#a78bfa" font-size="9" text-anchor="middle">GEO 資料</text>
+        <text x="925" y="264" fill="#94a3b8" font-size="8" text-anchor="middle">• GEOADD / GEOSEARCH</text>
+        <text x="925" y="280" fill="#a78bfa" font-size="9" text-anchor="middle">LIST 資料結構</text>
+        <text x="925" y="296" fill="#94a3b8" font-size="8" text-anchor="middle">• 事件持久化 · 評論</text>
+        <text x="925" y="310" fill="#94a3b8" font-size="8" text-anchor="middle">• 離線通知佇列</text>
+        <text x="925" y="328" fill="#a78bfa" font-size="9" text-anchor="middle">Pub/Sub 頻道</text>
+        <text x="925" y="344" fill="#94a3b8" font-size="8" text-anchor="middle">• event_channel</text>
+        <text x="925" y="362" fill="#a78bfa" font-size="7" text-anchor="middle">單機 · 記憶體內運算</text>
+
+        <!-- ===== Notification Service ===== -->
+        <rect x="630" y="530" width="190" height="70" rx="6"
+              fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <rect x="630" y="530" width="190" height="70" rx="6" fill="#0f172a"/>
+        <rect x="630" y="530" width="190" height="70" rx="6"
+              fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="725" y="556" fill="white" font-size="11" font-weight="600" text-anchor="middle">🔔 通知服務</text>
+        <text x="725" y="574" fill="#94a3b8" font-size="9" text-anchor="middle">Notification Service</text>
+        <text x="725" y="590" fill="#34d399" font-size="8" text-anchor="middle">:8003 · gunicorn × 1</text>
+
+        <!-- ============================================================
+             FLOW ANNOTATIONS
+             ============================================================ -->
+
+        <!-- Flow 1: GPS 上傳 -->
+        <rect x="510" y="74" width="14" height="14" rx="7" fill="rgba(34, 211, 238, 0.2)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="517" y="84" fill="#22d3ee" font-size="8" font-weight="700" text-anchor="middle">1</text>
+        <text x="532" y="84" fill="#94a3b8" font-size="8">GPS 座標上傳 → 定位服務 → Redis GEO</text>
+
+        <!-- Flow 2: 事件建立 -->
+        <rect x="510" y="94" width="14" height="14" rx="7" fill="rgba(52, 211, 153, 0.2)" stroke="#34d399" stroke-width="1"/>
+        <text x="517" y="104" fill="#34d399" font-size="8" font-weight="700" text-anchor="middle">2</text>
+        <text x="532" y="104" fill="#94a3b8" font-size="8">事件建立 → Redis LIST + PUBLISH event_channel</text>
+
+        <!-- Flow 3: 通知推播 -->
+        <rect x="510" y="114" width="14" height="14" rx="7" fill="rgba(251, 146, 60, 0.2)" stroke="#fb923c" stroke-width="1"/>
+        <text x="517" y="124" fill="#fb923c" font-size="8" font-weight="700" text-anchor="middle">3</text>
+        <text x="532" y="124" fill="#94a3b8" font-size="8">通知服務訂閱 → GEOSEARCH → WebSocket 推播</text>
+
+        <!-- Flow 4: 離線佇列 -->
+        <rect x="510" y="134" width="14" height="14" rx="7" fill="rgba(167, 139, 250, 0.2)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="517" y="144" fill="#a78bfa" font-size="8" font-weight="700" text-anchor="middle">4</text>
+        <text x="532" y="144" fill="#94a3b8" font-size="8">離線通知 → Redis LIST 佇列 → 重連後重播</text>
+
+        <!-- ============================================================
+             LEGEND
+             ============================================================ -->
+        <text x="30" y="660" fill="white" font-size="10" font-weight="600">圖例 Legend</text>
+
+        <rect x="30" y="672" width="16" height="10" rx="2"
+              fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="52" y="681" fill="#94a3b8" font-size="8">前端 Frontend</text>
+
+        <rect x="150" y="672" width="16" height="10" rx="2"
+              fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="172" y="681" fill="#94a3b8" font-size="8">後端 Backend</text>
+
+        <rect x="280" y="672" width="16" height="10" rx="2"
+              fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="302" y="681" fill="#94a3b8" font-size="8">資料庫 Database</text>
+
+        <rect x="420" y="672" width="16" height="10" rx="2"
+              fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="442" y="681" fill="#94a3b8" font-size="8">外部服務 External</text>
+
+        <rect x="580" y="672" width="16" height="10" rx="2"
+              fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
+        <text x="602" y="681" fill="#94a3b8" font-size="8">訊息匯流排 Message Bus</text>
+
+        <line x1="750" y1="677" x2="780" y2="677" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="5,3"/>
+        <text x="786" y="681" fill="#94a3b8" font-size="8">WebSocket 連線</text>
+
+        <line x1="910" y1="677" x2="940" y2="677" stroke="#64748b" stroke-width="1.5"/>
+        <text x="946" y="681" fill="#94a3b8" font-size="8">HTTP / API 呼叫</text>
+
+        <!-- ============================================================
+             Technology Stack Badge Row
+             ============================================================ -->
+        <rect x="30" y="700" width="80" height="20" rx="10" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="70" y="714" fill="#22d3ee" font-size="7" text-anchor="middle">React</text>
+
+        <rect x="118" y="700" width="80" height="20" rx="10" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="158" y="714" fill="#22d3ee" font-size="7" text-anchor="middle">Leaflet</text>
+
+        <rect x="206" y="700" width="80" height="20" rx="10" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="246" y="714" fill="#34d399" font-size="7" text-anchor="middle">FastAPI</text>
+
+        <rect x="294" y="700" width="80" height="20" rx="10" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="334" y="714" fill="#34d399" font-size="7" text-anchor="middle">Gunicorn</text>
+
+        <rect x="382" y="700" width="80" height="20" rx="10" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="422" y="714" fill="#a78bfa" font-size="7" text-anchor="middle">Redis 7</text>
+
+        <rect x="470" y="700" width="80" height="20" rx="10" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="510" y="714" fill="#34d399" font-size="7" text-anchor="middle">nginx</text>
+
+        <rect x="558" y="700" width="80" height="20" rx="10" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="598" y="714" fill="#fbbf24" font-size="7" text-anchor="middle">Cloudflare</text>
+
+        <rect x="646" y="700" width="100" height="20" rx="10" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
+        <text x="696" y="714" fill="#fb923c" font-size="7" text-anchor="middle">WebSocket</text>
+
+        <!-- Port mapping summary -->
+        <text x="30" y="748" fill="#475569" font-size="7">Port 對應 :8080 (外部) → :8095 (nginx) → :8001 (定位) · :8002 (事件) · :8003 (通知) | Redis :6379</text>
+
+      </svg>
+    </div>
+
+    <!-- ========== Info Cards ========== -->
+    <div class="cards">
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>🌐 前端架構 Frontend</h3>
+        </div>
+        <ul>
+          <li>• React + Leaflet 互動式校園地圖</li>
+          <li>• GPS 定位 (Geolocation API)</li>
+          <li>• WebSocket 即時通知接收</li>
+          <li>• 事件回報表單 (事件/活動/公告)</li>
+          <li>• 斷線自動重連 + 離線佇列重播</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>⚙️ 後端服務 Backend</h3>
+        </div>
+        <ul>
+          <li>• 定位服務 :8001 — GPS 座標 → Redis GEO</li>
+          <li>• 事件服務 :8002 — 建立事件 → Redis LIST + Pub/Sub</li>
+          <li>• 通知服務 :8003 — 訂閱頻道 → GEOSEARCH → WS 推播</li>
+          <li>• nginx 反向代理 :8080→:8095 路由分發</li>
+          <li>• Gunicorn 多 Worker 併發處理</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>⚡ 資料層 Data Layer</h3>
+        </div>
+        <ul>
+          <li>• Redis GEO — 使用者即時位置儲存與查詢</li>
+          <li>• Redis LIST — 事件持久化、評論、離線佇列</li>
+          <li>• Redis Pub/Sub — event_channel 即時事件廣播</li>
+          <li>• GEOSEARCH 附近使用者匹配</li>
+          <li>• 記憶體內運算，微秒級延遲</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>☁️ 外部服務 External</h3>
+        </div>
+        <ul>
+          <li>• Cloudflare Tunnel — 安全通道連線</li>
+          <li>• map2.avision-gb10.org 自訂域名</li>
+          <li>• TLS 加密終端 · DDoS 防護</li>
+          <li>• 無需開放本地端口</li>
+          <li>• 自動 HTTPS 憑證管理</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot orange"></div>
+          <h3>📡 即時通訊 Real-Time</h3>
+        </div>
+        <ul>
+          <li>• WebSocket 雙向即時通訊</li>
+          <li>• Pub/Sub 解耦：事件服務 ↔ 通知服務</li>
+          <li>• GEOSEARCH 半徑內使用者篩選</li>
+          <li>• 離線通知自動佇列排程</li>
+          <li>• 重連後無縫重播未讀通知</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot rose"></div>
+          <h3>🔒 安全與部署 Security</h3>
+        </div>
+        <ul>
+          <li>• Cloudflare TLS 加密傳輸</li>
+          <li>• nginx 作為統一入口閘道</li>
+          <li>• Docker Compose 容器化部署</li>
+          <li>• 內部服務不對外暴露端口</li>
+          <li>• DGX Spark 邊緣運算部署</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <!-- ========== Footer ========== -->
+    <p class="footer">
+      即時校園地圖通知系統 · 畢業專題 Capstone Project · 2026 · DGX Spark + Redis 7 + React + FastAPI
+    </p>
+
+  </div>
+</body>
+</html>
