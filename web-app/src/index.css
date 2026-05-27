@@ -358,6 +358,12 @@ html, body, #root {
   height: 100%;
   width: 100%;
   z-index: 0;
+  cursor: grab;
+}
+
+/* Picking mode cursor */
+.picking-mode .leaflet-container {
+  cursor: crosshair !important;
 }
 
 /* Urgent marker — red tint via filter */
@@ -368,4 +374,142 @@ html, body, #root {
 /* Info marker — blue tint */
 .info-marker {
   filter: hue-rotate(200deg) saturate(1.5);
+}
+
+/* === FAB (Floating Action Button) === */
+.fab {
+  position: absolute;
+  bottom: 32px;
+  right: 20px;
+  z-index: 1000;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.4);
+  transition: transform 0.15s, box-shadow 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fab:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+}
+.fab:active {
+  transform: scale(0.95);
+}
+
+/* === Picker panel overlay === */
+.picker-panel-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1002;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 100px;
+}
+.picker-panel {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  width: 90%;
+  max-width: 340px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.picker-panel h4 {
+  font-size: 16px;
+  text-align: center;
+  margin-bottom: 4px;
+}
+.picker-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fafafa;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.picker-option:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.picker-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.picker-option strong {
+  display: block;
+  font-size: 14px;
+  color: #1f2937;
+}
+.picker-option p {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+.picker-cancel {
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 14px;
+  cursor: pointer;
+}
+.picker-cancel:hover {
+  background: #e5e7eb;
+}
+
+/* === Picking mode hint === */
+.picking-hint {
+  position: absolute;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background: #1f2937;
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  animation: fadeIn 0.25s ease-out;
+}
+.picking-hint button {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.picking-hint button:hover {
+  background: rgba(255, 255, 255, 0.3);
 }

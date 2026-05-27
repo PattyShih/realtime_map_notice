@@ -10,6 +10,8 @@ import type { EventCreate } from "./types/api";
 
 const USER_ID = `u-${Date.now()}`;
 
+type PickerMode = "idle" | "choosing" | "picking";
+
 export default function App() {
   const geolocation = useGeolocation();
   const {
@@ -18,6 +20,7 @@ export default function App() {
     events: wsEvents,
   } = useNotificationSocket(USER_ID);
 
+  const [pickerMode, setPickerMode] = useState<PickerMode>("idle");
   const [showForm, setShowForm] = useState(false);
   const [pendingLocation, setPendingLocation] = useState<{
     latitude: number;
@@ -32,12 +35,10 @@ export default function App() {
     longitude: number;
   } | null>(null);
 
-  // Local events (created by this user via the form)
   const [localEvents, setLocalEvents] = useState<
     { id: string; title: string; latitude: number; longitude: number; severity: string }[]
   >([]);
 
-  // Combine ws events + local events for map display
   const allEvents = [
     ...wsEvents,
     ...localEvents.map((e) => ({
@@ -60,21 +61,44 @@ export default function App() {
           user_id: USER_ID,
           latitude: geolocation.latitude,
           longitude: geolocation.longitude,
-        }).catch(() => {
-          // silent retry next interval
-        });
+        }).catch(() => {});
       }
     }, 1500);
     return () => clearInterval(uploadTimer);
   }, [geolocation.latitude, geolocation.longitude]);
 
+  // 按下「發布事件」按鈕 → 進入選擇模式
+  const handleFabClick = useCallback(() => {
+    setPickerMode("choosing");
+    setFormError(null);
+  }, []);
+
+  // 選擇「使用目前位置」
+  const handleUseCurrentLocation = useCallback(() => {
+    if (geolocation.latitude !== null && geolocation.longitude !== null) {
+      setPendingLocation({ latitude: geolocation.latitude, longitude: geolocation.longitude });
+      setShowForm(true);
+      setPickerMode("idle");
+    } else {
+      setFormError("無法取得目前位置，請確認 GPS 是否已開啟。");
+      setPickerMode("idle");
+    }
+  }, [geolocation.latitude, geolocation.longitude]);
+
+  // 選擇「從地圖選擇」→ 進入地圖選點模式
+  const handlePickFromMap = useCallback(() => {
+    setPickerMode("picking");
+  }, []);
+
+  // 地圖點擊：只有在 picking 模式下才觸發
   const handleMapClick = useCallback(
     (lat: number, lng: number) => {
+      if (pickerMode !== "picking") return;
       setPendingLocation({ latitude: lat, longitude: lng });
       setShowForm(true);
-      setFormError(null);
+      setPickerMode("idle");
     },
-    [],
+    [pickerMode],
   );
 
   const handleFormSubmit = useCallback(
@@ -111,6 +135,7 @@ export default function App() {
     setShowForm(false);
     setPendingLocation(null);
     setFormError(null);
+    setPickerMode("idle");
   }, []);
 
   const activeNotifications =
@@ -126,7 +151,7 @@ export default function App() {
   );
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${pickerMode === "picking" ? "picking-mode" : ""}`}>
       {/* 狀態列 */}
       <div className="status-bar">
         <span className={`connection-dot ${connected ? "connected" : "disconnected"}`} />
@@ -151,6 +176,47 @@ export default function App() {
         pendingLocation={pendingLocation}
         focusLocation={focusLocation}
       />
+
+      {/* 浮動發布按鈕 */}
+      {pickerMode === "idle" && !showForm && (
+        <button className="fab" onClick={handleFabClick}>
+          ＋
+        </button>
+      )}
+
+      {/* 選擇位置面板 */}
+      {pickerMode === "choosing" && (
+        <div className="picker-panel-overlay" onClick={() => setPickerMode("idle")}>
+          <div className="picker-panel" onClick={(e) => e.stopPropagation()}>
+            <h4>選擇事件位置</h4>
+            <button className="picker-option" onClick={handleUseCurrentLocation}>
+              <span className="picker-icon">📍</span>
+              <div>
+                <strong>使用目前位置</strong>
+                <p>以你的 GPS 座標作為事件地點</p>
+              </div>
+            </button>
+            <button className="picker-option" onClick={handlePickFromMap}>
+              <span className="picker-icon">🗺️</span>
+              <div>
+                <strong>從地圖選擇</strong>
+                <p>在地圖上點擊選擇位置</p>
+              </div>
+            </button>
+            <button className="picker-cancel" onClick={() => setPickerMode("idle")}>
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 地圖選點提示 */}
+      {pickerMode === "picking" && (
+        <div className="picking-hint">
+          📍 請在地圖上點擊選擇事件位置
+          <button onClick={() => setPickerMode("idle")}>✕</button>
+        </div>
+      )}
 
       {/* 事件表單 */}
       {showForm && pendingLocation && (
