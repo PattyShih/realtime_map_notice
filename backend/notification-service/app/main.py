@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -13,9 +13,18 @@ from backend.shared.schemas import EventNotification
 
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="realtime_map_notice Notification Service", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.redis = create_redis()
+    log.info("notification-service started, Redis connected")
+    yield
+    await app.state.redis.aclose()
+    log.info("notification-service shutting down")
+
+
+app = FastAPI(title="realtime_map_notice Notification Service", version="0.1.0", lifespan=lifespan)
 configure_cors(app)
-redis = create_redis()
 
 HEARTBEAT_INTERVAL_SECONDS = 15.0
 HEARTBEAT_TIMEOUT_SECONDS = 45.0
@@ -31,6 +40,7 @@ def user_channel(user_id: str) -> str:
 
 
 async def forward_user_notifications(
+    redis,
     websocket: WebSocket,
     user_id: str,
     send_lock: asyncio.Lock,
@@ -85,6 +95,7 @@ async def receive_client_messages(
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
+    redis = app.state.redis
     try:
         await redis.ping()
         return {"status": "ok"}
@@ -95,12 +106,13 @@ async def healthz() -> dict[str, str]:
 
 @app.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
+    redis = app.state.redis
     await websocket.accept()
     log.info("ws.connect user=%s", user_id)
     send_lock = asyncio.Lock()
     state = ConnectionState(last_pong_at=time.monotonic())
     tasks = [
-        asyncio.create_task(forward_user_notifications(websocket, user_id, send_lock)),
+        asyncio.create_task(forward_user_notifications(redis, websocket, user_id, send_lock)),
         asyncio.create_task(send_heartbeat(websocket, send_lock, state)),
         asyncio.create_task(receive_client_messages(websocket, state)),
     ]
@@ -121,6 +133,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
 
 @app.post("/notify/{user_id}")
 async def notify_user(user_id: str, notification: EventNotification) -> dict[str, object]:
+    redis = app.state.redis
     subscriber_count = await redis.publish(
         user_channel(user_id),
         notification.model_dump_json(),

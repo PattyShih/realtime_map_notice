@@ -26,19 +26,20 @@ NOTIFICATION_SERVICE_URL = os.getenv(
 log = logging.getLogger(__name__)
 
 
-# ── Lifespan: 管理 httpx client 生命週期 ─────────────
+# ── Lifespan: 管理 httpx client + Redis 生命週期 ──────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http = httpx.AsyncClient(timeout=3.0)
-    log.info("event-service started, httpx client initialized")
+    app.state.redis = create_redis()
+    log.info("event-service started, httpx + Redis initialized")
     yield
     await app.state.http.aclose()
-    log.info("event-service shutting down, httpx client closed")
+    await app.state.redis.aclose()
+    log.info("event-service shutting down")
 
 
 app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0", lifespan=lifespan)
 configure_cors(app)
-redis = create_redis()
 
 
 def event_idempotency_key(client_event_id: str) -> str:
@@ -46,6 +47,7 @@ def event_idempotency_key(client_event_id: str) -> str:
 
 
 async def reserve_event_idempotency(
+    redis,
     client_event_id: str | None,
     event_id: str,
 ) -> str | None:
@@ -67,6 +69,7 @@ async def reserve_event_idempotency(
 
 
 async def filter_active_nearby_users(
+    redis,
     nearby_users: list[tuple[str, float]],
 ) -> list[tuple[str, float]]:
     if not nearby_users:
@@ -112,6 +115,7 @@ async def deliver_notification_with_limit(
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
+    redis = app.state.redis
     try:
         await redis.ping()
         return {"status": "ok"}
@@ -122,8 +126,10 @@ async def healthz() -> dict[str, str]:
 
 @app.post("/events")
 async def create_event(payload: EventCreate) -> dict[str, object]:
+    redis = app.state.redis
     event_id = str(uuid4())
     duplicate_event_id = await reserve_event_idempotency(
+        redis,
         payload.client_event_id,
         event_id,
     )
@@ -148,9 +154,8 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         unit="m",
         withdist=True,
     )
-    active_nearby_users = await filter_active_nearby_users(nearby_users)
+    active_nearby_users = await filter_active_nearby_users(redis, nearby_users)
 
-    # 使用 lifespan 管理的 httpx client（不再每次新建）
     client: httpx.AsyncClient = app.state.http
     semaphore = asyncio.Semaphore(NOTIFICATION_FANOUT_CONCURRENCY)
     delivery_results = await asyncio.gather(
