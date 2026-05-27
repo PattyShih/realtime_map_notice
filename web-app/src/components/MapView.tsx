@@ -46,6 +46,7 @@ interface MapViewProps {
   userLocation: { latitude: number; longitude: number } | null;
   events: MapEvent[];
   onMapClick: (lat: number, lng: number) => void;
+  onEventClick: (event: MapEvent) => void;
   pendingLocation: { latitude: number; longitude: number } | null;
   focusLocation: { latitude: number; longitude: number } | null;
 }
@@ -93,6 +94,7 @@ export default function MapView({
   userLocation,
   events,
   onMapClick,
+  onEventClick,
   pendingLocation,
   focusLocation,
 }: MapViewProps) {
@@ -131,6 +133,9 @@ export default function MapView({
           key={event.id}
           position={[event.latitude, event.longitude]}
           icon={event.severity === "urgent" ? urgentIcon : infoIcon}
+          eventHandlers={{
+            click: () => onEventClick(event),
+          }}
         >
           <Popup>
             <strong>{event.title}</strong>

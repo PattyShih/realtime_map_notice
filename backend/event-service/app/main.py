@@ -20,7 +20,7 @@ from backend.shared.config import (
 )
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
-from backend.shared.schemas import EventCreate, EventNotification, EventRecord
+from backend.shared.schemas import Comment, CommentCreate, EventCreate, EventNotification, EventRecord
 
 NOTIFICATION_SERVICE_URL = os.getenv(
     "NOTIFICATION_SERVICE_URL",
@@ -247,3 +247,40 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         "delivered_to": delivered_to[:20],
         "status": "created",
     }
+
+
+# ── 留言 API ──────────────────────────────────────────────
+COMMENT_PREFIX = "event:comments"
+
+
+@app.get("/events/{event_id}/comments")
+async def list_comments(event_id: str) -> list[Comment]:
+    """取得某事件的留言（最新在前）"""
+    redis = app.state.redis
+    key = f"{COMMENT_PREFIX}:{event_id}"
+    raw_comments = await redis.lrange(key, 0, 99)
+    comments = []
+    for raw in raw_comments:
+        with suppress(json.JSONDecodeError, ValueError):
+            comments.append(Comment.model_validate_json(raw))
+    return comments
+
+
+@app.post("/events/{event_id}/comments")
+async def add_comment(event_id: str, payload: CommentCreate) -> Comment:
+    """新增留言"""
+    redis = app.state.redis
+    comment = Comment(
+        comment_id=str(uuid4()),
+        event_id=event_id,
+        author=payload.author,
+        content=payload.content,
+        created_at=datetime.now(UTC).isoformat(),
+    )
+    key = f"{COMMENT_PREFIX}:{event_id}"
+    pipe = redis.pipeline()
+    pipe.lpush(key, comment.model_dump_json())
+    pipe.ltrim(key, 0, 99)
+    await pipe.execute()
+    log.info("comment.added event_id=%s comment_id=%s", event_id, comment.comment_id)
+    return comment

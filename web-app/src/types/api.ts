@@ -49,3 +49,16 @@ export interface MapEvent {
   distance_meters: number | null;
   created_at: string;
 }
+
+export interface Comment {
+  comment_id: string;
+  event_id: string;
+  author: string;
+  content: string;
+  created_at: string;
+}
+
+export interface CommentCreate {
+  author: string;
+  content: string;
+}

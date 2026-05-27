@@ -43,3 +43,16 @@ class EventRecord(BaseModel):
     severity: Literal["info", "urgent"]
     created_at: str
     expires_at: str | None = None
+
+
+class Comment(BaseModel):
+    comment_id: str
+    event_id: str
+    author: str
+    content: str
+    created_at: str
+
+
+class CommentCreate(BaseModel):
+    author: str = Field(..., min_length=1, max_length=30, examples=["匿名使用者"])
+    content: str = Field(..., min_length=1, max_length=500, examples=["感謝分享！"])

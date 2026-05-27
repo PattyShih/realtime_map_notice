@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect } from "react";
 import MapView from "./components/MapView";
 import EventForm from "./components/EventForm";
+import EventDetailPanel from "./components/EventDetailPanel";
 import NotificationBanner from "./components/NotificationBanner";
 import { useGeolocation } from "./hooks/useGeolocation";
 import { useNotificationSocket } from "./hooks/useNotificationSocket";
 import { updateLocation } from "./services/locationApi";
 import { createEvent } from "./services/eventApi";
-import type { EventCreate } from "./types/api";
+import type { EventCreate, MapEvent } from "./types/api";
 
 const USER_ID = `u-${Date.now()}`;
 
@@ -34,6 +35,9 @@ export default function App() {
     latitude: number;
     longitude: number;
   } | null>(null);
+
+  // 事件詳情面板
+  const [detailEvent, setDetailEvent] = useState<MapEvent | null>(null);
 
   const [localEvents, setLocalEvents] = useState<
     { id: string; title: string; latitude: number; longitude: number; severity: string }[]
@@ -67,13 +71,11 @@ export default function App() {
     return () => clearInterval(uploadTimer);
   }, [geolocation.latitude, geolocation.longitude]);
 
-  // 按下「發布事件」按鈕 → 進入選擇模式
   const handleFabClick = useCallback(() => {
     setPickerMode("choosing");
     setFormError(null);
   }, []);
 
-  // 選擇「使用目前位置」
   const handleUseCurrentLocation = useCallback(() => {
     if (geolocation.latitude !== null && geolocation.longitude !== null) {
       setPendingLocation({ latitude: geolocation.latitude, longitude: geolocation.longitude });
@@ -85,12 +87,10 @@ export default function App() {
     }
   }, [geolocation.latitude, geolocation.longitude]);
 
-  // 選擇「從地圖選擇」→ 進入地圖選點模式
   const handlePickFromMap = useCallback(() => {
     setPickerMode("picking");
   }, []);
 
-  // 地圖點擊：只有在 picking 模式下才觸發
   const handleMapClick = useCallback(
     (lat: number, lng: number) => {
       if (pickerMode !== "picking") return;
@@ -143,12 +143,24 @@ export default function App() {
       ? [latestNotification]
       : [];
 
+  // 查看 → 開 detail panel + 移動地圖
   const handleNotificationView = useCallback(
     (lat: number, lng: number) => {
       setFocusLocation({ latitude: lat, longitude: lng });
+      // 從 wsEvents 找對應事件開 detail
+      const found = wsEvents.find(
+        (e) => e.latitude === lat && e.longitude === lng,
+      );
+      if (found) setDetailEvent(found);
     },
-    [],
+    [wsEvents],
   );
+
+  // MapView 裡 marker 點擊也開 detail
+  const handleEventClick = useCallback((event: MapEvent) => {
+    setDetailEvent(event);
+    setFocusLocation({ latitude: event.latitude, longitude: event.longitude });
+  }, []);
 
   return (
     <div className={`app-container ${pickerMode === "picking" ? "picking-mode" : ""}`}>
@@ -173,12 +185,13 @@ export default function App() {
         }
         events={allEvents}
         onMapClick={handleMapClick}
+        onEventClick={handleEventClick}
         pendingLocation={pendingLocation}
         focusLocation={focusLocation}
       />
 
       {/* 浮動發布按鈕 */}
-      {pickerMode === "idle" && !showForm && (
+      {pickerMode === "idle" && !showForm && !detailEvent && (
         <button className="fab" onClick={handleFabClick}>
           ＋
         </button>
@@ -226,6 +239,14 @@ export default function App() {
           onSubmit={handleFormSubmit}
           submitting={submitting}
           onCancel={handleFormCancel}
+        />
+      )}
+
+      {/* 事件詳情面板 */}
+      {detailEvent && (
+        <EventDetailPanel
+          event={detailEvent}
+          onClose={() => setDetailEvent(null)}
         />
       )}
 
