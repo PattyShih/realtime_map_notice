@@ -14,12 +14,13 @@ class EventCreate(BaseModel):
         None,
         examples=["client-generated-uuid"],
     )
-    title: str = Field(..., examples=["Library 3F has seats"])
-    message: str = Field(..., examples=["About 10 seats near the windows."])
+    title: str = Field(..., examples=["圖書館 3 樓有空位"])
+    message: str = Field(..., examples=["靠窗大約還有 10 個座位"])
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
     severity: Literal["info", "urgent"] = Field("info", examples=["info", "urgent"])
     radius_meters: int = Field(500, ge=50, le=3000)
+    expires_in: int = Field(30, ge=5, le=1440, description="有效期限（分鐘）")
 
 
 class EventNotification(BaseModel):
@@ -41,3 +42,4 @@ class EventRecord(BaseModel):
     longitude: float
     severity: Literal["info", "urgent"]
     created_at: str
+    expires_at: str | None = None

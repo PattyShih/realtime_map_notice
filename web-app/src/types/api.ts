@@ -18,6 +18,7 @@ export interface EventCreate {
   longitude: number;
   severity: "info" | "urgent";
   radius_meters: number;
+  expires_in: number;
 }
 
 export interface EventCreateResponse {

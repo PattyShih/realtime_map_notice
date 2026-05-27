@@ -141,13 +141,24 @@ async def healthz() -> dict[str, str]:
 async def list_events(
     limit: int = Query(default=50, ge=1, le=100),
 ) -> list[EventRecord]:
-    """取得最近的事件歷史（最新在前）"""
+    """取得最近的事件歷史（最新在前，已過期的不回傳）"""
     redis = app.state.redis
     raw_events = await redis.lrange(EVENT_HISTORY_KEY, 0, limit - 1)
+    now = datetime.now(UTC)
     events = []
     for raw in raw_events:
         with suppress(json.JSONDecodeError, ValueError):
-            events.append(EventRecord.model_validate_json(raw))
+            record = EventRecord.model_validate_json(raw)
+            if record.expires_at:
+                try:
+                    exp = datetime.fromisoformat(record.expires_at)
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=UTC)
+                    if exp < now:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            events.append(record)
     return events
 
 
@@ -171,8 +182,10 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         }
 
     created_at = datetime.now(UTC).isoformat()
-    log.info("event.create event_id=%s title=%q severity=%s radius=%dm",
-             event_id, payload.title, payload.severity, payload.radius_meters)
+    from datetime import timedelta
+    expires_at = (datetime.now(UTC) + timedelta(minutes=payload.expires_in)).isoformat()
+    log.info("event.create event_id=%s title=%q severity=%s radius=%dm expires=%dm",
+             event_id, payload.title, payload.severity, payload.radius_meters, payload.expires_in)
 
     # 持久化事件
     await persist_event(redis, EventRecord(
@@ -183,6 +196,7 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         longitude=payload.longitude,
         severity=payload.severity,
         created_at=created_at,
+        expires_at=expires_at,
     ))
 
     nearby_users = await redis.geosearch(

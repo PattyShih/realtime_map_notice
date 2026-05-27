@@ -9,6 +9,28 @@ interface EventFormProps {
   onCancel: () => void;
 }
 
+// 常用事件快選
+const QUICK_EVENTS = [
+  { title: "有空位", message: "這裡目前有空位", severity: "info" as const, icon: "🪑" },
+  { title: "排隊人多", message: "排隊人潮較多，請留意等待時間", severity: "info" as const, icon: "👥" },
+  { title: "人潮聚集", message: "此處人潮聚集中", severity: "info" as const, icon: "📍" },
+  { title: "免費活動", message: "這裡有免費活動進行中", severity: "info" as const, icon: "🎉" },
+  { title: "遺失物", message: "這裡有撿到遺失物", severity: "info" as const, icon: "🔍" },
+  { title: "施工封路", message: "此處施工中，請改道", severity: "urgent" as const, icon: "🚧" },
+  { title: "走失寵物", message: "有走失寵物在此處出沒", severity: "urgent" as const, icon: "🐾" },
+  { title: "安全提醒", message: "此處有安全疑慮，請小心", severity: "urgent" as const, icon: "⚠️" },
+];
+
+// 有效期限選項
+const EXPIRY_OPTIONS = [
+  { label: "10 分鐘", value: 10 },
+  { label: "30 分鐘", value: 30 },
+  { label: "1 小時", value: 60 },
+  { label: "2 小時", value: 120 },
+  { label: "6 小時", value: 360 },
+  { label: "12 小時", value: 720 },
+];
+
 export default function EventForm({
   latitude,
   longitude,
@@ -20,6 +42,7 @@ export default function EventForm({
   const [message, setMessage] = useState("");
   const [severity, setSeverity] = useState<"info" | "urgent">("info");
   const [radiusMeters, setRadiusMeters] = useState(500);
+  const [expiresIn, setExpiresIn] = useState(30);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,10 +55,17 @@ export default function EventForm({
       longitude,
       severity,
       radius_meters: radiusMeters,
+      expires_in: expiresIn,
     });
     setTitle("");
     setMessage("");
     setSeverity("info");
+  };
+
+  const handleQuickSelect = (qe: typeof QUICK_EVENTS[number]) => {
+    setTitle(qe.title);
+    setMessage(qe.message);
+    setSeverity(qe.severity);
   };
 
   return (
@@ -45,6 +75,24 @@ export default function EventForm({
         <p className="form-location">
           座標：{latitude.toFixed(5)}, {longitude.toFixed(5)}
         </p>
+
+        {/* 常用事件快選 */}
+        <div className="quick-events">
+          <span className="quick-events-label">快速選擇</span>
+          <div className="quick-events-grid">
+            {QUICK_EVENTS.map((qe) => (
+              <button
+                key={qe.title}
+                type="button"
+                className={`quick-btn ${title === qe.title ? "active" : ""} ${qe.severity}`}
+                onClick={() => handleQuickSelect(qe)}
+              >
+                <span className="quick-icon">{qe.icon}</span>
+                <span className="quick-text">{qe.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
         <label>
           標題
@@ -66,22 +114,38 @@ export default function EventForm({
             placeholder="簡短描述..."
             required
             maxLength={200}
-            rows={3}
+            rows={2}
           />
         </label>
 
-        <label>
-          嚴重程度
-          <select
-            value={severity}
-            onChange={(e) =>
-              setSeverity(e.target.value as "info" | "urgent")
-            }
-          >
-            <option value="info">一般 — 一般通知</option>
-            <option value="urgent">緊急 — 需要注意</option>
-          </select>
-        </label>
+        <div className="form-row">
+          <label className="form-row-item">
+            嚴重程度
+            <select
+              value={severity}
+              onChange={(e) =>
+                setSeverity(e.target.value as "info" | "urgent")
+              }
+            >
+              <option value="info">一般</option>
+              <option value="urgent">緊急</option>
+            </select>
+          </label>
+
+          <label className="form-row-item">
+            有效期限
+            <select
+              value={expiresIn}
+              onChange={(e) => setExpiresIn(Number(e.target.value))}
+            >
+              {EXPIRY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         <label>
           通知範圍：{radiusMeters} 公尺
