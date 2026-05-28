@@ -30,7 +30,7 @@ html, body, #root {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 1000;
+  z-index: 400;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -357,8 +357,12 @@ html, body, #root {
 .leaflet-container {
   height: 100%;
   width: 100%;
-  z-index: 0;
+  z-index: 1;
   cursor: grab;
+}
+.leaflet-control-zoom {
+  z-index: 1000 !important;
+  bottom: 100px !important;
 }
 
 /* Picking mode cursor */
@@ -374,6 +378,34 @@ html, body, #root {
 /* Info marker — blue tint */
 .info-marker {
   filter: hue-rotate(200deg) saturate(1.5);
+}
+
+/* Recenter button — floating over map, bottom-left */
+.recenter-btn {
+  position: absolute;
+  bottom: 100px;
+  left: 16px;
+  z-index: 1001;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.recenter-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+  background: #f0f0f0;
+}
+.recenter-btn:active {
+  transform: scale(0.95);
 }
 
 /* === FAB (Floating Action Button) === */

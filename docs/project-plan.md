@@ -111,7 +111,7 @@
 
 - 使用 Redis GEO 的 `GEOADD` 儲存使用者位置。
 - 使用 Redis GEO 的 `GEOSEARCH` 查詢半徑內使用者，並用 last_seen TTL 過濾離線或過期使用者。
-- Event Service 對每個附近使用者併發送出通知請求**（已使用 asyncio.gather；後續可改成直接透過 Redis Pub/Sub 跳過 HTTP 層）。**
+- Event Service 對每個附近使用者併發送出通知請求**（已改用 Redis Pub/Sub 解耦，Event Service 只做 PUBLISH，不再 HTTP fanout）。**
 - **Event Service 已支援選填 `client_event_id` 去重，避免同一事件在 retry 時重複推播。**
 - **Notification Service 已補上 WebSocket app-level ping/pong 心跳，偵測並清理已斷線的 ghost connection。**
 - Notification Service 使用 Redis Pub/Sub 發布使用者專屬通知。
@@ -353,18 +353,18 @@ Demo 不追求正式會員註冊、正式上線、長期軌跡分析或原生手
 | 1:30-2:15 | 3. 發布一般事件 | 點擊地圖 → 填寫表單（title, message, severity=info）→ 送出 → 地圖出現標記 | `POST /events`、事件插旗 UI |
 | 2:15-3:00 | 4. 開啟第二個使用者，展示 WebSocket 連線 | 另開無痕視窗模擬不同使用者，打開瀏覽器 DevTools → Network → WS 確認連線 | WebSocket 連線狀態、ping/pong heartbeat、**CORS 已設定** |
 | 3:00-4:00 | 5. 發布緊急事件，展示區域推播 | 發布 severity=urgent 事件，確認第二個使用者收到通知 Banner | Redis GEOSEARCH 500m 查詢、Redis Pub/Sub 推播 |
-| 4:00-5:00 | 6. 啟動壓測腳本 | `python simulator/simulate_users.py --users 500 --target http://localhost:8001` | 大量座標更新流量、asyncio 併發；若本機效能允許可提高到 1,000 |
-| 5:00-6:30 | 7. 展示 HPA 自動擴展 | 另一個 terminal 執行 `kubectl -n realtime-map-notice get hpa -w`，觀察 replica 從 1 → 3 → 5 | HPA CPU 指標、Pod 自動擴展 |
-| 6:30-7:30 | 8. 展示 Pod 容錯 | `$pod = kubectl -n realtime-map-notice get pod -l app=notification-service -o jsonpath="{.items[0].metadata.name}"` 後執行 `kubectl -n realtime-map-notice delete pod $pod` | Kubernetes controller manager、ReplicaSet |
-| 7:30-8:30 | 9. 總結技術亮點 | 展示最後的 HPA 截圖與 Pod 重建狀態 | Redis GEO 選型原因、微服務分工、K8s 優勢 |
+| 4:00-5:00 | 6. 啟動壓測腳本 | `python stress_test.py --users 500` | 大量座標更新流量、asyncio 併發；若本機效能允許可提高到 1,000 |
+| 5:00-6:30 | 7. 展示 Docker Compose 資源監控 | 另一個 terminal 執行 `docker stats`，觀察各服務 CPU / 記憶體用量 | Docker Compose 容器資源使用、nginx 反向代理效能 |
+| 6:30-7:30 | 8. 展示容器重啟容錯 | `docker compose restart notification-service`，觀察 WebSocket 自動重連與服務恢復 | Docker Compose 容器管理、WebSocket 重連機制 |
+| 7:30-8:30 | 9. 總結技術亮點 | 展示壓測結果與架構圖 | Redis GEO 選型原因、微服務分工、Redis Pub/Sub 解耦優勢 |
 | 8:30-10:00 | 10. Q&A 緩衝 | 無 | 回答教授問題 |
 
 ### Demo 注意事項
 
-- **備案準備：** 提前截好 HPA 擴展前後對比圖、Pod 刪除重建截圖。萬一現場 K8s 環境異常，仍可展示截圖。
-- **網路風險：** 本機環境不使用外部 API，完全離線運作。確保 docker-compose 所有 image 已先 pull 完成。
-- **指令腳本：** 建議將所有 kubectl 指令寫成 .ps1 腳本，避免現場打錯。
-- **參數調整：** 本機壓測若 500 人不夠觸發 HPA，可提高到 1,000 人，或調低 Location Service CPU request（從 100m 降到 50m）。
+- **備案準備：** 提前截好 `docker stats` 資源監控截圖、容器重啟前後對比圖。萬一現場 Docker 環境異常，仍可展示截圖。可選展示 K8s HPA 擴展圖（若有 K8s 環境）。
+- **網路風險：** 本機環境不使用外部 API，完全離線運作。確保 docker-compose 所有 image 已先 build 完成（`docker compose build`）。
+- **指令腳本：** 建議將所有 docker compose 指令寫成 shell 腳本，避免現場打錯。
+- **參數調整：** 本機壓測若 500 人不夠產生明顯負載，可提高到 1,000 人，或調整 stress_test.py 的 request interval。
 
 ## 十週進度表
 
@@ -404,6 +404,10 @@ Demo 不追求正式會員註冊、正式上線、長期軌跡分析或原生手
 風險：本機效能不足以穩定模擬 1,000 或 3,000 人。
 
 備案：初期用 500 人展示流程，報告中說明參數可調；1,000 人作為初期進階目標，3,000 人作為最終挑戰或截圖補充。
+
+風險：**Event Service HTTP fanout 在高併發下成為瓶頸。**
+
+備案：已改用 Redis Pub/Sub 解耦，Event Service 只做 PUBLISH（微秒級），notification-service 訂閱後本地 geosearch + WS 推播。測試顯示 Event Service 成功率從 8.1% 提升到 100%（500 人壓測）。
 
 風險：HPA 沒有擴展。
 

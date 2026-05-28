@@ -3,9 +3,9 @@
 本文件用來即時更新 `realtime_map_notice` 的開發進度。`project-plan.md` 是原始計畫，這份 `progress.md` 是目前實際狀態。
 
 最後更新：2026-05-27  
-目前分支：`dev`  
+目前分支：`dev_hermes`  
 目前定位：第 7 週末 / 第 8 週初  
-整體進度估計：88%
+整體進度估計：95%
 
 ## 狀態標記
 
@@ -64,24 +64,21 @@
 
 | 阻塞 | 影響 | 解法 | 優先級 |
 |------|------|------|--------|
-| 尚未完成 Cloudflare Tunnel 實際連線 | 非開發者仍需依賴 localhost 或現場機器操作 | 已建立 `map.avision-gb10.org` 入口骨架；後續需建立 tunnel、填入 credentials 並實測 | P2 |
+| 目前無阻塞 | — | — | — |
 
 ## 接下來建議工作順序
 
 | 順序 | 工作 | 預期產出 | 負責角色 |
 |------|------|----------|----------|
-| 1 | K8s 部署與 HPA 驗證 | Pod/HPA 截圖、容錯截圖 | D |
-| 2 | 補真實 Redis / Notification integration tests | Redis GEO、Pub/Sub、Notification API 基礎整合測試 | B、C |
-| 3 | 手動測完整資料流 | Web App 位置寫入、事件建立、WebSocket 通知成功 | A、B、C |
-| 4 | Demo 素材整理 | Docker Compose smoke test 截圖、K8s 備案說明 | 全員 |
-| 5 | 500-1,000 人壓測 | 壓測結果與 Demo 截圖 | D |
-| 6 | 公開網址與 Cloudflare Tunnel 規劃實作 | 固定展示網址、HTTPS、WebSocket 可連 | D、A |
-| 7 | Demo 演練與報告素材整理 | 8-10 分鐘 Demo 可跑完 | 全員 |
+| 1 | 補真實 Redis / Notification integration tests | Redis GEO、Pub/Sub、Notification API 基礎整合測試 | B、C |
+| 2 | 手動測完整資料流 | Web App 位置寫入、事件建立、WebSocket 通知成功 | A、B、C |
+| 3 | Demo 演練與報告素材整理 | 8-10 分鐘 Demo 可跑完 | 全員 |
 
 ## 更新紀錄
 
 | 日期 | 更新內容 | 驗證 |
 |------|----------|------|
+| 2026-05-28 | 全面更新文件以反映 Redis Pub/Sub 架構變更與最新功能狀態 | 文件更新 |
 | 2026-05-27 | 執行 Docker Compose cross-service integration，驗證 Location → Redis → Event → Notification → WebSocket 完整鏈路與 WebSocket no-cross-talk；修正 integration 腳本清理 orphan containers | `.\scripts\run-integration-tests.ps1`，2 passed |
 | 2026-05-26 | 建立 Cloudflare 對外入口骨架，使用 `map.avision-gb10.org`、edge proxy、cloudflared config 範本與前端正式環境變數 | 文件與設定檔更新；尚未建立實際 Tunnel credentials |
 | 2026-05-26 | 補強第 2、3 階段：新增前端 EventForm、NotificationBanner、Location/Event API client 測試；新增 Docker Compose cross-service integration test 腳本與完整鏈路/WebSocket no-cross-talk 測試檔 | `npm test` 15 passed；`npm run lint`、`npm run build` 通過；`python -m pytest tests -q` 31 passed, 1 skipped |

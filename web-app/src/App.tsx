@@ -197,6 +197,20 @@ export default function App() {
         </button>
       )}
 
+      {/* 回到我的位置按鈕 */}
+      {geolocation.latitude !== null && geolocation.longitude !== null && (
+        <button
+          className="recenter-btn"
+          onClick={() => setFocusLocation({
+            latitude: geolocation.latitude!,
+            longitude: geolocation.longitude!,
+          })}
+          title="回到我的位置"
+        >
+          📍
+        </button>
+      )}
+
       {/* 選擇位置面板 */}
       {pickerMode === "choosing" && (
         <div className="picker-panel-overlay" onClick={() => setPickerMode("idle")}>

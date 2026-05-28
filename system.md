@@ -22,9 +22,8 @@ flowchart LR
     Location -->|"GEOADD"| RedisGeo["Redis GEO"]
     App -->|"POST /events"| Event["Event Service"]
     Event -->|"GEOSEARCH 500m"| RedisGeo
-    Event -->|"POST /notify user_id"| Notify["Notification Service"]
-    Notify -->|"PUBLISH user channel"| RedisPubSub["Redis Pub/Sub"]
-    RedisPubSub -->|"SUBSCRIBE user channel"| Notify
+    Event -->|"PUBLISH event_channel"| RedisPubSub["Redis Pub/Sub"]
+    RedisPubSub -->|"SUBSCRIBE event_channel"| Notify["Notification Service"]
     Notify -->|"WebSocket"| App
 ```
 
@@ -42,8 +41,8 @@ Redis GEO 與 Redis Pub/Sub 可以是同一個 Redis instance，但在架構圖�
 |------|------|--------|
 | Web App | 地圖、定位、事件表單、通知展示 | 直接查 Redis、K8s 操作 |
 | Location Service | 接收座標、更新 Redis GEO、附近查詢 | 事件建立、通知推播 |
-| Event Service | 事件建立、半徑查詢、通知觸發 | WebSocket 連線管理 |
-| Notification Service | WebSocket、Redis Pub/Sub、指定使用者通知 | 判斷事件半徑、儲存位置 |
+| Event Service | 事件建立、半徑查詢、Redis PUBLISH 發布事件通知 | WebSocket 連線管理 |
+| Notification Service | WebSocket、Redis Pub/Sub 訂閱、本地 GEOSEARCH 推播 | 判斷事件半徑、儲存位置 |
 | Redis | 即時位置、last_seen、Pub/Sub channel | 長期報表、正式使用者資料 |
 
 ## 系統元件
@@ -68,15 +67,16 @@ Event Service:
 
 - 接收 `POST /events`。
 - 使用事件座標查詢半徑內使用者。
-- 呼叫 Notification Service 發送通知。
+- 透過 Redis Pub/Sub 發布事件通知。
 - 是區域推播的主要商業邏輯位置。
 
 Notification Service:
 
 - 維護 WebSocket 連線。
-- 接收指定 user_id 的通知請求。
-- 使用 Redis Pub/Sub 支援多副本推播。
-- 已有 app-level ping/pong 心跳；未來仍需補上訊息確認與離線通知策略。
+- 訂閱 Redis Pub/Sub event_channel，接收事件通知。
+- 根據事件座標做本地 GEOSEARCH，找出連線中的附近使用者。
+- 透過 WebSocket 推播給符合條件的使用者。
+- 已有 app-level ping/pong 心跳、離線通知佇列與重連回放機制。
 
 Redis:
 
@@ -102,10 +102,10 @@ Kubernetes:
 - 不建議直接把 `8001`、`8002`、`8003` 三個後端 port 分別暴露給使用者。正式入口應加一層反向代理，整理成單一網域與清楚路由，例如：
 
 ```text
-https://map.avision-gb10.org/              -> Web App
-https://map.avision-gb10.org/api/location  -> Location Service
-https://map.avision-gb10.org/api/events    -> Event Service
-wss://map.avision-gb10.org/ws/{user_id}    -> Notification Service
+https://map2.avision-gb10.org/              -> Web App
+https://map2.avision-gb10.org/api/location  -> Location Service
+https://map2.avision-gb10.org/api/events    -> Event Service
+wss://map2.avision-gb10.org/ws/{user_id}    -> Notification Service
 ```
 
 這層反向代理可以用 Nginx、Traefik 或 Kubernetes Ingress 實作。前端環境變數與後端 `CORS_ALLOW_ORIGINS` 需同步改成正式網域。
@@ -171,11 +171,14 @@ Request:
   "latitude": 25.0173,
   "longitude": 121.5397,
   "severity": "info",
+  "expires_in": 30,
   "radius_meters": 500
 }
 ```
 
 `severity` 目前只接受 `info` 或 `urgent`。一般事件使用 `info`，需要區域推播與明顯提醒的事件使用 `urgent`。
+
+`expires_in` 為事件有效期限（分鐘），範圍 1-1440，預設 30。超過有效期限的事件會自動過濾，不再顯示於地圖與查詢結果中。
 
 `client_event_id` 為選填。前端或測試工具若提供穩定的 client-generated id，Event Service 會以 Redis `SET NX` 做 5 分鐘去重，避免重試或多副本情境下重複推播。
 
@@ -192,6 +195,48 @@ Response:
 ```
 
 若收到相同 `client_event_id` 的重複請求，回應會使用既有 `event_id`，`status` 為 `duplicate`，且不會再次通知。
+
+### `POST /events/{id}/comments`
+
+用途：對事件新增留言。
+
+Request:
+
+```json
+{
+  "user_id": "u-0001",
+  "content": "已處理完成，謝謝"
+}
+```
+
+Response:
+
+```json
+{
+  "comment_id": "uuid",
+  "status": "created"
+}
+```
+
+### `GET /events/{id}/comments`
+
+用途：查詢事件的留言列表。
+
+Response:
+
+```json
+{
+  "event_id": "uuid",
+  "comments": [
+    {
+      "comment_id": "uuid",
+      "user_id": "u-0001",
+      "content": "已處理完成，謝謝",
+      "created_at": "2026-05-28T10:15:30Z"
+    }
+  ]
+}
+```
 
 ### `WS /ws/{user_id}`
 
@@ -219,7 +264,9 @@ Message:
 |-----|------|------|
 | `realtime_map_notice:user:locations` | GEO set | 儲存使用者目前座標 |
 | `realtime_map_notice:user:last_seen:{user_id}` | String with TTL | 記錄使用者最後上傳時間 |
-| `realtime_map_notice:user:{user_id}:notifications` | Pub/Sub channel | 指定使用者通知 channel |
+| `event_channel` | Pub/Sub channel | 事件推播 channel |
+| `event_history` | LIST | 事件持久化（最新 100 筆） |
+| `pending:{user_id}` | LIST | 離線通知佇列 |
 
 位置資料的 TTL 策略：
 
@@ -301,7 +348,7 @@ Message:
 | 元件 | 壓力來源 | 調整方式 |
 |------|----------|----------|
 | Location Service | 高頻 `POST /locations` | HPA 增加 replicas |
-| Event Service | 事件發布與通知 fan-out | 增加 replicas、調整 `NOTIFICATION_FANOUT_CONCURRENCY`、背景任務 |
+| Event Service | 事件發布與 Redis PUBLISH | 增加 replicas、Redis 連線池調整 |
 | Notification Service | WebSocket 連線數與 Pub/Sub 訊息量 | 增加 replicas、心跳清理 |
 | Redis | GEO 寫入、GEOSEARCH、Pub/Sub | 提高資源、分離 Redis、使用 managed Redis |
 | Web App | marker 太多、頻繁 render | marker clustering、viewport filtering、throttling |
@@ -310,7 +357,7 @@ Message:
 
 - Location Service CPU 會隨位置更新量線性上升。
 - Redis 可能成為單點瓶頸，因為 GEO 寫入、附近查詢與 Pub/Sub 都依賴它。
-- Event Service 目前已用 `asyncio.gather` 併發通知附近使用者，並以 `NOTIFICATION_FANOUT_CONCURRENCY` 限制同時送出的 HTTP request；大量收件者仍會造成 HTTP fan-out 壓力。
+- Event Service 已改用 Redis Pub/Sub 架構，只做一次 PUBLISH（微秒級），不再有 HTTP fan-out 瓶頸。
 - Notification Service 需要處理大量 WebSocket 長連線。
 - Web App 在 marker 過多時可能卡頓，需要 clustering 或只顯示目前視窗範圍內事件。
 
@@ -325,17 +372,17 @@ Web App -> Location Service -> Redis GEO
 事件推播流程：
 
 ```text
-Web App -> Event Service -> Redis GEO nearby query
-Event Service -> Notification Service -> Redis Pub/Sub -> WebSocket -> Web App
+Web App -> Event Service -> Redis GEO nearby query -> Redis LIST (persist)
+Event Service -> Redis PUBLISH event_channel -> Notification Service SUBSCRIBE -> WebSocket -> Web App
 ```
 
 ## 區域推播邏輯
 
 1. 使用者發布事件，包含標題、內容、座標、嚴重程度與推播半徑。
 2. Event Service 使用 Redis GEO 查詢事件座標 500 公尺內的使用者。
-3. Event Service 對每個附近使用者呼叫 Notification Service。
-4. Notification Service 將通知發布到該使用者的 Redis Pub/Sub channel。
-5. 持有該使用者 WebSocket 連線的 Notification Service Pod 收到訊息並推送到 Web App。
+3. Event Service 透過 Redis PUBLISH 發布事件到 event_channel。
+4. Notification Service 訂閱 event_channel，收到事件通知。
+5. Notification Service 在自己管理的 WebSocket 連線中做本地 GEOSEARCH，找出附近使用者並推播。
 
 ## Kubernetes 展示點
 
@@ -379,7 +426,7 @@ Demo 時可說明的技術點：
 三個後端服務已加入 `fastapi.middleware.cors.CORSMiddleware`。前端開發伺服器（如 Vite port 5173）與後端（port 8001-8003）不同 origin，因此需要透過 `CORS_ALLOW_ORIGINS` 設定允許來源。預設允許：
 
 ```text
-http://localhost:5173,http://localhost:3000
+http://localhost:5173,http://localhost:3000,https://map2.avision-gb10.org
 ```
 
 正式部署時應改成正式網域，不建議長期使用 `*`。
@@ -391,17 +438,11 @@ Notification Service 已加入 app-level ping/pong 心跳，用來降低 ghost c
 - 伺服器每 15 秒發送 `{ "type": "ping" }`。
 - Web App 收到後回覆 `{ "type": "pong" }`，並忽略此控制訊息，不顯示成事件通知。
 - 後端同時持續讀取 WebSocket client 訊息，斷線時會取消推播 task 並清理 pubsub subscription。
-- 目前仍未實作完整訊息確認、重送與離線通知。
+- 已實作離線通知佇列（pending queue），WebSocket 重連後自動回放；未來可補上訊息確認（ack）機制。
 
-### Event Service 通知 fan-out 瓶頸
+### Event Service 通知 fan-out 瓶頸（已解決）
 
-目前 Event Service 對每個附近使用者發送一次 HTTP POST 給 Notification Service。已改用 `asyncio.gather` 併發發送，避免 500 位附近使用者時逐筆等待造成明顯延遲。
-
-後續仍需注意：
-
-- 若單一事件半徑內有大量使用者，仍會產生大量 HTTP request。
-- 可調整 `NOTIFICATION_FANOUT_CONCURRENCY`，避免瞬間把 Notification Service 打滿。
-- 或讓 Event Service 直接發布 Redis Pub/Sub，跳過 HTTP 層，減少中間跳數。
+已改用 Redis Pub/Sub 架構：Event Service 只做一次 Redis PUBLISH（微秒級），不再對每位附近使用者發送 HTTP POST。Notification Service 訂閱 event_channel 後自行做本地 GEOSEARCH + WebSocket 推播。HTTP fan-out 瓶頸已完全消除。
 
 ### Event Service 多副本冪等性
 
@@ -416,5 +457,5 @@ Event Service 支援選填的 `client_event_id`。當前端或壓測工具在重
 
 - 尚未設計正式使用者帳號與權限。
 - 即時位置目前只保留短期用途，不作長期軌跡分析。
-- WebSocket 推播已有斷線重連與 app-level 心跳；正式產品仍需要補上訊息確認、重送與離線通知。
+- WebSocket 推播已有斷線重連、app-level 心跳與離線通知佇列（pending queue）；正式產品仍需要補上訊息確認（ack）機制。
 - 500 公尺為預設 Demo 半徑，未來可依事件類型調整。

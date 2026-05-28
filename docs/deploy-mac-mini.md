@@ -1,5 +1,9 @@
 # Mac mini 2014 部署指南
 
+> **注意**：主要正式部署在 DGX Spark（Linux ARM）上，經 Cloudflare Tunnel 對外提供
+> [map2.avision-gb10.org](https://map2.avision-gb10.org)。本 Mac Mini 部署僅供
+> 開發／測試用途。
+
 ## 環境需求
 
 - macOS 10.15+（建議 macOS 11 Big Sur）
@@ -37,13 +41,13 @@ docker compose up --build -d
 # 檢查所有容器狀態
 docker compose ps
 
-# 健康檢查
-curl http://localhost:8001/healthz
-curl http://localhost:8002/healthz
-curl http://localhost:8003/healthz
+# 健康檢查（透過 nginx，非直接連後端 port）
+curl http://localhost:8080/api/location/healthz
+curl http://localhost:8080/api/event/healthz
+curl http://localhost:8080/api/notification/healthz
 
 # 查詢事件列表
-curl http://localhost:8002/api/event/events
+curl http://localhost:8080/api/event/events
 ```
 
 ### 5. 開啟網頁

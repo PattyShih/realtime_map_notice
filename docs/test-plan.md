@@ -39,7 +39,7 @@
 **Mock 策略：**
 - 使用 `httpx.AsyncClient` 直接對 FastAPI 發 request，不需要啟動 uvicorn 程序。
 - 使用 `fakeredis` 模擬 Redis，不需要啟動真實 Redis。
-- Event Service 對 Notification Service 的 HTTP 呼叫，使用 `httpx.MockTransport` 攔截。
+- Event Service 使用 Redis Pub/Sub 發布事件，測試時可用 fakeredis 的 pub/sub 功能模擬。
 
 ```python
 # conftest.py 範例 — 使用 httpx.AsyncClient 直接測試 FastAPI app
@@ -196,9 +196,9 @@ web-app/
 | 測試名稱 | 測試內容 | 預期結果 |
 |----------|----------|----------|
 | `test_filter_active_nearby_users_keeps_distance_with_active_users` | 用假 Redis mget 過濾附近使用者 | 只保留 active user，且保留 distance |
-| `test_deliver_notification_returns_user_id_on_success` | 假 Notification client 成功回應 | 回傳 user_id，送出正確 event payload |
-| `test_deliver_notification_returns_none_on_http_error` | 假 Notification client 丟出 HTTPError | 回傳 None，不中斷整體 fan-out |
-| `test_deliver_notification_with_limit_uses_semaphore` | 通知發送經過 semaphore | fan-out 會套用 concurrency limit |
+| `test_publish_notification_to_redis_channel` | 建立事件後使用 fakeredis 驗證 PUBLISH | Redis channel 收到正確的事件通知訊息 |
+| `test_publish_notification_payload_includes_required_fields` | 檢查 PUBLISH 的 JSON payload | 包含 event_id、title、lat、lng、severity、radius_meters |
+| `test_publish_notification_skips_on_duplicate` | 重複 client_event_id | Redis 未收到第二次 PUBLISH |
 | `test_reserve_event_idempotency_stores_first_request` | 第一次 client_event_id 寫入 Redis | 使用 SET NX 與 TTL |
 | `test_reserve_event_idempotency_returns_existing_event_id` | 重複 client_event_id | 回傳既有 event_id |
 | `test_create_event_duplicate_does_not_notify_again` | 重複事件建立 | 不執行 nearby 查詢與通知 fan-out |
@@ -393,20 +393,32 @@ async def event_client(event_url):
 
 ---
 
-#### 3.6.4 `test_event_to_notification.py` — Event Service → Notification Service HTTP 呼叫
+#### 3.6.4 `test_event_pubsub.py` — Event Service Redis Pub/Sub 推播驗證
 
 | 測試名稱 | 操作 | 預期結果 | 對應重點 |
 |----------|------|----------|----------|
-| `test_event_triggers_notification` | 先寫入使用者在 Redis，發布事件在附近 | Notification Service 收到 HTTP POST /notify | **P0** |
-| `test_event_no_nearby_users` | 發布事件在無人的座標 | Event Service 回傳 delivered_count = 0 | P0 |
-| `test_event_multiple_recipients` | 寫入 10 個使用者在附近，發布事件 | delivered_count = 10 | **P0** |
-| `test_event_notification_payload` | 檢查通知 payload 內容 | payload 包含 event_id、title、lat、lng、distance | P1 |
+| `test_publish_on_event_create` | 建立 event 後，監聽 Redis channel | Redis channel 收到 PUBLISH 訊息 | **P0** |
+| `test_publish_payload_contains_event_data` | 檢查 PUBLISH payload 內容 | payload 包含 event_id、title、lat、lng、severity、radius_meters | P0 |
+| `test_idempotent_event_not_republished` | 重複 client_event_id，監聽 Redis channel | 不會再次 PUBLISH | **P0** |
+| `test_expired_event_not_persisted` | 查詢事件清單 | expires_at 已過期的事件不會被查詢到 | P1 |
 
-**為什麼要測這個：** Event Service 是業務邏輯的核心。它的附近查詢結果是否正確，以及它是否正確呼叫 Notification Service，直接決定推播能不能送到。
+**為什麼要測這個：** Event Service 是業務邏輯的核心。它的 Redis Pub/Sub 發佈是否正確，直接決定 Notification Service 能否收到推播事件。冪等性測試確保重複的 client_event_id 不會造成重複推播。
 
 ---
 
-#### 3.6.5 `test_notification_to_websocket.py` — Notification → WS 推播驗證
+#### 3.6.5 `test_comment_api.py` — 留言系統驗證
+
+| 測試名稱 | 操作 | 預期結果 | 對應重點 |
+|----------|------|----------|----------|
+| `test_post_comment_success` | POST /events/{id}/comments | 成功新增留言，回傳 201 | P1 |
+| `test_get_comments_returns_list` | GET /events/{id}/comments | 回傳留言列表，依時間排序 | P1 |
+| `test_comment_max_limit` | 寫入超過 100 則留言後再 GET | 自動截斷，只保留最新 100 則 | P2 |
+
+**為什麼要測這個：** 留言是使用者互動的重要功能。需確保留言能正確寫入與讀取，且上限機制防止 Redis 記憶體無限增長。
+
+---
+
+#### 3.6.6 `test_notification_to_websocket.py` — Notification → WS 推播驗證
 
 | 測試名稱 | 操作 | 預期結果 | 對應重點 |
 |----------|------|----------|----------|
@@ -419,7 +431,7 @@ async def event_client(event_url):
 
 ---
 
-#### 3.6.6 `test_full_chain.py` — 完整鏈路整合測試
+#### 3.6.7 `test_full_chain.py` — 完整鏈路整合測試
 
 這是最重要的測試：模擬 Demo 的完整流程，從上傳座標到發布事件到 WebSocket 接收通知。
 
@@ -510,7 +522,7 @@ async def _wait_for_notification(ws, timeout: float = 5.0) -> dict | None:
 
 ---
 
-#### 3.6.7 跨服務整合測試執行方式
+#### 3.6.8 跨服務整合測試執行方式
 
 跨服務測試需要先啟動 docker-compose，然後對真實容器執行測試。
 
@@ -584,13 +596,13 @@ exit $exitCode
 
 ---
 
-#### 3.6.8 跨服務測試 vs 個別 API 測試 — 何時用哪個？
+#### 3.6.9 跨服務測試 vs 個別 API 測試 — 何時用哪個？
 
 | 情境 | 用哪個 | 原因 |
 |------|--------|------|
 | 開發中頻繁修改 API | 個別 API 測試（3.2） | 快速反饋，毫秒級 |
 | 修改 Redis key 格式 | 個別 + 跨服務 | 個別快速驗證語法，跨服務確認真實 Redis 行為 |
-| 修改 Event Service 通知邏輯 | 跨服務 | 需要驗證跟 Notification Service 的 HTTP 溝通 |
+| 修改 Event Service 通知邏輯 | 跨服務 | 需要驗證 Redis Pub/Sub 發佈與 Notification Service 接收 |
 | 調整 docker-compose 或 Dockerfile | 跨服務 | 跨服務測試用真實容器，可抓到 Docker 層問題 |
 | Demo 前一天 | **跨服務 + E2E** | 確認所有容器、API、WebSocket 在真實環境正常 |
 | CI pipeline | 個別（無 docker） | CI 不一定有 docker 環境 |

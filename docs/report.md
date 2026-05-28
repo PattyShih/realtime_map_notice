@@ -130,7 +130,7 @@
 | Gunicorn + Uvicorn workers | ASGI 伺服器 | 多 worker 利用多核 CPU、生產環境穩定 |
 | Redis 7 | 資料儲存 | GEO 空間查詢、Pub/Sub 推播、LIST 佇列 |
 | WebSocket | 即時通訊 | 伺服器主動推送、低延遲雙向通訊 |
-| httpx | HTTP client | 非同步、連線池、取代同步 requests |
+| httpx | HTTP client | 非同步 HTTP 客戶端（用於壓力測試腳本；Event Service 已移除此依賴，改以 Redis Pub/Sub 推播） |
 
 ### 4.3 基礎設施
 
@@ -184,7 +184,7 @@
 前端包含以下核心元件：
 
 - **MapView**：Leaflet 地圖，顯示使用者位置、事件標記
-- **EventForm**：事件發布表單，含 4×2 常用事件快選格（交通事故、施工中、人群聚集、設備故障、道路封閉、其他）+ 有效期限下拉選單（15 分鐘、30 分鐘、1 小時、2 小時、4 小時、8 小時、24 小時）
+- **EventForm**：事件發布表單，含 4×2 常用事件快選格（交通事故🚗、施工中🚧、人群聚集👥、設備故障🔧、道路封閉🚫、危險物品⚠️、噪音騷擾📢、其他自訂✏️）+ 有效期限下拉選單（15 分鐘、30 分鐘、1 小時、2 小時、4 小時、8 小時、24 小時）
 - **NotificationBanner**：通知橫幅，區分緊急（紅色）與一般（藍色）事件，顯示距離
 - **EventDetailPanel**：事件詳情面板 + 留言輸入框
 
