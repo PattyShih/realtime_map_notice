@@ -362,7 +362,8 @@ html, body, #root {
 }
 .leaflet-control-zoom {
   z-index: 1000 !important;
-  bottom: 100px !important;
+  bottom: 20px !important;
+  left: 18px !important;
 }
 
 /* Picking mode cursor */
@@ -393,10 +394,10 @@ html, body, #root {
   background: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   cursor: pointer;
-  font-size: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 8px;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 .recenter-btn:hover {

@@ -11,7 +11,7 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000,https://map.avision-gb10.org,https://map2.avision-gb10.org
-      WORKERS: "4"
+      WORKERS: "8"
     ports:
       - "8001:8000"
     depends_on:
