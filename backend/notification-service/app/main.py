@@ -28,6 +28,8 @@ async def healthz() -> dict[str, str]:
 @app.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
     await websocket.accept()
+    # 階段一檢核機制：連線時發送 Hello 訊息
+    await websocket.send_text('{"type":"hello","message":"Hello"}')
     pubsub = redis.pubsub()
     await pubsub.subscribe(user_channel(user_id))
 
