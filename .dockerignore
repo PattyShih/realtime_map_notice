@@ -1,0 +1,19 @@
+# Git 相關
+.git/
+.gitignore
+
+# Python 相關
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# 前端 Node.js 相關
+node_modules/
+npm-debug.log
+
+# 系統自動生成的隱藏檔 (Mac/Windows)
+.DS_Store
+Thumbs.db
