@@ -33,9 +33,19 @@ class FakeRedis:
         self.geosearch_result = []
         self.pipeline_values: list[str | None] = []
         self.pipeline_instance: FakePipeline | None = None
+        self.set_calls = []
 
     async def ping(self) -> bool:
         return True
+
+    async def set(self, key, value, ex=None):
+        self.set_calls.append(
+            {
+                "key": key,
+                "value": value,
+                "ex": ex,
+            }
+        )
 
     async def geosearch(self, *args, **kwargs):
         return self.geosearch_result
@@ -99,6 +109,8 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
                 "longitude": 121.5397,
                 "severity": "urgent",
                 "radius_meters": 500,
+                "duration_minutes": 60,
+                "image_base64": "fake-image-base64-data",
             },
         )
 
@@ -114,6 +126,10 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
         f"{event_service.USER_LAST_SEEN_PREFIX}:u-0002",
     ]
     assert len(fake_client.posts) == 1
+    sent_payload = fake_client.posts[0][1]
+    assert sent_payload["image_base64"] == "fake-image-base64-data"
+    assert len(fake_redis.set_calls) == 1
+    assert fake_redis.set_calls[0]["ex"] == 60 * 60
 
 
 @pytest.mark.asyncio
@@ -136,6 +152,8 @@ async def test_create_event_no_nearby_users(monkeypatch) -> None:
                 "longitude": 121.5397,
                 "severity": "info",
                 "radius_meters": 500,
+                "duration_minutes": 30,
+                "image_base64": None,
             },
         )
 

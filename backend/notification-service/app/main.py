@@ -125,6 +125,7 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
             longitude=broadcast.longitude,
             severity=broadcast.severity,
             distance_meters=float(distance),
+            image_base64=broadcast.image_base64,
         )
 
         # 透過 Redis Pub/Sub 發布（非阻塞，不需等待 WebSocket 回應）

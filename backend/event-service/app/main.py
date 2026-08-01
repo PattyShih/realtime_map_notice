@@ -1,3 +1,4 @@
+import json
 import os
 from collections.abc import Sequence
 from uuid import uuid4
@@ -64,6 +65,14 @@ async def healthz() -> dict[str, str]:
 @app.post("/events")
 async def create_event(payload: EventCreate) -> dict[str, object]:
     event_id = str(uuid4())
+
+    event_data = payload.model_dump()
+
+    await redis.set(
+        f"event:{event_id}",
+        json.dumps(event_data),
+        ex=payload.duration_minutes * 60,
+    )
     nearby_users = await redis.geosearch(
         USER_LOCATION_KEY,
         longitude=payload.longitude,
@@ -86,6 +95,7 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
                 longitude=payload.longitude,
                 severity=payload.severity,
                 distance_meters=float(distance),
+                image_base64=payload.image_base64,
             )
             tasks.append(deliver_notification(client, user_id, notification))
 
