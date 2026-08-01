@@ -1,0 +1,322 @@
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+
+// ==========================================
+// 地圖核心與地址狀態
+// ==========================================
+const map = ref(null)
+const currentCoords = ref({ lat: 25.0478, lng: 121.5170 })
+const locationText = ref('正在取得真實 GPS 座標...')
+const eventsList = ref([])
+const markerMap = ref(new Map())
+
+const fetchAddress = async (lat, lng) => {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`)
+    const data = await res.json()
+    const readableName = data.address.road || data.address.building || data.address.suburb || data.display_name.split(',')[0]
+    locationText.value = readableName ? `目前位置：${readableName}` : `座標：${lat.toFixed(4)}, ${lng.toFixed(4)}`
+  } catch (error) {
+    locationText.value = `座標：${lat.toFixed(4)}, ${lng.toFixed(4)}`
+  }
+}
+
+const getDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2)
+  return Math.round(R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))))
+}
+
+const createColoredPin = (category) => {
+  const colorMap = { info: '#34c759', warning: '#ffcc00', danger: '#ff3b30' }
+  return L.divIcon({
+    className: 'custom-pin-container',
+    html: `<div class="pin-body" style="background-color: ${colorMap[category] || '#ff7f50'};"></div>`,
+    iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -24]
+  })
+}
+
+onMounted(() => {
+  map.value = L.map('map').setView([currentCoords.value.lat, currentCoords.value.lng], 16)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map.value)
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords
+        currentCoords.value = { lat: latitude, lng: longitude }
+        map.value.flyTo([latitude, longitude], 17)
+        fetchAddress(latitude, longitude)
+
+        L.circleMarker([latitude, longitude], {
+          radius: 8, fillColor: '#007aff', color: '#ffffff', weight: 2, opacity: 1, fillOpacity: 1
+        }).addTo(map.value).bindPopup('<b>📍 您的真實位置</b>')
+      },
+      (error) => locationText.value = '無法取得定位 (使用預設座標)'
+    )
+  }
+})
+
+// ==========================================
+// 新增：回到自身定位 (Recenter) 邏輯
+// ==========================================
+const recenterMap = () => {
+  // 1. 立即以平滑動畫飛越回目前記憶的 GPS 座標
+  if (map.value && currentCoords.value) {
+    map.value.flyTo([currentCoords.value.lat, currentCoords.value.lng], 17, {
+      animate: true,
+      duration: 1.2
+    })
+  }
+  
+  // 2. 同時於後台順便觸發更新最新的定位與地址
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords
+        currentCoords.value = { lat: latitude, lng: longitude }
+        fetchAddress(latitude, longitude)
+      },
+      (error) => console.warn('更新 GPS 座標失敗，維持原已知座標', error)
+    )
+  }
+}
+
+// ==========================================
+// 過濾器與列表抽屜邏輯
+// ==========================================
+const selectedFilters = ref({ info: true, warning: true, danger: true })
+
+const toggleFilter = (cat) => {
+  selectedFilters.value[cat] = !selectedFilters.value[cat]
+  eventsList.value.forEach(item => {
+    const marker = markerMap.value.get(item.id)
+    if (marker) {
+      if (selectedFilters.value[item.category]) {
+        if (!map.value.hasLayer(marker)) map.value.addLayer(marker)
+      } else {
+        if (map.value.hasLayer(marker)) map.value.removeLayer(marker)
+      }
+    }
+  })
+}
+
+const showListModal = ref(false)
+
+const filteredSortedEvents = computed(() => {
+  return eventsList.value
+    .filter(item => selectedFilters.value[item.category])
+    .sort((a, b) => a.distance - b.distance)
+})
+
+const flyToEvent = (item) => {
+  showListModal.value = false
+  map.value.flyTo([item.location.lat, item.location.lng], 18)
+  const marker = markerMap.value.get(item.id)
+  if (marker) {
+    setTimeout(() => { marker.openPopup() }, 400)
+  }
+}
+
+// ==========================================
+// 表單與 Toast 通知狀態
+// ==========================================
+const showModal = ref(false)
+const toastMessage = ref('')
+const showToast = ref(false)
+const formData = ref({ title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' })
+
+const handleImageUpload = (e) => {
+  const file = e.target.files[0]
+  if (file) { formData.value.imageFile = file; formData.value.imagePreview = URL.createObjectURL(file) }
+}
+const removeImage = () => { formData.value.imageFile = null; formData.value.imagePreview = '' }
+const triggerToast = (msg) => { toastMessage.value = msg; showToast.value = true; setTimeout(() => { showToast.value = false }, 3500) }
+
+const handleSubmit = () => {
+  const dist = getDistance(currentCoords.value.lat, currentCoords.value.lng, currentCoords.value.lat, currentCoords.value.lng)
+  const walkTime = Math.max(1, Math.round(dist / 80))
+  
+  const newEvent = {
+    id: Date.now(),
+    ...formData.value,
+    location: { ...currentCoords.value },
+    distance: dist,
+    walkTime: walkTime,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  
+  eventsList.value.push(newEvent)
+  const marker = L.marker([newEvent.location.lat, newEvent.location.lng], { icon: createColoredPin(newEvent.category) })
+  const categoryLabels = { info: '🟢 空位/活動', warning: '🟡 遺失/擁擠', danger: '🔴 緊急突發' }
+  const popupContent = `
+    <div style="font-family: sans-serif; min-width: 180px;">
+      <span style="font-size: 0.75rem; color: #666; font-weight: bold;">${categoryLabels[newEvent.category]}</span>
+      <h4 style="margin: 4px 0 8px 0; font-size: 1rem; color: #222;">${newEvent.title}</h4>
+      <p style="margin: 0 0 8px 0; font-size: 0.85rem; color: #444;">${newEvent.description || '無詳細描述'}</p>
+      <div style="background: #f5f5f5; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; color: #333;">
+        🚶 距離約 <b>${newEvent.distance}m</b>｜步行約 <b>${newEvent.walkTime} 分鐘</b>
+      </div>
+    </div>
+  `
+  marker.bindPopup(popupContent)
+  
+  if (selectedFilters.value[newEvent.category]) {
+    marker.addTo(map.value).openPopup()
+  }
+  
+  markerMap.value.set(newEvent.id, marker)
+  showModal.value = false
+  triggerToast(`成功發布「${newEvent.title}」！已新增至地圖與周遭列表。`)
+  formData.value = { title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' }
+}
+</script>
+
+<template>
+  <div class="app-container">
+    <!-- 頂部純淨搜尋列 -->
+    <header class="top-nav">
+      <div class="search-bar">
+        <span class="search-icon">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="#888888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </span>
+        <input type="text" placeholder="尋找事件或地點..." />
+      </div>
+    </header>
+
+    <!-- Toast 通知 -->
+    <transition name="toast">
+      <div v-if="showToast" class="toast-card">
+        <span class="toast-icon">✨</span><span class="toast-text">{{ toastMessage }}</span>
+      </div>
+    </transition>
+
+    <!-- 地圖容器 -->
+    <div id="map"></div>
+
+    <!-- 左下角：「📋 查看附近清單」按鈕 -->
+    <button class="list-fab-btn" @click="showListModal = true">
+      📋 列表 <span v-if="filteredSortedEvents.length > 0" class="badge">{{ filteredSortedEvents.length }}</span>
+    </button>
+
+    <!-- ========================================== -->
+    <!-- 新增：右下方「定位回正」次要懸浮按鈕       -->
+    <!-- 位於發布按鈕上方，使用純灰色幾何 SVG 準星  -->
+    <!-- ========================================== -->
+    <button class="recenter-btn" @click="recenterMap" title="回到我的位置">
+      <svg viewBox="0 0 24 24" width="20" height="20" stroke="#555555" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8"></circle>
+        <line x1="12" y1="2" x2="12" y2="4"></line>
+        <line x1="12" y1="20" x2="12" y2="22"></line>
+        <line x1="2" y1="12" x2="4" y2="12"></line>
+        <line x1="20" y1="12" x2="22" y2="12"></line>
+      </svg>
+    </button>
+
+    <!-- 右下角懸浮按鈕 FAB -->
+    <button class="fab-btn" @click="showModal = true">＋</button>
+
+    <!-- 周遭事件清單抽屜 (整合了過濾器 Chip) -->
+    <div v-if="showListModal" class="modal-overlay" @click.self="showListModal = false">
+      <div class="modal-card list-card-container">
+        <header class="modal-header">
+          <button class="close-btn" @click="showListModal = false">⊗</button>
+          <h3>附近事件清單 (由近到遠)</h3>
+          <div style="width: 24px;"></div>
+        </header>
+
+        <div class="list-filter-bar">
+          <button type="button" :class="['chip chip-green', { active: selectedFilters.info }]" @click="toggleFilter('info')">
+            🟢 空位/活動
+          </button>
+          <button type="button" :class="['chip chip-yellow', { active: selectedFilters.warning }]" @click="toggleFilter('warning')">
+            🟡 遺失/擁擠
+          </button>
+          <button type="button" :class="['chip chip-red', { active: selectedFilters.danger }]" @click="toggleFilter('danger')">
+            🔴 緊急突發
+          </button>
+        </div>
+
+        <div v-if="filteredSortedEvents.length === 0" class="empty-state">
+          目前勾選的類別中，附近暫無發布的事件。
+        </div>
+
+        <div v-else class="event-list">
+          <div v-for="item in filteredSortedEvents" :key="item.id" class="event-list-item" @click="flyToEvent(item)">
+            <div class="item-left"><span class="item-cat-dot" :class="`dot-${item.category === 'info' ? 'green' : item.category === 'warning' ? 'yellow' : 'red'}`"></span></div>
+            <div class="item-main">
+              <div class="item-title">{{ item.title }}</div>
+              <div class="item-desc">{{ item.description || '無詳細描述' }}</div>
+              <div class="item-time">發布時間：{{ item.timestamp }}</div>
+            </div>
+            <div class="item-right">
+              <span class="dist-badge">🚶 {{ item.walkTime }}分</span>
+              <span class="dist-meter">{{ item.distance }}m</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 發布事件表單 -->
+    <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
+      <div class="modal-card">
+        <header class="modal-header">
+          <button class="close-btn" @click="showModal = false">⊗</button>
+          <h3>發布事件</h3>
+          <div style="width: 24px;"></div>
+        </header>
+
+        <form @submit.prevent="handleSubmit" class="modal-form">
+          <div class="location-badge">📍 {{ locationText }}</div>
+          <div class="form-group">
+            <input type="text" v-model="formData.title" placeholder="請輸入事件名稱..." required class="input-light" />
+          </div>
+
+          <div class="form-group category-group">
+            <label class="group-label">事件類別選擇：</label>
+            <div class="radio-options">
+              <label class="radio-item"><input type="radio" v-model="formData.category" value="info" /><span class="dot dot-green"></span><span>空位 / 活動 (綠色圖釘)</span></label>
+              <label class="radio-item"><input type="radio" v-model="formData.category" value="warning" /><span class="dot dot-yellow"></span><span>遺失 / 擁擠 (黃色圖釘)</span></label>
+              <label class="radio-item"><input type="radio" v-model="formData.category" value="danger" /><span class="dot dot-red"></span><span>緊急 / 突發 (紅色圖釘)</span></label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="group-label">⏳ 事件時效：</label>
+            <select v-model="formData.duration" class="select-light">
+              <option value="30">保留 30 分鐘 (即時狀況)</option>
+              <option value="60">保留 1 小時</option>
+              <option value="120">保留 2 小時</option>
+              <option value="1440">保留 24 小時 (全天活動)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="group-label">📷 現場照片 (選填)：</label>
+            <div v-if="!formData.imagePreview" class="upload-box">
+              <input type="file" accept="image/*" @change="handleImageUpload" id="file-input" />
+              <label for="file-input" class="upload-label">點擊上傳或拍攝照片</label>
+            </div>
+            <div v-else class="image-preview-container">
+              <img :src="formData.imagePreview" alt="預覽圖" class="preview-img" />
+              <button type="button" class="remove-img-btn" @click="removeImage">✕ 移除照片</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <textarea v-model="formData.description" rows="3" placeholder="詳細描述：補充說明具體位置、特徵或狀況..." class="input-light"></textarea>
+          </div>
+
+          <button type="submit" class="submit-btn">確認發布</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</template>
