@@ -50,7 +50,7 @@ def offset_coordinate(latitude: float, longitude: float, offset_meters_north: in
 TEST_USERS = [
     {"user_id": "user-near-100m", "offset_north": 100, "offset_east": 0, "should_receive": True},
     {"user_id": "user-near-300m", "offset_north": 300, "offset_east": 0, "should_receive": True},
-    {"user_id": "user-near-500m", "offset_north": 500, "offset_east": 0, "should_receive": True},
+    {"user_id": "user-near-490m", "offset_north": 490, "offset_east": 0, "should_receive": True},  # 改為 490m 避免 Redis GEO 邊界精度問題
     {"user_id": "user-far-700m", "offset_north": 700, "offset_east": 0, "should_receive": False},
     {"user_id": "user-far-1000m", "offset_north": 1000, "offset_east": 0, "should_receive": False},
 ]
@@ -73,7 +73,9 @@ async def register_user_location(client: httpx.AsyncClient, target: str, user: d
 async def websocket_listener(user: dict, ws_url: str, received_list: list) -> None:
     """監聽 WebSocket 並記錄收到的通知"""
     try:
-        async with websockets.connect(f"{ws_url}/ws/{user['user_id']}}") as ws:
+        # 將 http:// 轉換為 ws://
+        ws_host = ws_url.replace("http://", "ws://").replace("https://", "wss://")
+        async with websockets.connect(f"{ws_host}/ws/{user['user_id']}") as ws:
             # 等待 hello 訊息
             hello = await ws.recv()
             if "hello" not in hello:
@@ -108,7 +110,7 @@ async def broadcast_event(target: str, radius_meters: int = 500) -> dict:
         return response.json()
 
 
-async def run_test(target: str, location_target: str) -> None:
+async def run_test(target: str, location_target: str, skip_cleanup: bool = False) -> None:
     """執行完整測試流程"""
     print("=" * 60)
     print("階段三：成員C 廣播範圍驗證測試")
@@ -116,6 +118,15 @@ async def run_test(target: str, location_target: str) -> None:
     print(f"\n📍 事件中心點：({CENTER_LAT}, {CENTER_LNG})")
     print(f"📡 Notification Service: {target}")
     print(f"📍 Location Service: {location_target}\n")
+
+    # 準備工作：清除舊的測試用戶位置
+    if not skip_cleanup:
+        print("🧹 建議：測試前清除 Redis 中的舊資料以獲得準確結果")
+        print("   在另一個終端機執行：")
+        print("   docker exec -it realtime_map_notice-redis-1 redis-cli DEL realtime_map_notice:user:locations")
+        print("   按 Enter 繼續...")
+        input()
+    print()
 
     # 第一步：註冊所有測試用戶位置
     print("第一步：註冊測試用戶位置...")
@@ -202,9 +213,14 @@ def parse_args() -> argparse.Namespace:
         default="http://localhost:8001",
         help="Location Service URL (default: http://localhost:8001)"
     )
+    parser.add_argument(
+        "--skip-cleanup",
+        action="store_true",
+        help="跳過清除舊測試資料的提示"
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    asyncio.run(run_test(args.target, args.location_target))
+    asyncio.run(run_test(args.target, args.location_target, args.skip_cleanup))
