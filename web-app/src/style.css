@@ -49,23 +49,42 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 
 /* 右下角：＋號發布主要按鈕 */
 .fab-btn {
-  position: absolute; right: 20px; bottom: 24px; width: 56px; height: 56px;
-  background-color: #ff7f50; color: white; border: none; border-radius: 50%;
-  font-size: 28px; font-weight: bold; display: flex; justify-content: center; align-items: center;
-  box-shadow: 0 4px 16px rgba(255, 127, 80, 0.45); cursor: pointer; z-index: 1000; transition: all 0.2s;
+  position: fixed;
+  right: 20px;
+  bottom: 30px; /* 抬高一點避開 Leaflet 標籤 */
+  z-index: 1000;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #ff6b4a;
+  color: white;
+  font-size: 28px;
+  border: none;
+  box-shadow: 0 4px 14px rgba(255, 107, 74, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.fab-btn:active { transform: scale(0.95); }
 
 /* ========================================== */
 /* 新增：右下方「定位自身回正」次要按鈕         */
 /* ========================================== */
 .recenter-btn {
-  position: absolute; right: 26px; bottom: 94px; /* 位於 ＋ 號正上方，縮進與對齊圓心 */
-  width: 44px; height: 44px;
-  background-color: #ffffff; border: none; border-radius: 50%;
-  display: flex; justify-content: center; align-items: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18); cursor: pointer; z-index: 1000;
-  transition: all 0.2s ease;
+  position: fixed;
+  right: 24px;
+  bottom: 96px; /* 位於橘色加號按鈕上方 */
+  z-index: 1000;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  border: 1px solid #e5e5ea;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .recenter-btn:hover { background-color: #f8f8f8; }
 .recenter-btn:hover svg { stroke: #ff7f50; /* 懸停時準星轉為品牌橘色 */ }
@@ -73,14 +92,28 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 
 /* 左下角：查看列表懸浮按鈕 */
 .list-fab-btn {
-  position: absolute; left: 20px; bottom: 24px; height: 44px; padding: 0 16px;
-  background-color: #ffffff; color: #333333; border: none; border-radius: 22px;
-  font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); cursor: pointer; z-index: 1000; transition: all 0.2s;
+  position: fixed;
+  left: 20px;
+  bottom: 24px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  background-color: #ffffff;
+  border: 1px solid #e5e5ea;
+  border-radius: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #1c1c1e;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
 }
-.list-fab-btn:active { transform: scale(0.95); }
-.list-fab-btn .badge {
-  background: #ff7f50; color: white; font-size: 0.75rem; padding: 2px 6px; border-radius: 10px;
+
+/* 避免 CSS 自動重複注入文字 */
+.list-fab-btn::after {
+  content: none !important;
 }
 
 /* ========================================== */
