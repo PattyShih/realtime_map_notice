@@ -13,11 +13,11 @@ event_service = load_module("event_service_main", "backend/event-service/app/mai
 
 @dataclass
 class FakePipeline:
-    last_seen_values: list[str | None]
+    values: dict[str, str | None]
     requested_keys: list[str]
 
-    def __init__(self, last_seen_values: list[str | None]) -> None:
-        self.last_seen_values = last_seen_values
+    def __init__(self, values: dict[str, str | None]) -> None:
+        self.values = values
         self.requested_keys = []
 
     def get(self, key: str) -> "FakePipeline":
@@ -25,15 +25,19 @@ class FakePipeline:
         return self
 
     async def execute(self) -> list[str | None]:
-        return self.last_seen_values
-
-
+        return [
+            self.values.get(key)
+            for key in self.requested_keys
+        ]
+    
 class FakeRedis:
     def __init__(self) -> None:
         self.geosearch_result = []
-        self.pipeline_values: list[str | None] = []
+        self.pipeline_values: dict[str, str | None] = {}
         self.pipeline_instance: FakePipeline | None = None
         self.set_calls = []
+        self.geoadd_calls = []
+        self.zrem_calls = []
 
     async def ping(self) -> bool:
         return True
@@ -49,6 +53,22 @@ class FakeRedis:
 
     async def geosearch(self, *args, **kwargs):
         return self.geosearch_result
+
+    async def geoadd(self, key, values):
+        self.geoadd_calls.append(
+            {
+                "key": key,
+                "values": values,
+            }
+        )
+
+    async def zrem(self, key, *members):
+        self.zrem_calls.append(
+            {
+                "key": key,
+                "members": members,
+            }
+        )
 
     def pipeline(self, transaction: bool = False) -> FakePipeline:
         self.pipeline_instance = FakePipeline(self.pipeline_values)
@@ -92,7 +112,10 @@ async def test_healthz(monkeypatch) -> None:
 async def test_create_event_with_nearby_users(monkeypatch) -> None:
     fake_redis = FakeRedis()
     fake_redis.geosearch_result = [("u-0001", "120.0"), ("u-0002", "250.0")]
-    fake_redis.pipeline_values = ["2026-07-05T00:00:00Z", None]
+    fake_redis.pipeline_values = {
+        f"{event_service.USER_LAST_SEEN_PREFIX}:u-0001": "2026-07-05T00:00:00Z",
+        f"{event_service.USER_LAST_SEEN_PREFIX}:u-0002": None,
+    }
     monkeypatch.setattr(event_service, "redis", fake_redis)
 
     fake_client = FakeAsyncClient(timeout=3.0)
@@ -130,6 +153,10 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
     assert sent_payload["image_base64"] == "fake-image-base64-data"
     assert len(fake_redis.set_calls) == 1
     assert fake_redis.set_calls[0]["ex"] == 60 * 60
+    assert len(fake_redis.geoadd_calls) == 1
+    assert fake_redis.geoadd_calls[0]["key"] == "event_locations"
+    assert fake_redis.geoadd_calls[0]["values"][0] == 121.5397
+    assert fake_redis.geoadd_calls[0]["values"][1] == 25.0173
 
 
 @pytest.mark.asyncio
@@ -164,3 +191,155 @@ async def test_create_event_no_nearby_users(monkeypatch) -> None:
     assert body["delivered_count"] == 0
     assert body["delivered_to"] == []
     assert fake_client.posts == []
+    assert len(fake_redis.geoadd_calls) == 1
+    assert fake_redis.geoadd_calls[0]["key"] == "event_locations"
+    assert fake_redis.geoadd_calls[0]["values"][0] == 121.5397
+    assert fake_redis.geoadd_calls[0]["values"][1] == 25.0173
+
+
+@pytest.mark.asyncio
+async def test_get_events(monkeypatch) -> None:
+    fake_redis = FakeRedis()
+
+    fake_redis.geosearch_result = [
+        "event-001",
+    ]
+
+    fake_redis.pipeline_values = {
+        "event:event-001": """
+        {
+            "title": "Library 3F has seats",
+            "message": "About 10 seats near windows.",
+            "severity": "info",
+            "latitude": 24.6859,
+            "longitude": 120.9123,
+            "radius_meters": 500,
+            "created_at": "2026-08-02T01:30:00+00:00"
+        }
+        """
+    }
+
+    monkeypatch.setattr(
+        event_service,
+        "redis",
+        fake_redis,
+    )
+
+    transport = ASGITransport(app=event_service.app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/events",
+            params={
+                "latitude": 24.6859,
+                "longitude": 120.9123,
+                "radius": 3000,
+            },
+        )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert len(body) == 1
+
+    assert body[0]["event_id"] == "event-001"
+    assert body[0]["title"] == "Library 3F has seats"
+    assert body[0]["severity"] == "info"
+    assert body[0]["radius_meters"] == 500
+    assert body[0]["created_at"] == "2026-08-02T01:30:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_get_events_invalid_latitude(monkeypatch) -> None:
+    transport = ASGITransport(app=event_service.app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/events",
+            params={
+                "latitude": 100,
+                "longitude": 121.5,
+            },
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_get_events_empty(monkeypatch) -> None:
+    fake_redis = FakeRedis()
+    fake_redis.geosearch_result = []
+
+    monkeypatch.setattr(
+        event_service,
+        "redis",
+        fake_redis,
+    )
+
+    transport = ASGITransport(app=event_service.app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/events",
+            params={
+                "latitude": 25.0173,
+                "longitude": 121.5397,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_get_events_remove_expired_events(monkeypatch) -> None:
+    fake_redis = FakeRedis()
+
+    fake_redis.geosearch_result = [
+        "expired-event-001",
+    ]
+
+    fake_redis.pipeline_values = {
+        "event:expired-event-001": None,
+    }
+
+    monkeypatch.setattr(
+        event_service,
+        "redis",
+        fake_redis,
+    )
+
+    transport = ASGITransport(app=event_service.app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/events",
+            params={
+                "latitude": 24.6859,
+                "longitude": 120.9123,
+                "radius": 3000,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+    assert fake_redis.zrem_calls == [
+        {
+            "key": "event_locations",
+            "members": ("expired-event-001",),
+        }
+    ]
