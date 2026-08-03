@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from datetime import datetime
 
 
 class LocationUpdate(BaseModel):
@@ -31,6 +32,18 @@ class EventNotification(BaseModel):
     distance_meters: float | None = None
     # 新增：通知時保留圖片
     image_base64: str | None = None
+
+
+class EventResponse(BaseModel):
+    event_id: str
+    title: str
+    message: str
+    severity: str
+    latitude: float
+    longitude: float
+    radius_meters: int
+    created_at: datetime
+
 
 class NearbyBroadcast(BaseModel):
     """廣播事件給附近使用者的請求"""
