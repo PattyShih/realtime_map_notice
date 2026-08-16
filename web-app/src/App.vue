@@ -63,16 +63,19 @@ const getOrCreateUserId = () => {
 // ==========================================
 // WebSocket 即時推播串接 (Port 8003)
 // ==========================================
-const wsStatus = ref('connecting') // 可選：記錄連線狀態
+const wsStatus = ref('connecting')
+let reconnectAttempts = 0
+const MAX_RECONNECT_DELAY = 30 // seconds
+const BASE_RECONNECT_DELAY = 1000 // milliseconds
 
 const setupWebSocket = () => {
   const userId = getOrCreateUserId()
-  // 建立連線，帶入動態 userId
   const ws = new WebSocket(`ws://127.0.0.1:8003/ws/${userId}`)
 
   ws.onopen = () => {
     console.log('✅ WebSocket 即時廣播頻道連線成功！')
     wsStatus.value = 'connected'
+    reconnectAttempts = 0 // 重置重連計數
   }
 
   ws.onmessage = (event) => {
@@ -80,11 +83,16 @@ const setupWebSocket = () => {
       const data = JSON.parse(event.data)
       console.log('📩 收到 WebSocket 推播訊息：', data)
 
-      // 1. 過慮掉握手訊息 {"type":"hello", "message":"Hello"}
+      // 1. 回應後端的 ping 訊息
+      if (data.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }))
+        return
+      }
+
+      // 2. 過濾掉握手訊息 {"type":"hello", "message":"..."}
       if (data.type === 'hello') return
 
-      // 2. 如果收到的是新事件廣播 (例如 event_created / new_event)
-      // 解析資料並自動在地圖與列表上繪製圖釘
+      // 3. 處理事件推播
       const eventData = data.event || data.payload || data
 
       if (eventData.latitude && eventData.longitude) {
@@ -143,12 +151,20 @@ const setupWebSocket = () => {
   }
 
   ws.onclose = () => {
-    console.warn('🔌 WebSocket 連線已中斷，5 秒後嘗試重連...')
     wsStatus.value = 'disconnected'
-    // 自動重連機制
+
+    // Exponential backoff 重連策略
+    reconnectAttempts++
+    const delay = Math.min(
+      BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts - 1),
+      MAX_RECONNECT_DELAY * 1000
+    )
+
+    console.warn(`🔌 WebSocket 連線已中斷，${delay / 1000} 秒後嘗試重連... (第 ${reconnectAttempts} 次嘗試)`)
+
     setTimeout(() => {
       setupWebSocket()
-    }, 5000)
+    }, delay)
   }
 }
 
