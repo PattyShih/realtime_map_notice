@@ -1,4 +1,6 @@
 import asyncio
+import json
+import logging
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -7,6 +9,10 @@ from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import EventNotification, NearbyBroadcast
 
+# 設定日誌
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="realtime_map_notice Notification Service", version="0.1.0")
 configure_cors(app)
 redis = create_redis()
@@ -14,6 +20,8 @@ redis = create_redis()
 # WebSocket heartbeat settings
 HEARTBEAT_INTERVAL = 30  # seconds
 HEARTBEAT_TIMEOUT = 60  # seconds
+PONG_TIMEOUT = 10  # seconds - wait for pong response
+INITIAL_GRACE_PERIOD = 60  # seconds - grace period after connection establishment
 
 
 def user_channel(user_id: str) -> str:
@@ -30,49 +38,99 @@ async def healthz() -> dict[str, str]:
 async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
     await websocket.accept()
     # 階段一檢核機制：連線時發送 Hello 訊息
-    await websocket.send_text('{"type":"hello","message":"Hello"}')
+    await websocket.send_text('{"type":"hello","message":"Connected to notification service"}')
+
+    logger.info(f"✅ User {user_id} connected, sending hello message")
+
     pubsub = redis.pubsub()
     await pubsub.subscribe(user_channel(user_id))
+
+    # 追蹤最後一次收到 pong 的時間
+    last_pong_time = asyncio.get_event_loop().time()
+    connection_start_time = asyncio.get_event_loop().time()
 
     ping_task = asyncio.create_task(ping_sender(websocket))
 
     try:
         while True:
-            message = await pubsub.get_message(
-                ignore_subscribe_messages=True,
-                timeout=1.0,
-            )
+            # 1. 檢查是否有 Redis 訊息
+            try:
+                message = await asyncio.wait_for(
+                    pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0),
+                    timeout=2.0
+                )
 
-            if message and message["type"] == "message":
-                await websocket.send_text(message["data"])
+                if message and message["type"] == "message":
+                    await websocket.send_text(message["data"])
+                    logger.info(f"📤 Sent notification to user {user_id}")
+            except asyncio.TimeoutError:
+                pass  # 沒有 Redis 訊息，繼續迴圈
 
-            # Check for client messages (pong response)
+            # 2. 檢查客戶端訊息 (pong response)
             try:
                 client_msg = await asyncio.wait_for(
                     websocket.receive_text(),
-                    timeout=0.1,
+                    timeout=0.5,
                 )
-                # Client responded, connection is alive
+                # 解析客戶端訊息
+                try:
+                    msg_data = json.loads(client_msg)
+                    if msg_data.get("type") == "pong":
+                        last_pong_time = asyncio.get_event_loop().time()
+                        logger.info(f"📡 User {user_id} pong received")
+                    else:
+                        logger.info(f"📨 User {user_id} sent: {client_msg[:50]}...")
+                except json.JSONDecodeError:
+                    logger.info(f"📨 User {user_id} sent non-JSON: {client_msg[:50]}...")
             except asyncio.TimeoutError:
-                pass  # No client message, continue loop
+                pass  # 沒有客戶端訊息，繼續迴圈
+
+            # 3. 檢查是否超時 (連線建立後等待第一個心跳週期，再開始檢查 pong 超時)
+            current_time = asyncio.get_event_loop().time()
+            connection_age = current_time - connection_start_time
+
+            # 只有在連線超過一個心跳週期後，才開始檢查 pong 超時
+            if connection_age > HEARTBEAT_INTERVAL:
+                time_since_last_pong = current_time - last_pong_time
+                if time_since_last_pong > PONG_TIMEOUT:
+                    logger.warning(f"⏰ User {user_id} pong timeout ({time_since_last_pong:.1f}s > {PONG_TIMEOUT}s), closing connection")
+                    break
+
+            # 每 60 秒打印一次連線狀態
+            if int(connection_age) % 60 == 0 and int(connection_age) > 0:
+                logger.info(f"💓 User {user_id} connection alive for {int(connection_age)}s")
 
     except WebSocketDisconnect:
-        pass
+        logger.info(f"🔌 User {user_id} disconnected normally")
+    except Exception as e:
+        logger.error(f"❌ WebSocket error for user {user_id}: {e}")
     finally:
         ping_task.cancel()
         await pubsub.unsubscribe(user_channel(user_id))
         await pubsub.close()
+        logger.info(f"🛑 User {user_id} connection cleanup complete")
 
 
 async def ping_sender(websocket: WebSocket) -> None:
-    """Send periodic ping messages to detect dead connections."""
+    """Send periodic ping messages and wait for pong response."""
     try:
+        # 等待第一個心跳間隔後才發送第一次 ping
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+        try:
+            await websocket.send_text('{"type":"ping","timestamp":' + str(int(asyncio.get_event_loop().time())) + '}')
+        except Exception:
+            # WebSocket already closed
+            print("Ping failed: connection closed")
+            return
+
         while True:
             await asyncio.sleep(HEARTBEAT_INTERVAL)
             try:
-                await websocket.send_text('{"type":"ping"}')
+                await websocket.send_text('{"type":"ping","timestamp":' + str(int(asyncio.get_event_loop().time())) + '}')
             except Exception:
                 # WebSocket already closed
+                print("Ping failed: connection closed")
                 break
     except asyncio.CancelledError:
         pass
