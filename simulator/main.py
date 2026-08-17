@@ -46,6 +46,7 @@ async def main():
         tasks = [simulate_user(i, session) for i in range(users_count)]
         # 同時並發執行所有任務
         await asyncio.gather(*tasks)
+        await asyncio.Event().wait()
         
     print("✅ 壓測雛形執行完畢！")
 
