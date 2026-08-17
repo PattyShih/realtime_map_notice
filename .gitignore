@@ -11,3 +11,6 @@ dist/
 build/
 node_modules/
 simulator/venv/
+infra/cloudflare/cloudflared/config.yml
+infra/cloudflare/cloudflared/*.json
+docs/icons.json

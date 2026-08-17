@@ -16,19 +16,23 @@
 
    看十週計畫、Demo 目標、四人分工、風險與備案。
 
-4. [test-plan.md](./test-plan.md)
+4. [progress.md](./progress.md)
+
+   看目前實際進度、阻塞、下一步與更新紀錄。
+
+5. [test-plan.md](./test-plan.md)
 
    看後端、前端、WebSocket、跨服務整合與 E2E 測試規劃。
 
-5. [../development.md](../development.md)
+6. [../development.md](../development.md)
 
    看本機開發、API 測試、壓測與 K8s Demo 操作流程。
 
-6. [../k8s/README.md](../k8s/README.md)
+7. [../k8s/README.md](../k8s/README.md)
 
    看 Kubernetes 部署、HPA、Pod 容錯與常見問題。
 
-7. [../web-app/README.md](../web-app/README.md)
+8. [../web-app/README.md](../web-app/README.md)
 
    看前端專案建議結構、地圖服務、UI/UX、API key 與環境變數。
 
@@ -39,6 +43,7 @@
 | `readme.md` | 全員、教授 | 快速理解專題做什麼 |
 | `system.md` | 後端、資料庫、DevOps | 架構、API、即時位置、容量與瓶頸 |
 | `docs/project-plan.md` | 全員 | 十週進度、Demo 目標、四人分工與風險 |
+| `docs/progress.md` | 全員 | 目前進度、阻塞、下一步與更新紀錄 |
 | `docs/test-plan.md` | 前端、後端 | 測試策略與案例 |
 | `development.md` | 開發者 | 本機啟動與測試指令 |
 | `k8s/README.md` | DevOps | Kubernetes 操作 |
@@ -62,4 +67,4 @@
 - 新增文件前，先判斷是否能放進既有文件，避免再次分散。
 - 如果架構、API 或位置資料欄位改動，請同步更新 [../system.md](../system.md) 與 [test-plan.md](./test-plan.md)。
 - 如果 Demo 目標或流程改動，請同步更新 [project-plan.md](./project-plan.md) 與 [../development.md](../development.md)。
-
+- 每次完成一個 coding slice 或測試 slice，請同步更新 [progress.md](./progress.md)。
