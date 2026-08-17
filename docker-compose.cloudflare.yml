@@ -1,0 +1,32 @@
+services:
+  edge-proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./web-app/dist:/usr/share/nginx/html:ro
+      - ./infra/cloudflare/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - location-service
+      - event-service
+      - notification-service
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./infra/cloudflare/cloudflared:/etc/cloudflared:ro
+    depends_on:
+      - edge-proxy
+    profiles:
+      - cloudflare
+
+  cloudflared-token:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --url http://edge-proxy:8080
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - edge-proxy
+    profiles:
+      - cloudflare-token

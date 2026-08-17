@@ -1,0 +1,7 @@
+tunnel: realtime-map-notice
+credentials-file: /etc/cloudflared/realtime-map-notice.json
+
+ingress:
+  - hostname: map.avision-gb10.org
+    service: http://edge-proxy:8080
+  - service: http_status:404

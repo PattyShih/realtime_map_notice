@@ -21,7 +21,11 @@ spec:
             - containerPort: 8000
           env:
             - name: REDIS_URL
-              value: redis://redis.realtime-map-notice.svc.cluster.local:6379/0
+              value: redis://redis:6379/0
+            - name: CORS_ALLOW_ORIGINS
+              value: http://localhost:5173,http://localhost:3000
+            - name: DEFAULT_ALERT_RADIUS_METERS
+              value: "500"
           resources:
             requests:
               cpu: 100m
