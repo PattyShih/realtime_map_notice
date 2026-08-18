@@ -217,3 +217,193 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   .list-fab-btn:hover { background-color: #f0f0f0; transform: scale(1.05); }
   .toast-card { top: 88px; max-width: 420px; }
 }
+.event-card {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.card-thumb {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f0f0f0;
+}
+
+.card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 卡片內容排版 */
+.card-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 卡片頭部：標題向左、徽章向右推開 */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+/* 標題樣式（過長時自動以省略號顯示） */
+.card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #222;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 步行時間徽章樣式 */
+.card-badge {
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: #f0f0f0;
+  color: #555;
+}
+
+/* 依照類別給予不同底色 */
+.card-badge.info {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.card-badge.warning {
+  background: #fff9c4;
+  color: #f57f17;
+}
+
+.card-badge.danger {
+  background: #ffebee;
+  color: #c62828;
+}
+/* 底部資訊列：左右推開 */
+.card-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  color: #777;
+  margin-top: 4px;
+}
+
+/* 圖片燈箱樣式 */
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  cursor: zoom-out;
+}
+
+.lightbox-img {
+  max-width: 90vw;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+.lightbox-close-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.lightbox-close-btn:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* 連線狀態膠囊 */
+.connection-pill {
+  position: absolute;
+  top: 68px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: all 0.3s ease;
+  pointer-events: none;
+}
+
+.status-indicator-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* 已連線狀態 (淡綠) */
+.connection-pill.connected {
+  background: rgba(255, 255, 255, 0.92);
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+.connection-pill.connected .status-indicator-dot {
+  background: #34c759;
+  box-shadow: 0 0 6px #34c759;
+}
+
+/* 重連中狀態 (淡橘黃) */
+.connection-pill.reconnecting {
+  background: rgba(255, 248, 225, 0.95);
+  color: #ef6c00;
+  border: 1px solid #ffe082;
+  animation: pulse 1.5s infinite;
+}
+.connection-pill.reconnecting .status-indicator-dot {
+  background: #ffa000;
+}
+
+/* 斷線狀態 (淡紅) */
+.connection-pill.disconnected {
+  background: rgba(255, 235, 238, 0.95);
+  color: #c62828;
+  border: 1px solid #ffcdd2;
+}
+.connection-pill.disconnected .status-indicator-dot {
+  background: #ff3b30;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.7; }
+  50% { opacity: 1; }
+  100% { opacity: 0.7; }
+}
