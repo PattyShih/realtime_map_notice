@@ -1,66 +1,25 @@
-import logging
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
-from backend.shared.config import (
-    USER_LAST_SEEN_PREFIX,
-    USER_LOCATION_KEY,
-)
+from backend.shared.config import LAST_SEEN_TTL_SECONDS, USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import LocationUpdate
 
-log = logging.getLogger(__name__)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    app.state.redis = create_redis()
-    log.info("location-service started, Redis connected")
-    yield
-    await app.state.redis.aclose()
-    log.info("location-service shutting down, Redis closed")
-
-
-app = FastAPI(title="realtime_map_notice Location Service", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="realtime_map_notice Location Service", version="0.1.0")
 configure_cors(app)
-
-
-def _redis(app: FastAPI):
-    return app.state.redis
-
-
-async def filter_active_users(redis, user_ids: list[str]) -> list[str]:
-    if not user_ids:
-        return []
-
-    last_seen_values = await redis.mget(
-        [f"{USER_LAST_SEEN_PREFIX}:{user_id}" for user_id in user_ids],
-    )
-    return [
-        user_id
-        for user_id, last_seen in zip(user_ids, last_seen_values)
-        if last_seen is not None
-    ]
+redis = create_redis()
 
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    redis = _redis(app)
-    try:
-        await redis.ping()
-        return {"status": "ok"}
-    except Exception:
-        log.exception("healthz: Redis ping failed")
-        raise
+    await redis.ping()
+    return {"status": "ok"}
 
 
 @app.post("/locations")
 async def update_location(payload: LocationUpdate) -> dict[str, str]:
-    redis = _redis(app)
-    log.info("location.update user=%s lat=%.5f lng=%.5f", payload.user_id, payload.latitude, payload.longitude)
     await redis.geoadd(
         USER_LOCATION_KEY,
         (payload.longitude, payload.latitude, payload.user_id),
@@ -79,7 +38,6 @@ async def nearby_users(
     longitude: float,
     radius_meters: int = 500,
 ) -> dict[str, list[str]]:
-    redis = _redis(app)
     users = await redis.geosearch(
         USER_LOCATION_KEY,
         longitude=longitude,
@@ -87,7 +45,4 @@ async def nearby_users(
         radius=radius_meters,
         unit="m",
     )
-    active = await filter_active_users(redis, users)
-    log.info("location.nearby lat=%.5f lng=%.5f radius=%dm total=%d active=%d",
-             latitude, longitude, radius_meters, len(users), len(active))
-    return {"users": active}
+    return {"users": users}
