@@ -2,35 +2,100 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Project Context
 
-即時校園地圖通知系統 — 使用者在地圖上回報事件（交通事故、施工、人群聚集、設備故障、道路封閉等），系統只通知事件座標半徑內（預設 1km）的使用者。React + Leaflet 前端、三個 FastAPI 微服務 + Redis 後端、nginx 反向代理。
+`realtime_map_notice` is a real-time campus map notification system using microservices (FastAPI), Redis GEO, and WebSocket. The codebase and documentation are bilingual (Traditional Chinese and English). Users post map markers (events) that trigger location-based notifications to nearby users (within 500m).
 
-**線上展示**: https://map2.avision-gb10.org
+## Build & Run
 
-## Commands
-
-### Backend
 ```bash
-# 啟動所有服務（Redis + 3 FastAPI 微服務 + nginx）
-docker compose up --build -d
-
-# 停止所有服務
-docker compose down
-
-# 查看日誌
-docker compose logs -f event-service
+docker compose up --build          # 啟動全部（Redis + 3 services）
+docker compose up --build -d       # 背景啟動
+docker compose logs -f <service>   # 看日誌
+docker compose down                # 停掉
 ```
 
-### Frontend
+Services bind to host ports 8001/8002/8003 (internal: 8000).
+
+## Local Development
+
 ```bash
-cd web-app
-npm run dev       # Vite dev server on :5173
-npm run build     # TypeScript check + production build
-npm run lint      # ESLint
+# Set up environment (copy from .env.example)
+cp .env.example .env
+
+# Optional: Python virtual environment for simulator/scripts
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# .\.venv\Scripts\Activate.ps1  # Windows PowerShell
+
+# Install simulator dependencies
+pip install -r simulator/requirements.txt
 ```
 
-## Kubernetes (K8s) Deployment
+### API Documentation
+
+Each FastAPI service has interactive API docs:
+- Location Service: http://localhost:8001/docs
+- Event Service: http://localhost:8002/docs
+- Notification Service: http://localhost:8003/docs
+
+## Test
+
+```bash
+# 目前沒有 tests/，尚未實作。建立測試時：
+pytest                              # 跑全部
+pytest tests/unit/                  # 只跑 unit
+pytest tests/integration/           # 需先 docker compose up
+```
+
+## Architecture
+
+```
+Web App → Location Service (:8001) → Redis GEO
+Web App → Event Service (:8002) → Redis GEOSEARCH → Notification Service (:8003) → Redis Pub/Sub → WebSocket → Web App
+```
+
+Three independent FastAPI services share `backend/shared/` (schemas, config, redis_client, cors). Each has its own Dockerfile. Redis is the only stateful dependency.
+
+## Service Entrypoints
+
+| Service | Host Port | Internal | Main File |
+|---------|-----------|----------|-----------|
+| Location Service | 8001 | 8000 | `backend/location-service/app/main.py` |
+| Event Service | 8002 | 8000 | `backend/event-service/app/main.py` |
+| Notification Service | 8003 | 8000 | `backend/notification-service/app/main.py` |
+
+## Code Conventions
+
+- **PYTHONPATH=/app** inside Docker. All imports use `from backend.shared import ...`.
+- Folder names use hyphens (`location-service`), NOT underscores. Cannot do normal Python import from these paths — use `importlib` if importing outside Docker.
+- Pydantic v2 models live in `backend/shared/schemas.py`. Add new fields there.
+- Redis client factory: `backend/shared/redis_client.py` → `create_redis()`.
+- CORS config: `backend/shared/cors.py` → reads `CORS_ALLOW_ORIGINS` env var.
+- Each service: `backend/<service>/app/main.py` is the FastAPI app entrypoint.
+- Dockerfile copies `backend/shared` then `backend/<service>/app` into `/app/`.
+
+## Env Vars
+
+| Var | Default | Where |
+|-----|---------|-------|
+| `REDIS_URL` | `redis://localhost:6379/0` | shared/config.py |
+| `USER_LOCATION_KEY` | `realtime_map_notice:user:locations` | shared/config.py |
+| `USER_LAST_SEEN_PREFIX` | `realtime_map_notice:user:last_seen` | shared/config.py |
+| `DEFAULT_ALERT_RADIUS_METERS` | `500` | shared/config.py |
+| `CORS_ALLOW_ORIGINS` | `http://localhost:5173,http://localhost:3000` | shared/config.py |
+| `NOTIFICATION_SERVICE_URL` | `http://localhost:8003` | event-service only |
+
+## Gotchas
+
+- `.dockerignore` doesn't exist yet — `.git` and `__pycache__` bloat build context. Create one if editing Dockerfiles.
+- Event Service notifies nearby users one-by-one (`async for` loop). For 500+ users this is slow. Use `asyncio.gather` or bypass HTTP via direct Redis Pub/Sub.
+- No WebSocket heartbeat — disconnected clients leave ghost connections.
+- No test suite exists yet. See `docs/test-plan.md` for planned test structure.
+- `web-app/` is empty (only a README). Frontend is not implemented.
+- No `.env` file tracked — copy from `.env.example`.
+
+## K8s
 
 ```bash
 # Build images first (no CI/CD pipeline)
@@ -38,83 +103,28 @@ docker build -t realtime-map-notice/location-service:latest -f backend/location-
 docker build -t realtime-map-notice/event-service:latest -f backend/event-service/Dockerfile .
 docker build -t realtime-map-notice/notification-service:latest -f backend/notification-service/Dockerfile .
 
-# 部署至 K8s
 kubectl apply -f k8s/
 kubectl -n realtime-map-notice get pods -w
 kubectl -n realtime-map-notice get hpa -w
 ```
 
-Namespace: `realtime-map-notice`。Location Service 有設定 HPA (1–5 replicas, CPU 60%)。Event 與 Notification 預設為 2+ replicas。
+Namespace: `realtime-map-notice`. Location Service has HPA (1–5 replicas, CPU 60%). Event/Notification: 2+ replicas.
 
-## 壓力測試 (Load Testing)
+## Load Testing
 
 ```bash
-# 基礎壓測腳本
 python simulator/simulate_users.py --users 500 --target http://localhost:8001 --interval 1
-
-# 1000 人進階壓測（需服務運行中）
-python stress_test.py
-```
-*Requires: `pip install -r simulator/requirements.txt`*
-
-## Architecture
-
-三個 FastAPI 微服務 + Redis 7 + nginx + React 前端：
-
-```text
-Browser → nginx (:8080→:8095) ─→ Location Service (:8001, 4 workers) → Redis GEO
-                               → Event Service (:8002, 4 workers)    → Redis GEO + LIST + PUBLISH
-                               ← Notification Service (:8003, 1 worker) ← Redis SUBSCRIBE + WebSocket
-Browser ← nginx (/ws/*) ←─────────────────────────────────────────────┘
+# Advanced: --users 3000
 ```
 
-- **Location Service** (`backend/location-service/`) — 接收 GPS 座標，存入 Redis GEO，查詢附近使用者
-- **Event Service** (`backend/event-service/`) — 建立事件（冪等 client_event_id + TTL）、持久化到 Redis LIST、透過 Redis Pub/Sub 發布通知（不再 HTTP fanout）、支援事件過期（expires_in 分鐘）、留言功能
-- **Notification Service** (`backend/notification-service/`) — 管理使用者 WebSocket 連線、訂閱 Redis Pub/Sub channel、本地 geosearch + WS 推播、離線通知佇列、app-level ping/pong 心跳
-- **nginx** (`nginx/nginx.conf`) — 反向代理：靜態前端、`/api/*` 路由到後端服務、`/ws/*` 到 notification service（WebSocket upgrade）
+Requires: `pip install -r simulator/requirements.txt`
 
-### Shared Code (`backend/shared/`)
-- `schemas.py` — Pydantic models: `LocationUpdate`, `EventCreate`（含 expires_in 1-1440 分鐘）, `EventNotification`, `EventRecord`, `Comment`
-- `config.py` — 環境變數設定（REDIS_URL, CORS, 冪等 TTL, event history max, structured logging）
-- `redis_client.py` — 共用 Redis connection pool（max_connections=20, socket_timeout=5）
-- `cors.py` — CORS middleware 設定
+## Additional Documentation
 
-### Frontend (`web-app/src/`)
-- `components/` — MapView (Leaflet 地圖), EventForm（常用事件快選 4×2 格 + 有效期限下拉）, NotificationBanner（緊急/一般通知）, EventDetailPanel（事件詳情 + 留言）
-- `hooks/` — useGeolocation (瀏覽器 Geolocation API), useNotificationSocket (WebSocket 自動 wss:// 偵測)
-- `services/` — API clients（location, event, websocket）
-- `types.ts` / `api.ts` — TypeScript 型別定義 + API 呼叫封裝
-
-## Key Design Decisions
-
-- **Ports**: 服務內部 :8000，Docker 映射 :8001/:8002/:8003；nginx :8080 映射到 host :8095
-- **Redis GEO** 做空間查詢（非 PostGIS）— 保持技術棧簡單
-- **Redis Pub/Sub** 做事件推播 — event-service 只 `PUBLISH` 一條命令（微秒級），notification-service 訂閱 channel 後本地 geosearch + WS 推播。取代原本的 HTTP fanout，消除跨服務呼叫瓶頸
-- **Gunicorn + Uvicorn workers**: location-service 4 workers, event-service 4 workers（多核利用）, notification-service 1 worker（WebSocket 需要 sticky connection）
-- **冪等性**: Event Service 用 `client_event_id`（前端 `crypto.randomUUID()`）+ Redis TTL 防重複處理
-- **事件持久化**: Redis LIST（最新 100 筆），`GET /events` 查詢，自動過濾過期事件
-- **事件過期**: `expires_in` 欄位（1-1440 分鐘，預設 30），後端計算 `expires_at` timestamp
-- **留言系統**: Redis LIST 存儲（每事件最多 100 則），`POST/GET /events/{id}/comments`
-- **離線佇列**: 使用者離線時通知存入 Redis LIST `pending:{user_id}`，WebSocket 重連後回放
-- **Redis Connection Pool**: FastAPI lifespan 管理，graceful shutdown
-- **Structured Logging**: `logging` 模組，格式一致，`LOG_LEVEL` 環境變數控制
-- **Docker Security**: 所有容器以非 root 帳號（`appuser`）執行
-- **嚴重程度**: `info`（一般）和 `urgent`（緊急，觸發距離推播）
-- **通知範圍**: 每事件可設定（UI slider 100–2000m），預設 500m
-- **CORS**: `CORS_ALLOW_ORIGINS` 環境變數，含 `map2.avision-gb10.org`
-- **WebSocket URL**: 自動偵測頁面協定（`ws:`/`wss:`）+ host，無需硬編碼
-- **UI 語言**: 繁體中文
-
-## 壓力測試結果
-
-| 規模 | Location | Event | Comment | Query | 總 RPS |
-|------|----------|-------|---------|-------|--------|
-| 200 人 | 99.1% ✅ | 99.0% ✅ | 100% ✅ | 100% ✅ | 112 |
-| 500 人 | 98.4% ✅ | 100% ✅ | 99.1% ✅ | 100% ✅ | 277 |
-| 1000 人 | 95.5% ⚠️ | 100% ✅ | 100% ✅ | 100% ✅ | 271 |
-
-Redis Pub/Sub 架構下，Event/Comment/Query 在 1000 人時仍 100% 成功率。Location Service 是下一個瓶頸（可加 workers 或 Redis pipeline batch write）。
-
-## Language
-
-文件和程式碼註解使用繁體中文。台灣大學專題作品。
+- `readme.md` - Project overview, goals, and technology choices
+- `development.md` - Detailed development workflow and demo procedures
+- `system.md` - System architecture, API contracts, capacity planning
+- `docs/project-plan.md` - 10-week development timeline and milestones
+- `docs/test-plan.md` - Planned test structure (not yet implemented)
+- `k8s/README.md` - Kubernetes deployment and fault tolerance demos
+- `web-app/README.md` - Frontend development directions (not yet implemented)

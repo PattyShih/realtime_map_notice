@@ -2,7 +2,7 @@
 .git/
 .gitignore
 
-# Python & Caches
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -13,16 +13,9 @@ dist/
 build/
 .venv/
 venv/
-.pytest_cache/
-.mypy_cache/
-
-# Node/Frontend
-node_modules/
 
 # Environment
 .env
-.env.local
-.env.*.local
 .env.*
 
 # IDE
@@ -40,7 +33,6 @@ Thumbs.db
 
 # Documentation (not needed in container)
 *.md
-!readme.md
 docs/
 
 # Web app (built separately, not in backend images)
@@ -48,6 +40,7 @@ web-app/
 
 # Tests
 tests/
+.pytest_cache/
 
 # Simulator (not needed in services)
 simulator/

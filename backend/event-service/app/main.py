@@ -1,81 +1,28 @@
-import asyncio
 import json
-import logging
 import os
-from contextlib import asynccontextmanager, suppress
-from datetime import UTC, datetime, timedelta
+from collections.abc import Sequence
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import asyncio
 import httpx
 from fastapi import FastAPI, Query
 
-from backend.shared.config import (
-    EVENT_HISTORY_KEY,
-    EVENT_HISTORY_MAX,
-    EVENT_IDEMPOTENCY_PREFIX,
-    EVENT_IDEMPOTENCY_TTL_SECONDS,
-    USER_LAST_SEEN_PREFIX,
-    USER_LOCATION_KEY,
-)
+from backend.shared.config import USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
-from backend.shared.schemas import Comment, CommentCreate, EventCreate, EventNotification, EventRecord
+from backend.shared.schemas import EventCreate, EventNotification,EventResponse
 
-log = logging.getLogger(__name__)
+NOTIFICATION_SERVICE_URL = os.getenv(
+    "NOTIFICATION_SERVICE_URL",
+    "http://localhost:8003",
+)
 
-# Redis channel: event-service 發布新事件，notification-service 訂閱
-EVENT_FANOUT_CHANNEL = "realtime_map_notice:events:fanout"
+EVENT_LOCATION_KEY = "event_locations"
 
-
-# ── Lifespan ──────────────────────────────────────────────
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    app.state.http = httpx.AsyncClient(timeout=3.0)
-    app.state.redis = create_redis()
-    log.info("event-service started")
-    yield
-    await app.state.http.aclose()
-    await app.state.redis.aclose()
-    log.info("event-service shutting down")
-
-
-app = FastAPI(title="realtime_map_notice Event Service", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0")
 configure_cors(app)
-
-
-def event_idempotency_key(client_event_id: str) -> str:
-    return f"{EVENT_IDEMPOTENCY_PREFIX}:{client_event_id}"
-
-
-async def reserve_event_idempotency(
-    redis,
-    client_event_id: str | None,
-    event_id: str,
-) -> str | None:
-    if not client_event_id:
-        return None
-
-    key = event_idempotency_key(client_event_id)
-    created = await redis.set(
-        key,
-        event_id,
-        ex=EVENT_IDEMPOTENCY_TTL_SECONDS,
-        nx=True,
-    )
-    if created:
-        return None
-
-    existing_event_id = await redis.get(key)
-    return existing_event_id or event_id
-
-
-async def persist_event(redis, record: EventRecord) -> None:
-    """存事件到 Redis LIST，保留最近 EVENT_HISTORY_MAX 筆"""
-    pipe = redis.pipeline()
-    pipe.lpush(EVENT_HISTORY_KEY, record.model_dump_json())
-    pipe.ltrim(EVENT_HISTORY_KEY, 0, EVENT_HISTORY_MAX - 1)
-    await pipe.execute()
+redis = create_redis()
 
 
 async def get_active_users(nearby_users: Sequence[tuple[str, str]]) -> list[tuple[str, float]]:
@@ -114,38 +61,8 @@ async def deliver_notification(
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    redis = app.state.redis
-    try:
-        await redis.ping()
-        return {"status": "ok"}
-    except Exception:
-        log.exception("healthz: Redis ping failed")
-        raise
-
-
-@app.get("/events")
-async def list_events(
-    limit: int = Query(default=50, ge=1, le=100),
-) -> list[EventRecord]:
-    """取得最近的事件歷史（最新在前，已過期的不回傳）"""
-    redis = app.state.redis
-    raw_events = await redis.lrange(EVENT_HISTORY_KEY, 0, limit - 1)
-    now = datetime.now(UTC)
-    events = []
-    for raw in raw_events:
-        with suppress(json.JSONDecodeError, ValueError):
-            record = EventRecord.model_validate_json(raw)
-            if record.expires_at:
-                try:
-                    exp = datetime.fromisoformat(record.expires_at)
-                    if exp.tzinfo is None:
-                        exp = exp.replace(tzinfo=UTC)
-                    if exp < now:
-                        continue
-                except (ValueError, TypeError):
-                    pass
-            events.append(record)
-    return events
+    await redis.ping()
+    return {"status": "ok"}
 
 @app.get("/events", response_model=list[EventResponse])
 async def get_events(
@@ -206,92 +123,61 @@ async def get_events(
 
 @app.post("/events")
 async def create_event(payload: EventCreate) -> dict[str, object]:
-    """建立事件 — 持久化 + Redis PUBLISH，不做 HTTP fanout"""
-    redis = app.state.redis
     event_id = str(uuid4())
-    duplicate_event_id = await reserve_event_idempotency(
-        redis,
-        payload.client_event_id,
-        event_id,
+
+    event_data = payload.model_dump()
+    event_data["created_at"] = datetime.now(timezone.utc).isoformat()
+
+    await redis.set(
+        f"event:{event_id}",
+        json.dumps(event_data),
+        ex=payload.duration_minutes * 60,
     )
-    if duplicate_event_id is not None:
-        log.info("event.duplicate client_event_id=%s existing_event_id=%s", payload.client_event_id, duplicate_event_id)
-        return {
-            "event_id": duplicate_event_id,
-            "status": "duplicate",
-        }
 
-    created_at = datetime.now(UTC).isoformat()
-    expires_at = (datetime.now(UTC) + timedelta(minutes=payload.expires_in)).isoformat()
-    log.info("event.create event_id=%s title=%s severity=%s radius=%dm expires=%dm",
-             event_id, payload.title, payload.severity, payload.radius_meters, payload.expires_in)
+    await redis.geoadd(
+        EVENT_LOCATION_KEY,
+        (
+            payload.longitude,
+            payload.latitude,
+            event_id,
+        ),
+    )
 
-    # 持久化事件
-    await persist_event(redis, EventRecord(
-        event_id=event_id,
-        title=payload.title,
-        message=payload.message,
-        latitude=payload.latitude,
+    nearby_users = await redis.geosearch(
+        USER_LOCATION_KEY,
         longitude=payload.longitude,
-        severity=payload.severity,
-        created_at=created_at,
-        expires_at=expires_at,
-    ))
-
-    # 發布到 Redis channel（notification-service 會訂閱並做 geosearch + 推播）
-    fanout_msg = EventNotification(
-        event_id=event_id,
-        title=payload.title,
-        message=payload.message,
         latitude=payload.latitude,
-        longitude=payload.longitude,
-        severity=payload.severity,
-        distance_meters=0,  # notification-service 會重算
-        expires_at=expires_at,
-    ).model_dump_json()
+        radius=payload.radius_meters,
+        unit="m",
+        withdist=True,
+    )
+    active_users = await get_active_users(nearby_users)
 
-    subscriber_count = await redis.publish(EVENT_FANOUT_CHANNEL, fanout_msg)
-    log.info("event.fanout_published event_id=%s subscribers=%d", event_id, subscriber_count)
+    delivered_to: list[str] = []
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        tasks = []
+        for user_id, distance in active_users:
+            notification = EventNotification(
+                event_id=event_id,
+                title=payload.title,
+                message=payload.message,
+                latitude=payload.latitude,
+                longitude=payload.longitude,
+                severity=payload.severity,
+                distance_meters=float(distance),
+                image_base64=payload.image_base64,
+            )
+            tasks.append(deliver_notification(client, user_id, notification))
+
+        results = await asyncio.gather(*tasks) if tasks else []
+        for (user_id, _), success in zip(active_users, results):
+            if success:
+                delivered_to.append(user_id)
 
     return {
         "event_id": event_id,
-        "status": "created",
-        "fanout_subscribers": subscriber_count,
+        "nearby_user_count": len(nearby_users),
+        "active_user_count": len(active_users),
+        "delivered_count": len(delivered_to),
+        "delivered_to": delivered_to[:20],
     }
-
-
-# ── 留言 API ──────────────────────────────────────────────
-COMMENT_PREFIX = "event:comments"
-
-
-@app.get("/events/{event_id}/comments")
-async def list_comments(event_id: str) -> list[Comment]:
-    """取得某事件的留言（最新在前）"""
-    redis = app.state.redis
-    key = f"{COMMENT_PREFIX}:{event_id}"
-    raw_comments = await redis.lrange(key, 0, 99)
-    comments = []
-    for raw in raw_comments:
-        with suppress(json.JSONDecodeError, ValueError):
-            comments.append(Comment.model_validate_json(raw))
-    return comments
-
-
-@app.post("/events/{event_id}/comments")
-async def add_comment(event_id: str, payload: CommentCreate) -> Comment:
-    """新增留言"""
-    redis = app.state.redis
-    comment = Comment(
-        comment_id=str(uuid4()),
-        event_id=event_id,
-        author=payload.author,
-        content=payload.content,
-        created_at=datetime.now(UTC).isoformat(),
-    )
-    key = f"{COMMENT_PREFIX}:{event_id}"
-    pipe = redis.pipeline()
-    pipe.lpush(key, comment.model_dump_json())
-    pipe.ltrim(key, 0, 99)
-    await pipe.execute()
-    log.info("comment.added event_id=%s comment_id=%s", event_id, comment.comment_id)
-    return comment
