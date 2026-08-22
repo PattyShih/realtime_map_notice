@@ -21,9 +21,9 @@ spec:
             - containerPort: 8000
           env:
             - name: REDIS_URL
-              value: redis://redis:6379/0
+              value: redis://redis.realtime-map-notice.svc.cluster.local:6379/0
             - name: NOTIFICATION_SERVICE_URL
-              value: http://notification-service:8000
+              value: http://notification-service.realtime-map-notice.svc.cluster.local:8000
           resources:
             requests:
               cpu: 100m

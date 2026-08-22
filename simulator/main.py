@@ -37,8 +37,8 @@ async def simulate_user(user_id: int, session: aiohttp.ClientSession):
         await asyncio.sleep(random.uniform(1, 3))
 
 async def main():
-    users_count = 10  # 雛形階段，我們先測試 10 個人
-    print(f"🚀 開始模擬 {users_count} 名虛擬使用者...")
+    users_count = 50
+    print(f"🚀 啟動 {users_count} 人極限壓測 (斷線偵測版)...")
     
     # 建立一個共用的 HTTP Session 來提高效能
     async with aiohttp.ClientSession() as session:
@@ -46,6 +46,7 @@ async def main():
         tasks = [simulate_user(i, session) for i in range(users_count)]
         # 同時並發執行所有任務
         await asyncio.gather(*tasks)
+        await asyncio.Event().wait()
         
     print("✅ 壓測雛形執行完畢！")
 
