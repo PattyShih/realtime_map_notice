@@ -152,7 +152,9 @@ Request:
   "latitude": 25.0173,
   "longitude": 121.5397,
   "severity": "info",
-  "radius_meters": 500
+  "radius_meters": 500,
+  "duration_minutes": 60,
+  "image_url": "https://example.com/library.jpg"
 }
 ```
 

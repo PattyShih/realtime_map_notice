@@ -68,7 +68,7 @@ async def healthz() -> dict[str, str]:
 async def get_events(
     latitude: float = Query(..., ge=-90, le=90),
     longitude: float = Query(..., ge=-180, le=180),
-    radius: int = Query(3000, ge=1),
+    radius: int = Query(3000, ge=1, le=3000),
 ):
     event_ids = await redis.geosearch(
         EVENT_LOCATION_KEY,
@@ -97,7 +97,11 @@ async def get_events(
             expired_events.append(event_id)
             continue
 
-        event = json.loads(event_data)
+        try:
+            event = json.loads(event_data)
+        except json.JSONDecodeError:
+            expired_events.append(event_id)
+            continue
 
         events.append(
             EventResponse(
@@ -109,6 +113,7 @@ async def get_events(
                 longitude=event["longitude"],
                 radius_meters=event["radius_meters"],
                 created_at=event["created_at"],
+                duration_minutes=event.get("duration_minutes", 60),
                 image_url=event.get("image_url"),
             )
         )
@@ -166,6 +171,7 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
                 longitude=payload.longitude,
                 severity=payload.severity,
                 distance_meters=float(distance),
+                duration_minutes=payload.duration_minutes,
                 image_base64=payload.image_base64,
                 image_url=payload.image_url,
             )

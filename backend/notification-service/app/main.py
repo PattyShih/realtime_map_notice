@@ -183,6 +183,7 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
             longitude=broadcast.longitude,
             severity=broadcast.severity,
             distance_meters=float(distance),
+            duration_minutes=broadcast.duration_minutes,
             image_base64=broadcast.image_base64,
             image_url=broadcast.image_url,
         )

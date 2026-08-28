@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
 from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 
 class LocationUpdate(BaseModel):
@@ -16,7 +17,7 @@ class EventCreate(BaseModel):
     severity: str = Field("info",  examples=["info", "warning", "danger"])
     radius_meters: int = Field(500, ge=50, le=3000)
      # 新增：事件存在時間（分鐘）
-    duration_minutes: int = Field(60,ge=1,le=1440,examples=[30, 60, 1440])
+    duration_minutes: int = Field(60, ge=1, le=1440, examples=[30, 60, 1440])
 
     # 新增：圖片 Base64 字串
     image_base64: str | None = Field(None,description="現場照片 Base64 字串")
@@ -31,6 +32,7 @@ class EventNotification(BaseModel):
     longitude: float
     severity: str
     distance_meters: float | None = None
+    duration_minutes: int = 60
     # 新增：通知時保留圖片
     image_base64: str | None = None
     image_url: str | None = None
@@ -45,6 +47,7 @@ class EventResponse(BaseModel):
     longitude: float
     radius_meters: int
     created_at: datetime
+    duration_minutes: int = 60
     image_url: str | None = None
 
 
