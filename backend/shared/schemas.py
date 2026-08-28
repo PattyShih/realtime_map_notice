@@ -20,6 +20,7 @@ class EventCreate(BaseModel):
 
     # 新增：圖片 Base64 字串
     image_base64: str | None = Field(None,description="現場照片 Base64 字串")
+    image_url: str | None = Field(None, description="現場照片 URL 或 Base64 字串")
 
 
 class EventNotification(BaseModel):
@@ -32,6 +33,7 @@ class EventNotification(BaseModel):
     distance_meters: float | None = None
     # 新增：通知時保留圖片
     image_base64: str | None = None
+    image_url: str | None = None
 
 
 class EventResponse(BaseModel):
@@ -43,6 +45,7 @@ class EventResponse(BaseModel):
     longitude: float
     radius_meters: int
     created_at: datetime
+    image_url: str | None = None
 
 
 class NearbyBroadcast(BaseModel):
@@ -56,6 +59,7 @@ class NearbyBroadcast(BaseModel):
     radius_meters: int = Field(500, ge=50, le=3000, description="通知範圍（公尺）")
     # 如果廣播也需要帶圖片，可以用
     image_base64: str | None = None
+    image_url: str | None = None
     # 暫定60分鐘，之後可以調整
     duration_minutes: int = Field(60, ge=1, le=1440)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -134,6 +135,7 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
                 "radius_meters": 500,
                 "duration_minutes": 60,
                 "image_base64": "fake-image-base64-data",
+                "image_url": "https://example.com/library.jpg",
             },
         )
 
@@ -151,6 +153,9 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
     assert len(fake_client.posts) == 1
     sent_payload = fake_client.posts[0][1]
     assert sent_payload["image_base64"] == "fake-image-base64-data"
+    assert sent_payload["image_url"] == "https://example.com/library.jpg"
+    stored_event = json.loads(fake_redis.set_calls[0]["value"])
+    assert stored_event["image_url"] == "https://example.com/library.jpg"
     assert len(fake_redis.set_calls) == 1
     assert fake_redis.set_calls[0]["ex"] == 60 * 60
     assert len(fake_redis.geoadd_calls) == 1
@@ -214,7 +219,8 @@ async def test_get_events(monkeypatch) -> None:
             "latitude": 24.6859,
             "longitude": 120.9123,
             "radius_meters": 500,
-            "created_at": "2026-08-02T01:30:00+00:00"
+            "created_at": "2026-08-02T01:30:00+00:00",
+            "image_url": "https://example.com/library.jpg",
         }
         """
     }
@@ -251,6 +257,7 @@ async def test_get_events(monkeypatch) -> None:
     assert body[0]["severity"] == "info"
     assert body[0]["radius_meters"] == 500
     assert body[0]["created_at"] == "2026-08-02T01:30:00+00:00"
+    assert body[0]["image_url"] == "https://example.com/library.jpg"
 
 
 @pytest.mark.asyncio

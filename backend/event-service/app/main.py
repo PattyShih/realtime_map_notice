@@ -109,6 +109,7 @@ async def get_events(
                 longitude=event["longitude"],
                 radius_meters=event["radius_meters"],
                 created_at=event["created_at"],
+                image_url=event.get("image_url"),
             )
         )
 
@@ -166,6 +167,7 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
                 severity=payload.severity,
                 distance_meters=float(distance),
                 image_base64=payload.image_base64,
+                image_url=payload.image_url,
             )
             tasks.append(deliver_notification(client, user_id, notification))
 
