@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+import time
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
@@ -86,10 +87,16 @@ async def test_notify_user(monkeypatch) -> None:
 def test_websocket_heartbeat(monkeypatch) -> None:
     fake_redis = FakeRedis()
     monkeypatch.setattr(notification_service, "redis", fake_redis)
-    monkeypatch.setattr(notification_service, "HEARTBEAT_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr(notification_service, "HEARTBEAT_INTERVAL", 0.01)
 
     client = TestClient(notification_service.app)
     with client.websocket_connect("/ws/u-0001") as websocket:
+        assert websocket.receive_json() == {
+            "type": "hello",
+            "message": "Connected to notification service",
+        }
         message = websocket.receive_json()
+        assert message["type"] == "ping"
+        websocket.send_json({"type": "pong"})
+        time.sleep(0.02)
 
-    assert message == {"type": "heartbeat", "user_id": "u-0001"}

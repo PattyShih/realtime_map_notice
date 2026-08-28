@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 
 from backend.shared.config import LAST_SEEN_TTL_SECONDS, USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
 from backend.shared.cors import configure_cors
@@ -34,9 +34,9 @@ async def update_location(payload: LocationUpdate) -> dict[str, str]:
 
 @app.get("/locations/nearby")
 async def nearby_users(
-    latitude: float,
-    longitude: float,
-    radius_meters: int = 500,
+    latitude: float = Query(..., ge=-90, le=90),
+    longitude: float = Query(..., ge=-180, le=180),
+    radius_meters: int = Query(500, ge=1, le=3000),
 ) -> dict[str, list[str]]:
     users = await redis.geosearch(
         USER_LOCATION_KEY,
