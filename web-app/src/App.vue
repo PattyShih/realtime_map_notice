@@ -304,11 +304,12 @@ const setupWebSocket = () => {
 // ==========================
 onMounted(() => {
   map.value = L.map('map').setView([currentCoords.value.lat, currentCoords.value.lng], 16)
-  // CARTO Positron：輕盈霧白風格圖磚（免費，保留 OSM/CARTO attribution 即可使用）
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    subdomains: 'abcd',
-    maxZoom: 20
+  // Esri Light Gray Canvas：霧白極簡風格圖磚（免費、無需 API key，保留 Esri attribution）
+  // 註：CARTO Positron 自 2025 年起匿名存取會被蓋上 API KEY 浮水印，故改用 Esri
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+    maxZoom: 20,
+    maxNativeZoom: 16
   }).addTo(map.value)
 
   setupWebSocket()
