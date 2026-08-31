@@ -13,6 +13,7 @@ const currentCoords = ref({ ...DEFAULT_COORDS })
 const locationText = ref('正在取得真實 GPS 座標...')
 const eventsList = ref([])
 const markerMap = ref(new Map())
+const circleMap = ref(new Map()) // 半徑視覺化圓圈 (id → L.circle)
 
 let expirationTimer = null
 
@@ -35,6 +36,9 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
   return Math.round(R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))))
 }
 
+// 事件類別對應顏色（圖釘與半徑圓圈共用）
+const CATEGORY_COLORS = { info: '#34c759', warning: '#ffcc00', danger: '#ff3b30' }
+
 // 使用者定位藍點圖標
 const createUserPin = () => {
   return L.divIcon({
@@ -55,12 +59,46 @@ const createUserPin = () => {
 }
 
 const createColoredPin = (category) => {
-  const colorMap = { info: '#34c759', warning: '#ffcc00', danger: '#ff3b30' }
+  const color = CATEGORY_COLORS[category] || '#ff7f50'
   return L.divIcon({
     className: 'custom-pin-container',
-    html: `<div class="pin-body" style="background-color: ${colorMap[category] || '#ff7f50'};"></div>`,
+    html: `<div class="pin-body" style="background-color: ${color};"></div>`,
     iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -24]
   })
+}
+
+// ==========================================
+// 半徑視覺化：在事件位置畫出通知範圍圓圈
+// 讓使用者一眼看懂「為什麼我會收到這則通知」
+// ==========================================
+const addRadiusCircle = (event) => {
+  if (!map.value || circleMap.value.has(event.id)) return
+  const color = CATEGORY_COLORS[event.category] || '#ff7f50'
+  const circle = L.circle([event.location.lat, event.location.lng], {
+    radius: event.radiusMeters || 500,
+    color,
+    weight: 1,
+    opacity: 0.35,
+    fillColor: color,
+    fillOpacity: 0.06,
+    interactive: false,
+    className: event.category === 'danger' ? 'radius-circle radius-pulse' : 'radius-circle'
+  })
+  if (selectedFilters.value[event.category]) {
+    circle.addTo(map.value)
+  }
+  circleMap.value.set(event.id, circle)
+}
+
+// 同時移除 marker 與半徑圓圈
+const removeEventVisuals = (id) => {
+  if (!map.value) return
+  const marker = markerMap.value.get(id)
+  if (marker) map.value.removeLayer(marker)
+  markerMap.value.delete(id)
+  const circle = circleMap.value.get(id)
+  if (circle) map.value.removeLayer(circle)
+  circleMap.value.delete(id)
 }
 
 const getOrCreateUserId = () => {
@@ -164,11 +202,7 @@ const checkAndCleanExpiredEvents = () => {
   eventsList.value.forEach(item => {
     if (item.expiresAt) {
       if (now >= item.expiresAt) {
-        const marker = markerMap.value.get(item.id)
-        if (marker && map.value) {
-          map.value.removeLayer(marker)
-        }
-        markerMap.value.delete(item.id)
+        removeEventVisuals(item.id)
         console.log(`⏳ 事件已過期並自動清除: ${item.title} (ID: ${item.id})`)
         return
       }
@@ -225,7 +259,8 @@ const setupWebSocket = () => {
           distance: dist,
           walkTime: walkTime,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          expiresAt: expiresAt
+          expiresAt: expiresAt,
+          radiusMeters: eventData.radius_meters || 500
         }
 
         if (!markerMap.value.has(newEvent.id)) {
@@ -241,6 +276,7 @@ const setupWebSocket = () => {
           }
 
           markerMap.value.set(newEvent.id, marker)
+          addRadiusCircle(newEvent)
           triggerToast(`🔔 收到周遭即時通報：「${newEvent.title}」`)
         }
       }
@@ -268,7 +304,12 @@ const setupWebSocket = () => {
 // ==========================
 onMounted(() => {
   map.value = L.map('map').setView([currentCoords.value.lat, currentCoords.value.lng], 16)
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map.value)
+  // CARTO Positron：輕盈霧白風格圖磚（免費，保留 OSM/CARTO attribution 即可使用）
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20
+  }).addTo(map.value)
 
   setupWebSocket()
   requestUserLocation() // 統一由此函式初始化定位與單一標記
@@ -313,12 +354,21 @@ const selectedFilters = ref({ info: true, warning: true, danger: true })
 const toggleFilter = (cat) => {
   selectedFilters.value[cat] = !selectedFilters.value[cat]
   eventsList.value.forEach(item => {
+    const visible = selectedFilters.value[item.category]
     const marker = markerMap.value.get(item.id)
     if (marker) {
-      if (selectedFilters.value[item.category]) {
+      if (visible) {
         if (!map.value.hasLayer(marker)) map.value.addLayer(marker)
       } else {
         if (map.value.hasLayer(marker)) map.value.removeLayer(marker)
+      }
+    }
+    const circle = circleMap.value.get(item.id)
+    if (circle) {
+      if (visible) {
+        if (!map.value.hasLayer(circle)) map.value.addLayer(circle)
+      } else {
+        if (map.value.hasLayer(circle)) map.value.removeLayer(circle)
       }
     }
   })
@@ -406,21 +456,23 @@ const handleSubmit = async () => {
         distance: dist,
         walkTime: walkTime,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        expiresAt: expiresAt
+        expiresAt: expiresAt,
+        radiusMeters: 500
       }
-      
+
       eventsList.value.unshift(newEvent)
-      
-      const marker = L.marker([newEvent.location.lat, newEvent.location.lng], { 
-        icon: createColoredPin(newEvent.category) 
+
+      const marker = L.marker([newEvent.location.lat, newEvent.location.lng], {
+        icon: createColoredPin(newEvent.category)
       })
       marker.bindPopup(createPopupContent(newEvent))
-      
+
       if (selectedFilters.value[newEvent.category]) {
         marker.addTo(map.value).openPopup()
       }
-      
+
       markerMap.value.set(newEvent.id, marker)
+      addRadiusCircle(newEvent)
 
       showModal.value = false
       triggerToast(`成功發布「${newEvent.title}」！已同步新增至地圖與清單。`)
@@ -444,6 +496,8 @@ const fetchNearbyEvents = async (lat, lng) => {
 
       markerMap.value.forEach(marker => marker.remove())
       markerMap.value.clear()
+      circleMap.value.forEach(circle => map.value && map.value.removeLayer(circle))
+      circleMap.value.clear()
       eventsList.value = []
 
       const rawEvents = Array.isArray(data) ? data : (data.events || [])
@@ -465,28 +519,30 @@ const fetchNearbyEvents = async (lat, lng) => {
         const newEvent = {
           id: event.event_id || event.id || Date.now(),
           title: event.title || '周遭動態',
-          category: event.severity === 'urgent' ? 'danger' : (event.severity || 'info'), 
+          category: event.severity === 'urgent' ? 'danger' : (event.severity || 'info'),
           description: event.message || event.description || '附近有動態發布',
           imageUrl: event.image_url || event.image || event.imageUrl || '',
           location: { lat: eventLat, lng: eventLng },
           distance: dist,
           walkTime: walkTime,
           timestamp: new Date(createdAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          expiresAt: expiresAt
+          expiresAt: expiresAt,
+          radiusMeters: event.radius_meters || 500
         }
-        
+
         eventsList.value.push(newEvent)
-        
-        const marker = L.marker([newEvent.location.lat, newEvent.location.lng], { 
-          icon: createColoredPin(newEvent.category) 
+
+        const marker = L.marker([newEvent.location.lat, newEvent.location.lng], {
+          icon: createColoredPin(newEvent.category)
         })
         marker.bindPopup(createPopupContent(newEvent))
-        
+
         if (selectedFilters.value[newEvent.category]) {
           marker.addTo(map.value)
         }
-        
+
         markerMap.value.set(newEvent.id, marker)
+        addRadiusCircle(newEvent)
       })
     }
   } catch (error) {

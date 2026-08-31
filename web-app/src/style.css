@@ -200,6 +200,23 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 .submit-btn:active { background-color: #e06d40; transform: scale(0.98); }
 
 /* ========================================================= */
+/* 6. 半徑視覺化圓圈 (通知範圍)                                */
+/* ========================================================= */
+.radius-circle {
+  transition: opacity 0.3s ease;
+}
+
+/* 緊急事件：呼吸脈動效果 */
+.radius-pulse {
+  animation: radiusPulse 2s ease-in-out infinite;
+}
+
+@keyframes radiusPulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+/* ========================================================= */
 /* 5. 響應式佈局 RWD (>= 768px 電腦/平板適應)                 */
 /* ========================================================= */
 @media (min-width: 768px) {
