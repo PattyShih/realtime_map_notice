@@ -118,3 +118,7 @@ realtime_map_notice/
 - [docs/test-plan.md](./docs/test-plan.md)：後端、前端、WebSocket 與跨服務測試規劃。
 - [k8s/README.md](./k8s/README.md)：Kubernetes 部署、HPA 與故障復原操作。
 - [web-app/README.md](./web-app/README.md)：Web App 前端開發方向、地圖服務、UI/UX 與 API key。
+
+## Stage 5: Production Build & E2E Integration Verified
+- Verified frontend build with Vite.
+- Verified E2E event flow with backend APIs.
