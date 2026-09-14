@@ -117,6 +117,7 @@ realtime_map_notice/
 - [docs/project-plan.md](./docs/project-plan.md)：詳細開發計畫、Demo 目標、四人分工、里程碑與驗收標準。
 - [docs/test-plan.md](./docs/test-plan.md)：後端、前端、WebSocket 與跨服務測試規劃。
 - [k8s/README.md](./k8s/README.md)：Kubernetes 部署、HPA 與故障復原操作。
+- [docs/demo-runbook.md](./docs/demo-runbook.md)：Stage 5 Demo 演練劇本（邊界實證、心跳重連、壓測 HPA、延遲量化）。
 - [web-app/README.md](./web-app/README.md)：Web App 前端開發方向、地圖服務、UI/UX 與 API key。
 
 ## Stage 5: Production Build & E2E Integration Verified

@@ -1,17 +1,15 @@
 import json
+import logging
 import os
-from collections.abc import Sequence
 from datetime import datetime, timezone
 from uuid import uuid4
 
-import asyncio
 import httpx
 from fastapi import FastAPI, Query
 
-from backend.shared.config import USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
-from backend.shared.schemas import EventCreate, EventNotification,EventResponse
+from backend.shared.schemas import EventCreate, EventResponse
 
 NOTIFICATION_SERVICE_URL = os.getenv(
     "NOTIFICATION_SERVICE_URL",
@@ -20,43 +18,31 @@ NOTIFICATION_SERVICE_URL = os.getenv(
 
 EVENT_LOCATION_KEY = "event_locations"
 
+logger = logging.getLogger(__name__)
+
+
+async def broadcast_to_notification_service(broadcast_payload: dict) -> dict:
+    """Stage 5：推播統一走 Notification Service 的 /broadcast/nearby。
+
+    event-service 只負責事件建立與單次 HTTP 呼叫；GEO 比對、離線過濾與
+    批次發布全部由 Notification Service 處理。通知服務暫時不可用時，
+    事件仍會成功建立（已先存 Redis），只是推播統計歸零。
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"{NOTIFICATION_SERVICE_URL}/broadcast/nearby",
+                json=broadcast_payload,
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPError as e:
+        logger.warning(f"⚠️ broadcast failed (event still created): {e}")
+        return {}
+
 app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0")
 configure_cors(app)
 redis = create_redis()
-
-
-async def get_active_users(nearby_users: Sequence[tuple[str, str]]) -> list[tuple[str, float]]:
-    if not nearby_users:
-        return []
-
-    pipe = redis.pipeline(transaction=False)
-    for user_id, _ in nearby_users:
-        pipe.get(f"{USER_LAST_SEEN_PREFIX}:{user_id}")
-
-    last_seen_values = await pipe.execute()
-
-    active_users: list[tuple[str, float]] = []
-    for (user_id, distance), last_seen in zip(nearby_users, last_seen_values):
-        if last_seen:
-            active_users.append((user_id, float(distance)))
-
-    return active_users
-
-
-async def deliver_notification(
-    client: httpx.AsyncClient,
-    user_id: str,
-    notification: EventNotification,
-) -> bool:
-    try:
-        response = await client.post(
-            f"{NOTIFICATION_SERVICE_URL}/notify/{user_id}",
-            json=notification.model_dump(),
-        )
-    except httpx.HTTPError:
-        return False
-
-    return response.status_code < 400
 
 
 @app.get("/healthz")
@@ -149,43 +135,27 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         ),
     )
 
-    nearby_users = await redis.geosearch(
-        USER_LOCATION_KEY,
-        longitude=payload.longitude,
-        latitude=payload.latitude,
-        radius=payload.radius_meters,
-        unit="m",
-        withdist=True,
+    # Stage 5：推播統一走 Notification Service，只發一次 HTTP 呼叫
+    broadcast_stats = await broadcast_to_notification_service(
+        {
+            "event_id": event_id,
+            "title": payload.title,
+            "message": payload.message,
+            "latitude": payload.latitude,
+            "longitude": payload.longitude,
+            "severity": payload.severity,
+            "radius_meters": payload.radius_meters,
+            "duration_minutes": payload.duration_minutes,
+            "image_base64": payload.image_base64,
+            "image_url": payload.image_url,
+        }
     )
-    active_users = await get_active_users(nearby_users)
-
-    delivered_to: list[str] = []
-    async with httpx.AsyncClient(timeout=3.0) as client:
-        tasks = []
-        for user_id, distance in active_users:
-            notification = EventNotification(
-                event_id=event_id,
-                title=payload.title,
-                message=payload.message,
-                latitude=payload.latitude,
-                longitude=payload.longitude,
-                severity=payload.severity,
-                distance_meters=float(distance),
-                duration_minutes=payload.duration_minutes,
-                image_base64=payload.image_base64,
-                image_url=payload.image_url,
-            )
-            tasks.append(deliver_notification(client, user_id, notification))
-
-        results = await asyncio.gather(*tasks) if tasks else []
-        for (user_id, _), success in zip(active_users, results):
-            if success:
-                delivered_to.append(user_id)
 
     return {
         "event_id": event_id,
-        "nearby_user_count": len(nearby_users),
-        "active_user_count": len(active_users),
-        "delivered_count": len(delivered_to),
-        "delivered_to": delivered_to[:20],
+        "nearby_user_count": broadcast_stats.get("total_nearby_users", 0),
+        "active_user_count": broadcast_stats.get("active_user_count", 0),
+        "delivered_count": broadcast_stats.get("delivered_count", 0),
+        # 維持原 API 契約：delivered_to 為 user_id 字串列表
+        "delivered_to": [d.get("user_id", "") for d in broadcast_stats.get("delivered_to", [])][:20],
     }

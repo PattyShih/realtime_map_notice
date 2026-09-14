@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
 
 // ==========================================
 // 地圖核心與狀態
@@ -15,6 +16,7 @@ const eventsList = ref([])
 const markerMap = ref(new Map())
 
 let expirationTimer = null
+let locationReportTimer = null
 
 const fetchAddress = async (lat, lng) => {
   try {
@@ -73,12 +75,29 @@ const getOrCreateUserId = () => {
 }
 
 // ==========================================
+// 座標上報 Location Service
+// 沒上報就不會進 GEO 索引，附近有事件時永遠收不到推播
+// ==========================================
+const reportLocation = async (lat, lng) => {
+  try {
+    await fetch(`${LOCATION_SERVICE_URL}/locations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: getOrCreateUserId(), latitude: lat, longitude: lng })
+    })
+  } catch (err) {
+    console.log('座標上報失敗:', err)
+  }
+}
+
+// ==========================================
 // 定位成功/失敗防呆處理
 // ==========================================
 const handleLocationSuccess = async (position) => {
   const { latitude, longitude } = position.coords
   currentCoords.value = { lat: latitude, lng: longitude }
   fetchAddress(latitude, longitude)
+  reportLocation(latitude, longitude)
 
   if (!map.value) return
   // 鏡頭自動平滑飛向真實 GPS 座標
@@ -117,6 +136,7 @@ const handleLocationError = async (error, isManual = false) => {
 
   currentCoords.value = { ...DEFAULT_COORDS }
   locationText.value = `預設位置 (輔大校園)`
+  reportLocation(DEFAULT_COORDS.lat, DEFAULT_COORDS.lng)
 
   if (map.value) {
     if (userMarker.value) {
@@ -190,7 +210,7 @@ const setupWebSocket = () => {
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
   
   const userId = getOrCreateUserId()
-  const ws = new WebSocket(`ws://127.0.0.1:8003/ws/${userId}`)
+  const ws = new WebSocket(`${NOTIFICATION_WS_URL}/ws/${userId}`)
 
   ws.onopen = () => {
     console.log('✅ WebSocket 即時廣播頻道連線成功！')
@@ -201,7 +221,12 @@ const setupWebSocket = () => {
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
-      if (data.type === 'hello' || data.type === 'ping') return
+      if (data.type === 'hello') return
+      // 心跳：收到 ping 必須回 pong，否則伺服器會判定連線死亡並關閉
+      if (data.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }))
+        return
+      }
 
       const eventData = data.event || data.payload || data
 
@@ -274,10 +299,15 @@ onMounted(() => {
   requestUserLocation() // 統一由此函式初始化定位與單一標記
 
   expirationTimer = setInterval(checkAndCleanExpiredEvents, 10000)
+  // 每 30 秒重報座標：last_seen TTL 60 秒，定期上報維持「在線」狀態
+  locationReportTimer = setInterval(() => {
+    reportLocation(currentCoords.value.lat, currentCoords.value.lng)
+  }, 30000)
 })
 
 onUnmounted(() => {
   if (expirationTimer) clearInterval(expirationTimer)
+  if (locationReportTimer) clearInterval(locationReportTimer)
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
 })
 
@@ -386,7 +416,7 @@ const handleSubmit = async () => {
   }
 
   try {
-    const response = await fetch('http://localhost:8002/events', {
+    const response = await fetch(`${EVENT_SERVICE_URL}/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(apiPayload)
@@ -437,7 +467,7 @@ const handleSubmit = async () => {
 // 取得周遭事件 (GET API)
 const fetchNearbyEvents = async (lat, lng) => {
   try {
-    const response = await fetch(`http://localhost:8002/events?latitude=${lat}&longitude=${lng}&radius=3000`)
+    const response = await fetch(`${EVENT_SERVICE_URL}/events?latitude=${lat}&longitude=${lng}&radius=3000`)
     if (response.ok) {
       const data = await response.json()
       console.log('GET /events 回傳資料：', data)
