@@ -4,7 +4,7 @@ import logging
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from backend.shared.config import DEFAULT_ALERT_RADIUS_METERS, USER_LOCATION_KEY
+from backend.shared.config import DEFAULT_ALERT_RADIUS_METERS, USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import EventNotification, NearbyBroadcast
@@ -49,7 +49,9 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
     last_pong_time = asyncio.get_event_loop().time()
     connection_start_time = asyncio.get_event_loop().time()
 
-    ping_task = asyncio.create_task(ping_sender(websocket))
+    # 心跳狀態：記錄最後一次 ping 送出時間，供主迴圈判斷 pong 逾時
+    heartbeat: dict = {}
+    ping_task = asyncio.create_task(ping_sender(websocket, heartbeat))
 
     try:
         while True:
@@ -85,18 +87,20 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
             except asyncio.TimeoutError:
                 pass  # 沒有客戶端訊息，繼續迴圈
 
-            # 3. 檢查是否超時 (連線建立後等待第一個心跳週期，再開始檢查 pong 超時)
+            # 3. 檢查 pong 超時：倒數從 ping 實際送出後才開始。
+            # （stage 5 修正：舊邏輯從連線建立起算，會在第一個 ping 送出前
+            #   就把剛連上 30 秒的健康連線誤殺）
             current_time = asyncio.get_event_loop().time()
-            connection_age = current_time - connection_start_time
+            last_ping_sent = heartbeat.get("last_ping_sent")
 
-            # 只有在連線超過一個心跳週期後，才開始檢查 pong 超時
-            if connection_age > HEARTBEAT_INTERVAL:
-                time_since_last_pong = current_time - last_pong_time
-                if time_since_last_pong > PONG_TIMEOUT:
-                    logger.warning(f"⏰ User {user_id} pong timeout ({time_since_last_pong:.1f}s > {PONG_TIMEOUT}s), closing connection")
+            if last_ping_sent is not None and last_pong_time < last_ping_sent:
+                time_since_ping = current_time - last_ping_sent
+                if time_since_ping > PONG_TIMEOUT:
+                    logger.warning(f"⏰ User {user_id} pong timeout ({time_since_ping:.1f}s > {PONG_TIMEOUT}s), closing connection")
                     break
 
             # 每 60 秒打印一次連線狀態
+            connection_age = current_time - connection_start_time
             if int(connection_age) % 60 == 0 and int(connection_age) > 0:
                 logger.info(f"💓 User {user_id} connection alive for {int(connection_age)}s")
 
@@ -111,13 +115,14 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
         logger.info(f"🛑 User {user_id} connection cleanup complete")
 
 
-async def ping_sender(websocket: WebSocket) -> None:
-    """Send periodic ping messages and wait for pong response."""
+async def ping_sender(websocket: WebSocket, heartbeat: dict) -> None:
+    """Send periodic ping messages; the main loop times the pong window from these send times."""
     try:
         # 等待第一個心跳間隔後才發送第一次 ping
         await asyncio.sleep(HEARTBEAT_INTERVAL)
 
         try:
+            heartbeat["last_ping_sent"] = asyncio.get_event_loop().time()
             await websocket.send_text('{"type":"ping","timestamp":' + str(int(asyncio.get_event_loop().time())) + '}')
         except Exception:
             # WebSocket already closed
@@ -127,6 +132,7 @@ async def ping_sender(websocket: WebSocket) -> None:
         while True:
             await asyncio.sleep(HEARTBEAT_INTERVAL)
             try:
+                heartbeat["last_ping_sent"] = asyncio.get_event_loop().time()
                 await websocket.send_text('{"type":"ping","timestamp":' + str(int(asyncio.get_event_loop().time())) + '}')
             except Exception:
                 # WebSocket already closed
@@ -153,12 +159,14 @@ async def notify_user(user_id: str, notification: EventNotification) -> dict[str
 async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, object]:
     """
     階段三：成員C實作的廣播邏輯
-    當 Event Service 收到新事件時，呼叫此 endpoint 進行區域推播
+    Stage 5 起為唯一正式推播路徑：Event Service 收到新事件後只需呼叫本
+    endpoint 一次，GEO 比對、離線過濾與批次發布全部由 Notification Service 負責。
 
     流程：
     1. 使用 Redis GEOSEARCH 查詢指定座標 radius_meters 內的使用者
-    2. 對每個附近使用者透過 Redis Pub/Sub 發布通知
-    3. 回傳推播結果統計
+    2. 以 last_seen key 的 TTL 過濾離線使用者（過期即淘汰）
+    3. 用 Redis pipeline 批次發布通知（取代逐一 await，人群密集時延遲更穩定）
+    4. 回傳推播結果統計
     """
     # 1. 查詢附近使用者（Redis GEOSEARCH）
     nearby_users = await redis.geosearch(
@@ -170,11 +178,21 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
         withdist=True,  # 回傳距離資訊用於除錯
     )
 
-    # 2. 批次推播給附近使用者
-    delivered_to: list[dict[str, str | float]] = []
-    failed_count = 0
+    # 2. 過濾離線使用者：last_seen key 帶 TTL，過期即視為離線
+    pipe = redis.pipeline(transaction=False)
+    for uid, _ in nearby_users:
+        pipe.get(f"{USER_LAST_SEEN_PREFIX}:{uid}")
 
-    for user_id, distance in nearby_users:
+    last_seen_values = await pipe.execute()
+    active_users = [
+        (uid, float(distance))
+        for (uid, distance), last_seen in zip(nearby_users, last_seen_values)
+        if last_seen
+    ]
+
+    # 3. pipeline 批次發布：每位使用者的通知帶各自距離，一次送出全部 publish
+    pipe = redis.pipeline(transaction=False)
+    for user_id, distance in active_users:
         notification = EventNotification(
             event_id=broadcast.event_id,
             title=broadcast.title,
@@ -182,31 +200,36 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
             latitude=broadcast.latitude,
             longitude=broadcast.longitude,
             severity=broadcast.severity,
-            distance_meters=float(distance),
+            distance_meters=distance,
             duration_minutes=broadcast.duration_minutes,
             image_base64=broadcast.image_base64,
             image_url=broadcast.image_url,
         )
 
-        # 透過 Redis Pub/Sub 發布（非阻塞，不需等待 WebSocket 回應）
-        subscriber_count = await redis.publish(
+        # 透過 Redis pipeline 批次發布（一次送出全部 publish，取代逐一 await）
+        pipe.publish(
             user_channel(user_id),
             notification.model_dump_json(),
         )
 
-        if subscriber_count > 0:
-            delivered_to.append({
-                "user_id": user_id,
-                "distance_meters": float(distance),
-                "subscriber_count": subscriber_count,
-            })
-        else:
-            # 使用者目前沒有 WebSocket 連線
-            failed_count += 1
+    subscriber_counts = await pipe.execute()
+
+    # 4. 統計：subscriber_count > 0 代表該使用者的 WebSocket 在線
+    delivered_to = [
+        {
+            "user_id": user_id,
+            "distance_meters": distance,
+            "subscriber_count": count,
+        }
+        for (user_id, distance), count in zip(active_users, subscriber_counts)
+        if count > 0
+    ]
+    failed_count = len(active_users) - len(delivered_to)
 
     return {
         "event_id": broadcast.event_id,
         "total_nearby_users": len(nearby_users),
+        "active_user_count": len(active_users),
         "radius_meters": broadcast.radius_meters,
         "delivered_count": len(delivered_to),
         "failed_count": failed_count,

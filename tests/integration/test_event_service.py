@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import json
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -78,8 +79,15 @@ class FakeRedis:
 
 
 class FakeAsyncClient:
-    def __init__(self, timeout: float) -> None:
+    def __init__(
+        self,
+        timeout: float,
+        response_payload: dict | None = None,
+        raise_error: Exception | None = None,
+    ) -> None:
         self.timeout = timeout
+        self.response_payload = response_payload if response_payload is not None else {}
+        self.raise_error = raise_error
         self.posts: list[tuple[str, dict[str, object]]] = []
 
     async def __aenter__(self) -> "FakeAsyncClient":
@@ -89,10 +97,20 @@ class FakeAsyncClient:
         return None
 
     async def post(self, url: str, json: dict[str, object]):
+        if self.raise_error is not None:
+            raise self.raise_error
+
         self.posts.append((url, json))
+        payload = self.response_payload
 
         class Response:
             status_code = 200
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self):
+                return payload
 
         return Response()
 
@@ -113,15 +131,20 @@ async def test_healthz(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_create_event_with_nearby_users(monkeypatch) -> None:
     fake_redis = FakeRedis()
-    fake_redis.geosearch_result = [("u-0001", "120.0"), ("u-0002", "250.0")]
-    fake_redis.pipeline_values = {
-        f"{event_service.USER_LAST_SEEN_PREFIX}:u-0001": "2026-07-05T00:00:00Z",
-        f"{event_service.USER_LAST_SEEN_PREFIX}:u-0002": None,
-    }
     monkeypatch.setattr(event_service, "redis", fake_redis)
 
-    fake_client = FakeAsyncClient(timeout=3.0)
-    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=3.0: fake_client)
+    fake_client = FakeAsyncClient(
+        timeout=5.0,
+        response_payload={
+            "total_nearby_users": 2,
+            "active_user_count": 1,
+            "delivered_count": 1,
+            "delivered_to": [
+                {"user_id": "u-0001", "distance_meters": 120.0, "subscriber_count": 1}
+            ],
+        },
+    )
+    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
 
     transport = ASGITransport(app=event_service.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -146,16 +169,15 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
     assert body["active_user_count"] == 1
     assert body["delivered_count"] == 1
     assert body["delivered_to"] == ["u-0001"]
-    assert fake_redis.pipeline_instance is not None
-    assert fake_redis.pipeline_instance.requested_keys == [
-        f"{event_service.USER_LAST_SEEN_PREFIX}:u-0001",
-        f"{event_service.USER_LAST_SEEN_PREFIX}:u-0002",
-    ]
+
+    # Stage 5：只發一次 broadcast 呼叫，由 Notification Service 統一處理推播
     assert len(fake_client.posts) == 1
-    sent_payload = fake_client.posts[0][1]
+    broadcast_url, sent_payload = fake_client.posts[0]
+    assert broadcast_url.endswith("/broadcast/nearby")
     assert sent_payload["image_base64"] == "fake-image-base64-data"
     assert sent_payload["image_url"] == "https://example.com/library.jpg"
     assert sent_payload["duration_minutes"] == 60
+    assert sent_payload["radius_meters"] == 500
     stored_event = json.loads(fake_redis.set_calls[0]["value"])
     assert stored_event["image_url"] == "https://example.com/library.jpg"
     assert len(fake_redis.set_calls) == 1
@@ -169,11 +191,10 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_create_event_no_nearby_users(monkeypatch) -> None:
     fake_redis = FakeRedis()
-    fake_redis.geosearch_result = []
     monkeypatch.setattr(event_service, "redis", fake_redis)
 
-    fake_client = FakeAsyncClient(timeout=3.0)
-    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=3.0: fake_client)
+    fake_client = FakeAsyncClient(timeout=5.0)
+    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
 
     transport = ASGITransport(app=event_service.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -197,7 +218,10 @@ async def test_create_event_no_nearby_users(monkeypatch) -> None:
     assert body["active_user_count"] == 0
     assert body["delivered_count"] == 0
     assert body["delivered_to"] == []
-    assert fake_client.posts == []
+
+    # event-service 不再自行查詢使用者，一律轉呼 broadcast 由 notification-service 統計
+    assert len(fake_client.posts) == 1
+    assert fake_client.posts[0][0].endswith("/broadcast/nearby")
     assert len(fake_redis.geoadd_calls) == 1
     assert fake_redis.geoadd_calls[0]["key"] == "event_locations"
     assert fake_redis.geoadd_calls[0]["values"][0] == 121.5397
@@ -353,3 +377,43 @@ async def test_get_events_remove_expired_events(monkeypatch) -> None:
             "members": ("expired-event-001",),
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_create_event_broadcast_failure_still_creates_event(monkeypatch) -> None:
+    """Stage 5：通知服務不可用時，事件仍要成功建立（推播統計歸零）。"""
+    fake_redis = FakeRedis()
+    monkeypatch.setattr(event_service, "redis", fake_redis)
+
+    fake_client = FakeAsyncClient(
+        timeout=5.0,
+        raise_error=httpx.ConnectError("notification-service down"),
+    )
+    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/events",
+            json={
+                "title": "Library seats",
+                "message": "3F has seats near windows",
+                "latitude": 25.0173,
+                "longitude": 121.5397,
+                "severity": "info",
+                "radius_meters": 500,
+                "duration_minutes": 60,
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["event_id"]
+    assert body["nearby_user_count"] == 0
+    assert body["active_user_count"] == 0
+    assert body["delivered_count"] == 0
+    assert body["delivered_to"] == []
+
+    # 事件本體仍寫入 Redis
+    assert len(fake_redis.set_calls) == 1
+    assert len(fake_redis.geoadd_calls) == 1
