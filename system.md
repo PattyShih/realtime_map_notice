@@ -42,8 +42,8 @@ Redis GEO 與 Redis Pub/Sub 可以是同一個 Redis instance，但在架構圖�
 |------|------|--------|
 | Web App | 地圖、定位、事件表單、通知展示 | 直接查 Redis、K8s 操作 |
 | Location Service | 接收座標、更新 Redis GEO、附近查詢 | 事件建立、通知推播 |
-| Event Service | 事件建立、半徑查詢、通知觸發 | WebSocket 連線管理 |
-| Notification Service | WebSocket、Redis Pub/Sub、指定使用者通知 | 判斷事件半徑、儲存位置 |
+| Event Service | 事件建立、事件查詢、通知觸發 | WebSocket 連線管理、使用者 GEO 查詢 |
+| Notification Service | WebSocket、Redis Pub/Sub、附近 GEO 查詢、指定使用者通知 | 事件資料長期儲存 |
 | Redis | 即時位置、last_seen、Pub/Sub channel | 長期報表、正式使用者資料 |
 
 ## 系統元件

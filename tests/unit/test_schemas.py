@@ -50,6 +50,17 @@ def test_event_create_invalid_radius() -> None:
         )
 
 
+def test_event_create_invalid_severity() -> None:
+    with pytest.raises(ValidationError):
+        schemas.EventCreate(
+            title="Library 3F has seats",
+            message="About 10 seats near the windows.",
+            latitude=25.0173,
+            longitude=121.5397,
+            severity="unknown",
+        )
+
+
 def test_event_notification_all_fields() -> None:
     payload = schemas.EventNotification(
         event_id="uuid",
