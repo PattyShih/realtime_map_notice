@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +15,10 @@ class EventCreate(BaseModel):
     message: str = Field(..., examples=["About 10 seats near the windows."])
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
-    severity: str = Field("info",  examples=["info", "warning", "danger"])
+    severity: Literal["info", "warning", "danger", "urgent"] = Field(
+        "info",
+        examples=["info", "warning", "danger", "urgent"],
+    )
     radius_meters: int = Field(500, ge=50, le=3000)
      # 新增：事件存在時間（分鐘）
     duration_minutes: int = Field(60, ge=1, le=1440, examples=[30, 60, 1440])
@@ -58,7 +62,10 @@ class NearbyBroadcast(BaseModel):
     message: str
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
-    severity: str = Field("info", examples=["info", "warning", "danger"])
+    severity: Literal["info", "warning", "danger", "urgent"] = Field(
+        "info",
+        examples=["info", "warning", "danger", "urgent"],
+    )
     radius_meters: int = Field(500, ge=50, le=3000, description="通知範圍（公尺）")
     # 如果廣播也需要帶圖片，可以用
     image_base64: str | None = None

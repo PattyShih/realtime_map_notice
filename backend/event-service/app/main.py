@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
+from redis.exceptions import RedisError
 
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
@@ -36,7 +37,7 @@ async def broadcast_to_notification_service(broadcast_payload: dict) -> dict:
             )
             response.raise_for_status()
             return response.json()
-    except httpx.HTTPError as e:
+    except (httpx.HTTPError, ValueError) as e:
         logger.warning(f"⚠️ broadcast failed (event still created): {e}")
         return {}
 
@@ -56,13 +57,17 @@ async def get_events(
     longitude: float = Query(..., ge=-180, le=180),
     radius: int = Query(3000, ge=1, le=3000),
 ):
-    event_ids = await redis.geosearch(
-        EVENT_LOCATION_KEY,
-        longitude=longitude,
-        latitude=latitude,
-        radius=radius,
-        unit="m",
-    )
+    try:
+        event_ids = await redis.geosearch(
+            EVENT_LOCATION_KEY,
+            longitude=longitude,
+            latitude=latitude,
+            radius=radius,
+            unit="m",
+        )
+    except RedisError as e:
+        logger.error("Event lookup failed: %s", e)
+        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
 
     if not event_ids:
         return []
@@ -85,24 +90,23 @@ async def get_events(
 
         try:
             event = json.loads(event_data)
-        except json.JSONDecodeError:
+            events.append(
+                EventResponse(
+                    event_id=event_id,
+                    title=event["title"],
+                    message=event["message"],
+                    severity=event["severity"],
+                    latitude=event["latitude"],
+                    longitude=event["longitude"],
+                    radius_meters=event["radius_meters"],
+                    created_at=event["created_at"],
+                    duration_minutes=event.get("duration_minutes", 60),
+                    image_url=event.get("image_url"),
+                )
+            )
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             expired_events.append(event_id)
             continue
-
-        events.append(
-            EventResponse(
-                event_id=event_id,
-                title=event["title"],
-                message=event["message"],
-                severity=event["severity"],
-                latitude=event["latitude"],
-                longitude=event["longitude"],
-                radius_meters=event["radius_meters"],
-                created_at=event["created_at"],
-                duration_minutes=event.get("duration_minutes", 60),
-                image_url=event.get("image_url"),
-            )
-        )
 
     # 清掉已過期的 GEO 資料
     if expired_events:
@@ -120,20 +124,24 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
     event_data = payload.model_dump()
     event_data["created_at"] = datetime.now(timezone.utc).isoformat()
 
-    await redis.set(
-        f"event:{event_id}",
-        json.dumps(event_data),
-        ex=payload.duration_minutes * 60,
-    )
+    try:
+        await redis.set(
+            f"event:{event_id}",
+            json.dumps(event_data),
+            ex=payload.duration_minutes * 60,
+        )
 
-    await redis.geoadd(
-        EVENT_LOCATION_KEY,
-        (
-            payload.longitude,
-            payload.latitude,
-            event_id,
-        ),
-    )
+        await redis.geoadd(
+            EVENT_LOCATION_KEY,
+            (
+                payload.longitude,
+                payload.latitude,
+                event_id,
+            ),
+        )
+    except RedisError as e:
+        logger.error("Event storage failed: %s", e)
+        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
 
     # Stage 5：推播統一走 Notification Service，只發一次 HTTP 呼叫
     broadcast_stats = await broadcast_to_notification_service(

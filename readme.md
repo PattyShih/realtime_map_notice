@@ -84,7 +84,9 @@ realtime_map_notice/
 | Location Service | `POST /locations` | 接收使用者目前 GPS 座標並寫入 Redis GEO |
 | Location Service | `GET /locations/nearby` | 查詢指定座標半徑內的使用者 |
 | Event Service | `POST /events` | 建立事件並觸發附近使用者通知 |
+| Event Service | `GET /events` | 查詢指定座標半徑內的有效事件 |
 | Notification Service | `GET /healthz` | 健康檢查 |
+| Notification Service | `POST /broadcast/nearby` | 查詢附近在線使用者並批次推播事件 |
 | Notification Service | `POST /notify/{user_id}` | 對指定使用者發布通知 |
 | Notification Service | `WS /ws/{user_id}` | 前端 WebSocket 即時通知連線 |
 
