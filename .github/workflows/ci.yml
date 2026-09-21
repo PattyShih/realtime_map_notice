@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
   pull_request:
 
 permissions:
@@ -59,7 +58,8 @@ jobs:
         with:
           context: .
           file: backend/${{ matrix.service }}/Dockerfile
-          push: ${{ github.event_name == 'push' }}
+          # 只有 main/dev 的 push 才推送映像到 GHCR，其他分支與 PR 只建置驗證
+          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

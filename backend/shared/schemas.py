@@ -30,8 +30,20 @@ class EventCreate(BaseModel):
     image_url: str | None = Field(None, description="現場照片 URL 或 Base64 字串", max_length=2_000_000)
 
 
+class EventUpdate(BaseModel):
+    """事件編輯請求：僅開放文字內容修改，地點與時效維持原值"""
+    user_id: str = Field(..., min_length=1, max_length=64, description="發布者身份，用於驗證編輯權限")
+    title: str = Field(..., min_length=1, max_length=100, examples=["Library 3F has seats"])
+    message: str = Field(..., min_length=1, max_length=1000, examples=["About 10 seats near the windows."])
+    severity: Literal["info", "warning", "danger", "urgent"] = Field(
+        "info",
+        examples=["info", "warning", "danger", "urgent"],
+    )
+
+
 class EventNotification(BaseModel):
     event_id: str
+    user_id: str = ""  # 發布者身份，前端用它顯示「自己的事件」編輯/刪除按鈕
     title: str
     message: str
     latitude: float
@@ -76,6 +88,7 @@ class ModerationResponse(BaseModel):
 class NearbyBroadcast(BaseModel):
     """廣播事件給附近使用者的請求"""
     event_id: str
+    user_id: str = ""  # 發布者身份，隨通知轉發給前端
     title: str
     message: str
     latitude: float = Field(..., ge=-90, le=90)

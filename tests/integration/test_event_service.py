@@ -61,6 +61,20 @@ class FakeRedis:
     async def ping(self) -> bool:
         return True
 
+    async def get(self, key):
+        return self.store.get(key)
+
+    async def ttl(self, key) -> int:
+        return 3600 if key in self.store else -2
+
+    async def delete(self, *keys) -> int:
+        removed = 0
+        for key in keys:
+            if key in self.store:
+                del self.store[key]
+                removed += 1
+        return removed
+
     async def set(self, key, value, ex=None, nx=False):
         if nx and key in self.store:
             return None
@@ -633,3 +647,153 @@ async def test_create_event_moderation_fail_open(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert len(fake_redis.set_calls) == 1
+
+
+async def create_event_for_test(monkeypatch, user_id: str = "u-owner", title: str = "Editable event") -> tuple[dict, FakeRedis, FakeAsyncClient]:
+    """建立一則事件供編輯/刪除測試使用，回傳（回應主體, fake_redis, fake_client）。"""
+    fake_redis = install_fake_redis(monkeypatch)
+    fake_client = FakeAsyncClient(timeout=5.0)
+    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/events",
+            json={
+                "user_id": user_id,
+                "title": title,
+                "message": "original message",
+                "latitude": 25.0173,
+                "longitude": 121.5397,
+                "severity": "info",
+                "duration_minutes": 60,
+            },
+        )
+    assert response.status_code == 200
+    return response.json(), fake_redis, fake_client
+
+
+@pytest.mark.asyncio
+async def test_update_event_by_owner(monkeypatch) -> None:
+    body, fake_redis, _ = await create_event_for_test(monkeypatch)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.put(
+            f"/events/{body['event_id']}",
+            json={
+                "user_id": "u-owner",
+                "title": "Updated title",
+                "message": "updated message",
+                "severity": "warning",
+            },
+        )
+
+    assert response.status_code == 200
+    stored = json.loads(fake_redis.store[f"event:{body['event_id']}"])
+    assert stored["title"] == "Updated title"
+    assert stored["message"] == "updated message"
+    assert stored["severity"] == "warning"
+    # 地點資訊不可被編輯更動
+    assert stored["latitude"] == 25.0173
+    assert stored["user_id"] == "u-owner"
+
+
+@pytest.mark.asyncio
+async def test_update_event_by_non_owner_forbidden(monkeypatch) -> None:
+    body, fake_redis, _ = await create_event_for_test(monkeypatch)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.put(
+            f"/events/{body['event_id']}",
+            json={
+                "user_id": "u-attacker",
+                "title": "hijacked",
+                "message": "hijacked",
+                "severity": "urgent",
+            },
+        )
+
+    assert response.status_code == 403
+    # 內容未被竄改
+    stored = json.loads(fake_redis.store[f"event:{body['event_id']}"])
+    assert stored["title"] == "Editable event"
+
+
+@pytest.mark.asyncio
+async def test_update_missing_event_returns_404(monkeypatch) -> None:
+    install_fake_redis(monkeypatch)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.put(
+            "/events/no-such-event",
+            json={
+                "user_id": "u-owner",
+                "title": "t",
+                "message": "m",
+                "severity": "info",
+            },
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_event_rejected_by_moderation(monkeypatch) -> None:
+    body, fake_redis, _ = await create_event_for_test(monkeypatch)
+    fake_client = FakeAsyncClient(
+        timeout=5.0,
+        response_payload={"verdict": "spam", "score": 1.0, "reason": "廣告"},
+    )
+    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.put(
+            f"/events/{body['event_id']}",
+            json={
+                "user_id": "u-owner",
+                "title": "spam edit",
+                "message": "spam edit body",
+                "severity": "info",
+            },
+        )
+
+    assert response.status_code == 422
+    stored = json.loads(fake_redis.store[f"event:{body['event_id']}"])
+    assert stored["title"] == "Editable event"
+
+
+@pytest.mark.asyncio
+async def test_delete_event_by_owner(monkeypatch) -> None:
+    body, fake_redis, _ = await create_event_for_test(monkeypatch)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.delete(
+            f"/events/{body['event_id']}", params={"user_id": "u-owner"}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "deleted"
+    # 事件本體與 GEO 索引都要移除
+    assert f"event:{body['event_id']}" not in fake_redis.store
+    assert fake_redis.zrem_calls == [
+        {"key": "event_locations", "members": (body["event_id"],)}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delete_event_by_non_owner_forbidden(monkeypatch) -> None:
+    body, fake_redis, _ = await create_event_for_test(monkeypatch)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.delete(
+            f"/events/{body['event_id']}", params={"user_id": "u-attacker"}
+        )
+
+    assert response.status_code == 403
+    assert f"event:{body['event_id']}" in fake_redis.store

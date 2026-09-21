@@ -11,7 +11,7 @@ from redis.exceptions import RedisError
 from backend.shared.antispam import EventAntiSpam
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
-from backend.shared.schemas import EventCreate, EventResponse
+from backend.shared.schemas import EventCreate, EventResponse, EventUpdate
 
 NOTIFICATION_SERVICE_URL = os.getenv(
     "NOTIFICATION_SERVICE_URL",
@@ -150,6 +150,62 @@ async def get_events(
 
     return events
 
+async def _load_owned_event(event_id: str, user_id: str) -> dict:
+    """載入事件並驗證操作者是發布者；不存在回 404、非發布者回 403。"""
+    raw = await redis.get(f"event:{event_id}")
+    if raw is None:
+        raise HTTPException(status_code=404, detail="事件不存在或已過期")
+
+    event = json.loads(raw)
+    if event.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="只有發布者可以修改或刪除這則事件")
+    return event
+
+
+@app.put("/events/{event_id}")
+async def update_event(event_id: str, payload: EventUpdate) -> dict[str, object]:
+    event = await _load_owned_event(event_id, payload.user_id)
+
+    # 編輯後的內容同樣要過 AI 審核（antispam 計數不重跑：
+    # 編輯不產生新事件也不推播，重複偵測對「只改幾個字」反而誤擋）
+    await moderate_event_content(payload.title, payload.message)
+
+    event["title"] = payload.title
+    event["message"] = payload.message
+    event["severity"] = payload.severity
+
+    event_key = f"event:{event_id}"
+    ttl = await redis.ttl(event_key)
+    if ttl <= 0:
+        # get 與 ttl 之間剛好過期：視為不存在，避免復活死事件
+        raise HTTPException(status_code=404, detail="事件不存在或已過期")
+
+    try:
+        await redis.set(event_key, json.dumps(event), ex=ttl)
+    except RedisError as e:
+        logger.error("Event update failed: %s", e)
+        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
+
+    return {"status": "updated", "event_id": event_id}
+
+
+@app.delete("/events/{event_id}")
+async def delete_event(
+    event_id: str,
+    user_id: str = Query(..., min_length=1, max_length=64),
+) -> dict[str, object]:
+    await _load_owned_event(event_id, user_id)
+
+    try:
+        await redis.delete(f"event:{event_id}")
+        await redis.zrem(EVENT_LOCATION_KEY, event_id)
+    except RedisError as e:
+        logger.error("Event delete failed: %s", e)
+        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
+
+    return {"status": "deleted", "event_id": event_id}
+
+
 @app.post("/events")
 async def create_event(payload: EventCreate) -> dict[str, object]:
     event_id = str(uuid4())
@@ -192,6 +248,7 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
     broadcast_stats = await broadcast_to_notification_service(
         {
             "event_id": event_id,
+            "user_id": payload.user_id,
             "title": payload.title,
             "message": payload.message,
             "latitude": payload.latitude,
