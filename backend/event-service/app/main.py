@@ -8,6 +8,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query
 from redis.exceptions import RedisError
 
+from backend.shared.antispam import EventAntiSpam
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import EventCreate, EventResponse
@@ -16,10 +17,40 @@ NOTIFICATION_SERVICE_URL = os.getenv(
     "NOTIFICATION_SERVICE_URL",
     "http://localhost:8003",
 )
+AI_SERVICE_URL = os.getenv(
+    "AI_SERVICE_URL",
+    "http://localhost:8004",
+)
 
 EVENT_LOCATION_KEY = "event_locations"
 
 logger = logging.getLogger(__name__)
+
+
+async def moderate_event_content(title: str, message: str) -> None:
+    """送 AI Service 審核內容；判定垃圾訊息時 raise 422。
+
+    與 antispam 互補：antispam 擋行為（洗頻、重複），AI 擋內容（廣告、辱罵）。
+    AI 服務不可用時 fail-open 放行，不阻擋正常發布。
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"{AI_SERVICE_URL}/moderate",
+                json={"title": title, "message": message},
+            )
+            response.raise_for_status()
+            result = response.json()
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning(f"⚠️ moderation unavailable (event allowed): {e}")
+        return
+
+    if result.get("verdict") == "spam":
+        reason = result.get("reason") or "內容疑似垃圾訊息"
+        raise HTTPException(
+            status_code=422,
+            detail=f"內容未通過審核：{reason}",
+        )
 
 
 async def broadcast_to_notification_service(broadcast_payload: dict) -> dict:
@@ -44,6 +75,7 @@ async def broadcast_to_notification_service(broadcast_payload: dict) -> dict:
 app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0")
 configure_cors(app)
 redis = create_redis()
+antispam = EventAntiSpam(redis)
 
 
 @app.get("/healthz")
@@ -102,6 +134,7 @@ async def get_events(
                     created_at=event["created_at"],
                     duration_minutes=event.get("duration_minutes", 60),
                     image_url=event.get("image_url"),
+                    user_id=event.get("user_id", ""),
                 )
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
@@ -120,6 +153,18 @@ async def get_events(
 @app.post("/events")
 async def create_event(payload: EventCreate) -> dict[str, object]:
     event_id = str(uuid4())
+
+    # 反垃圾訊息：頻率限制、重複偵測；未通過會直接 raise 429/409
+    await antispam.check_and_register(
+        payload.user_id,
+        payload.title,
+        payload.message,
+        event_id,
+        payload.duration_minutes,
+    )
+
+    # AI 內容審核：判定垃圾訊息會 raise 422；服務不可用時放行
+    await moderate_event_content(payload.title, payload.message)
 
     event_data = payload.model_dump()
     event_data["created_at"] = datetime.now(timezone.utc).isoformat()

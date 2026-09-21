@@ -11,8 +11,10 @@ class LocationUpdate(BaseModel):
 
 
 class EventCreate(BaseModel):
-    title: str = Field(..., examples=["Library 3F has seats"])
-    message: str = Field(..., examples=["About 10 seats near the windows."])
+    # 反垃圾訊息：事件必須帶發布者身份，頻率限制與重複偵測都以 user_id 為依據
+    user_id: str = Field(..., min_length=1, max_length=64, examples=["u-0001"])
+    title: str = Field(..., min_length=1, max_length=100, examples=["Library 3F has seats"])
+    message: str = Field(..., min_length=1, max_length=1000, examples=["About 10 seats near the windows."])
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
     severity: Literal["info", "warning", "danger", "urgent"] = Field(
@@ -24,8 +26,8 @@ class EventCreate(BaseModel):
     duration_minutes: int = Field(60, ge=1, le=1440, examples=[30, 60, 1440])
 
     # 新增：圖片 Base64 字串
-    image_base64: str | None = Field(None,description="現場照片 Base64 字串")
-    image_url: str | None = Field(None, description="現場照片 URL 或 Base64 字串")
+    image_base64: str | None = Field(None, description="現場照片 Base64 字串", max_length=2_000_000)
+    image_url: str | None = Field(None, description="現場照片 URL 或 Base64 字串", max_length=2_000_000)
 
 
 class EventNotification(BaseModel):
@@ -53,6 +55,22 @@ class EventResponse(BaseModel):
     created_at: datetime
     duration_minutes: int = 60
     image_url: str | None = None
+    # 舊事件資料沒有 user_id，預設空字串以維持向下相容
+    user_id: str = ""
+
+
+class ModerationRequest(BaseModel):
+    """AI 服務內容審核請求"""
+    title: str
+    message: str
+
+
+class ModerationResponse(BaseModel):
+    """AI 服務內容審核結果：verdict=spam 表示判定為垃圾訊息"""
+    verdict: Literal["ok", "spam"]
+    score: float = Field(0.0, ge=0.0, le=1.0)
+    provider: str = "unknown"
+    reason: str = ""
 
 
 class NearbyBroadcast(BaseModel):

@@ -29,19 +29,54 @@ def test_location_update_invalid_longitude() -> None:
 
 def test_event_create_valid() -> None:
     payload = schemas.EventCreate(
+        user_id="u-0001",
         title="Library 3F has seats",
         message="About 10 seats near the windows.",
         latitude=25.0173,
         longitude=121.5397,
     )
 
+    assert payload.user_id == "u-0001"
     assert payload.severity == "info"
     assert payload.radius_meters == 500
+
+
+def test_event_create_missing_user_id() -> None:
+    with pytest.raises(ValidationError):
+        schemas.EventCreate(
+            title="Library 3F has seats",
+            message="About 10 seats near the windows.",
+            latitude=25.0173,
+            longitude=121.5397,
+        )
+
+
+def test_event_create_title_too_long() -> None:
+    with pytest.raises(ValidationError):
+        schemas.EventCreate(
+            user_id="u-0001",
+            title="T" * 101,
+            message="About 10 seats near the windows.",
+            latitude=25.0173,
+            longitude=121.5397,
+        )
+
+
+def test_event_create_message_too_long() -> None:
+    with pytest.raises(ValidationError):
+        schemas.EventCreate(
+            user_id="u-0001",
+            title="Library 3F has seats",
+            message="M" * 1001,
+            latitude=25.0173,
+            longitude=121.5397,
+        )
 
 
 def test_event_create_invalid_radius() -> None:
     with pytest.raises(ValidationError):
         schemas.EventCreate(
+            user_id="u-0001",
             title="Library 3F has seats",
             message="About 10 seats near the windows.",
             latitude=25.0173,
@@ -53,6 +88,7 @@ def test_event_create_invalid_radius() -> None:
 def test_event_create_invalid_severity() -> None:
     with pytest.raises(ValidationError):
         schemas.EventCreate(
+            user_id="u-0001",
             title="Library 3F has seats",
             message="About 10 seats near the windows.",
             latitude=25.0173,

@@ -17,6 +17,8 @@ const markerMap = ref(new Map())
 
 let expirationTimer = null
 let locationReportTimer = null
+// 剛發布成功的事件 ID：WS 廣播會把自己發的事件再推回來，用來避免重複加入列表與重複跳通知
+let lastPublishedEventId = null
 
 const fetchAddress = async (lat, lng) => {
   try {
@@ -235,7 +237,7 @@ const setupWebSocket = () => {
         const eventLng = eventData.longitude
         const dist = getDistance(currentCoords.value.lat, currentCoords.value.lng, eventLat, eventLng)
         const walkTime = Math.max(1, Math.round(dist / 80))
-        const durationMinutes = parseFloat(eventData.duration) || 60
+        const durationMinutes = parseFloat(eventData.duration_minutes ?? eventData.duration) || 60
         const expiresAt = eventData.expires_at ? new Date(eventData.expires_at).getTime() : (Date.now() + durationMinutes * 60 * 1000)
 
         if (Date.now() >= expiresAt) return
@@ -266,7 +268,10 @@ const setupWebSocket = () => {
           }
 
           markerMap.value.set(newEvent.id, marker)
-          triggerToast(`🔔 收到周遭即時通報：「${newEvent.title}」`)
+          // 自己剛發布的事件會從 WS 廣播回來，不再跳「收到通報」
+          if (newEvent.id !== lastPublishedEventId) {
+            triggerToast(`🔔 收到周遭即時通報：「${newEvent.title}」`)
+          }
         }
       }
     } catch (err) {
@@ -406,6 +411,7 @@ const handleSubmit = async () => {
   const durationMinutes = parseFloat(formData.value.duration) || 60
   const expiresAt = Date.now() + durationMinutes * 60 * 1000
   const apiPayload = {
+    user_id: getOrCreateUserId(),
     title: formData.value.title,
     message: formData.value.description || '無詳細描述',
     latitude: currentCoords.value.lat,
@@ -423,11 +429,14 @@ const handleSubmit = async () => {
     })
 
     if (response.ok) {
+      // 用後端回傳的正式 event_id 當列表 ID，WebSocket 廣播回來時才能對應到同一筆、不會重複
+      const body = await response.json()
+      lastPublishedEventId = body.event_id || null
       const dist = getDistance(currentCoords.value.lat, currentCoords.value.lng, currentCoords.value.lat, currentCoords.value.lng)
       const walkTime = Math.max(1, Math.round(dist / 80))
-      
+
       const newEvent = {
-        id: Date.now(),
+        id: body.event_id || Date.now(),
         title: formData.value.title,
         category: formData.value.category,
         description: formData.value.description || '無詳細描述',
@@ -456,7 +465,13 @@ const handleSubmit = async () => {
       triggerToast(`成功發布「${newEvent.title}」！已同步新增至地圖與清單。`)
       formData.value = { title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' }
     } else {
-      triggerToast('發布失敗，請確認 API 欄位格式！')
+      // 後端反垃圾訊息（429 頻率限制 / 409 重複內容）或欄位驗證失敗，顯示後端回傳的原因
+      let errorMsg = '發布失敗，請確認 API 欄位格式！'
+      try {
+        const err = await response.json()
+        if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
+      } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
+      triggerToast(errorMsg)
     }
   } catch (error) {
     console.error('網路連線失敗:', error)
@@ -690,7 +705,7 @@ window.openImageLightbox = openLightbox
         <form @submit.prevent="handleSubmit" class="modal-form">
           <div class="location-badge">📍 {{ locationText }}</div>
           <div class="form-group">
-            <input type="text" v-model="formData.title" placeholder="請輸入事件名稱..." required class="input-light" />
+            <input type="text" v-model="formData.title" placeholder="請輸入事件名稱..." required maxlength="100" class="input-light" />
           </div>
 
           <div class="form-group category-group">
@@ -738,7 +753,7 @@ window.openImageLightbox = openLightbox
           </div>
 
           <div class="form-group">
-            <textarea v-model="formData.description" rows="3" placeholder="詳細描述：補充說明具體位置、特徵或狀況..." class="input-light"></textarea>
+            <textarea v-model="formData.description" rows="3" maxlength="1000" placeholder="詳細描述：補充說明具體位置、特徵或狀況..." class="input-light"></textarea>
           </div>
 
           <button type="submit" class="submit-btn">確認發布</button>
