@@ -9,13 +9,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run
 
 ```bash
-docker compose up --build          # 啟動全部（Redis + 3 services）
+docker compose up --build          # 啟動全部（Redis + 4 services）
 docker compose up --build -d       # 背景啟動
 docker compose logs -f <service>   # 看日誌
 docker compose down                # 停掉
 ```
 
-Services bind to host ports 8001/8002/8003 (internal: 8000).
+Services bind to host ports 8001/8002/8003/8004 (internal: 8000).
 
 ## Local Development
 
@@ -30,6 +30,10 @@ source .venv/bin/activate  # Linux/Mac
 
 # Install simulator dependencies
 pip install -r simulator/requirements.txt
+
+# Run tests (no live services needed — all fakes)
+pip install pytest pytest-asyncio fastapi "uvicorn[standard]" redis httpx
+pytest tests/ -q
 ```
 
 ### API Documentation
@@ -38,24 +42,27 @@ Each FastAPI service has interactive API docs:
 - Location Service: http://localhost:8001/docs
 - Event Service: http://localhost:8002/docs
 - Notification Service: http://localhost:8003/docs
+- AI Service: http://localhost:8004/docs
 
 ## Test
 
 ```bash
-# 目前沒有 tests/，尚未實作。建立測試時：
 pytest                              # 跑全部
 pytest tests/unit/                  # 只跑 unit
-pytest tests/integration/           # 需先 docker compose up
+pytest tests/integration/           # 只跑 integration（用 FakeRedis/FakeAsyncClient，不需啟動服務）
 ```
+
+CI（`.github/workflows/ci.yml`）會在 push 到 main/dev 時跑測試並建置四個服務映像推送至 GHCR。
 
 ## Architecture
 
 ```
 Web App → Location Service (:8001) → Redis GEO
-Web App → Event Service (:8002) → Redis GEOSEARCH → Notification Service (:8003) → Redis Pub/Sub → WebSocket → Web App
+Web App → Event Service (:8002) → antispam + AI moderation → Redis GEOSEARCH → Notification Service (:8003) → Redis Pub/Sub → WebSocket → Web App
+                                            └→ AI Service (:8004) POST /moderate
 ```
 
-Three independent FastAPI services share `backend/shared/` (schemas, config, redis_client, cors). Each has its own Dockerfile. Redis is the only stateful dependency.
+Four independent FastAPI services share `backend/shared/` (schemas, config, redis_client, cors, antispam). Each has its own Dockerfile. Redis is the only stateful dependency.
 
 ## Service Entrypoints
 
@@ -64,6 +71,7 @@ Three independent FastAPI services share `backend/shared/` (schemas, config, red
 | Location Service | 8001 | 8000 | `backend/location-service/app/main.py` |
 | Event Service | 8002 | 8000 | `backend/event-service/app/main.py` |
 | Notification Service | 8003 | 8000 | `backend/notification-service/app/main.py` |
+| AI Service | 8004 | 8000 | `backend/ai-service/app/main.py` |
 
 ## Code Conventions
 
@@ -85,6 +93,14 @@ Three independent FastAPI services share `backend/shared/` (schemas, config, red
 | `DEFAULT_ALERT_RADIUS_METERS` | `500` | shared/config.py |
 | `CORS_ALLOW_ORIGINS` | `http://localhost:5173,http://localhost:3000` | shared/config.py |
 | `NOTIFICATION_SERVICE_URL` | `http://localhost:8003` | event-service only |
+| `AI_SERVICE_URL` | `http://localhost:8004` | event-service only |
+| `EVENT_RATE_LIMIT_PER_MINUTE` | `3`（0 停用） | shared/antispam.py |
+| `EVENT_MIN_INTERVAL_SECONDS` | `30`（0 停用） | shared/antispam.py |
+| `EVENT_DUPLICATE_WINDOW_SECONDS` | `300`（0 停用） | shared/antispam.py |
+| `EVENT_MAX_ACTIVE_PER_USER` | `5`（0 停用） | shared/antispam.py |
+| `MODERATION_PROVIDER` | `keyword`（off/keyword/llm） | ai-service only |
+| `MODERATION_BLOCKED_KEYWORDS` | 內建清單（逗號分隔） | ai-service only |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` | 空 / openai / gpt-4o-mini | ai-service only |
 
 ## Gotchas
 
@@ -98,10 +114,11 @@ Three independent FastAPI services share `backend/shared/` (schemas, config, red
 ## K8s
 
 ```bash
-# Build images first (no CI/CD pipeline)
+# Build images first, or use CI (GHCR) — see .github/workflows/ci.yml
 docker build -t realtime-map-notice/location-service:latest -f backend/location-service/Dockerfile .
 docker build -t realtime-map-notice/event-service:latest -f backend/event-service/Dockerfile .
 docker build -t realtime-map-notice/notification-service:latest -f backend/notification-service/Dockerfile .
+docker build -t realtime-map-notice/ai-service:latest -f backend/ai-service/Dockerfile .
 
 kubectl apply -f k8s/
 kubectl -n realtime-map-notice get pods -w
