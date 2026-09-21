@@ -1,0 +1,41 @@
+# 負載產生器：以 Job 身份在叢集內部對 location-service 進行壓測。
+# 模擬腳本透過 ConfigMap 掛載，修改腳本後重新 apply configmap + delete/re-apply job 即可。
+# 用法：
+#   kubectl -n realtime-map-notice create configmap simulator-code \
+#     --from-file=simulate_users.py=simulator/simulate_users.py --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n realtime-map-notice delete job load-generator --ignore-not-found
+#   kubectl apply -f k8s/load-generator-job.yaml
+#   kubectl -n realtime-map-notice logs -f job/load-generator
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-generator
+  namespace: realtime-map-notice
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: simulator
+          image: python:3.12-slim
+          command: ["sh", "-c"]
+          args:
+            - pip install -q httpx==0.28.1 && python /code/simulate_users.py --users 3000 --target http://location-service:8000 --interval 0.5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 128Mi
+            limits:
+              cpu: 2000m
+              memory: 256Mi
+          volumeMounts:
+            - name: simulator-code
+              mountPath: /code
+      volumes:
+        - name: simulator-code
+          configMap:
+            name: simulator-code
