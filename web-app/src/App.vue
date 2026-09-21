@@ -20,8 +20,6 @@ let locationReportTimer = null
 let eventsRefreshTimer = null
 // 剛發布成功的事件 ID：WS 廣播會把自己發的事件再推回來，用來避免重複加入列表與重複跳通知
 let lastPublishedEventId = null
-// 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕
-const myUserId = getOrCreateUserId()
 
 const fetchAddress = async (lat, lng) => {
   try {
@@ -78,6 +76,9 @@ const getOrCreateUserId = () => {
   }
   return userId
 }
+
+// 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕
+const myUserId = getOrCreateUserId()
 
 // ==========================================
 // 座標上報 Location Service
