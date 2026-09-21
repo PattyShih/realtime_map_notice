@@ -1,38 +1,40 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: event-service
+  name: ai-service
   namespace: realtime-map-notice
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: event-service
+      app: ai-service
   template:
     metadata:
       labels:
-        app: event-service
+        app: ai-service
     spec:
       containers:
-        - name: event-service
-          image: realtime-map-notice/event-service:latest
+        - name: ai-service
+          image: realtime-map-notice/ai-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           env:
-            - name: REDIS_URL
-              value: redis://redis.realtime-map-notice.svc.cluster.local:6379/0
-            - name: NOTIFICATION_SERVICE_URL
-              value: http://notification-service.realtime-map-notice.svc.cluster.local:8000
-            - name: AI_SERVICE_URL
-              value: http://ai-service.realtime-map-notice.svc.cluster.local:8000
+            - name: MODERATION_PROVIDER
+              value: "keyword"
+            # 使用 LLM 審核時改成 "llm"，金鑰建議改用 Secret 掛載：
+            # kubectl create secret generic openai-key --from-literal=key=sk-xxx
+            - name: OPENAI_API_KEY
+              value: ""
+            - name: OPENAI_MODEL
+              value: "gpt-4o-mini"
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 50m
+              memory: 64Mi
             limits:
-              cpu: 500m
-              memory: 256Mi
+              cpu: 250m
+              memory: 128Mi
           readinessProbe:
             httpGet:
               path: /healthz
@@ -49,11 +51,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: event-service
+  name: ai-service
   namespace: realtime-map-notice
 spec:
   selector:
-    app: event-service
+    app: ai-service
   ports:
     - port: 8000
       targetPort: 8000
