@@ -23,12 +23,28 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       NOTIFICATION_SERVICE_URL: http://notification-service:8000
+      AI_SERVICE_URL: http://ai-service:8000
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
     ports:
       - "8002:8000"
     depends_on:
       - redis
       - notification-service
+      - ai-service
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: backend/ai-service/Dockerfile
+    environment:
+      MODERATION_PROVIDER: ${MODERATION_PROVIDER:-keyword}
+      MODERATION_BLOCKED_KEYWORDS: ${MODERATION_BLOCKED_KEYWORDS:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
+    ports:
+      - "8004:8000"
 
   notification-service:
     build:

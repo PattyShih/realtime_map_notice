@@ -195,6 +195,7 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
     for user_id, distance in active_users:
         notification = EventNotification(
             event_id=broadcast.event_id,
+            user_id=broadcast.user_id,
             title=broadcast.title,
             message=broadcast.message,
             latitude=broadcast.latitude,

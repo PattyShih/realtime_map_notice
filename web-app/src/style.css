@@ -300,6 +300,31 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   margin-top: 4px;
 }
 
+/* 自己事件卡片的編輯/刪除按鈕 */
+.card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.card-action-btn {
+  border: none;
+  background: #f2f2f7;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.card-action-btn:hover {
+  background: #e5e5ea;
+}
+
+.card-action-btn:disabled {
+  opacity: 0.4;
+  cursor: wait;
+}
+
 /* 圖片燈箱樣式 */
 .lightbox-overlay {
   position: fixed;
