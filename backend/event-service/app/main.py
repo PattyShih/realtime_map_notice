@@ -11,7 +11,12 @@ from redis.exceptions import RedisError
 from backend.shared.antispam import EventAntiSpam
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
-from backend.shared.schemas import EventCreate, EventResponse, EventUpdate
+from backend.shared.schemas import (
+    EventAnalysisResponse,
+    EventCreate,
+    EventResponse,
+    EventUpdate,
+)
 
 NOTIFICATION_SERVICE_URL = os.getenv(
     "NOTIFICATION_SERVICE_URL",
@@ -51,6 +56,33 @@ async def moderate_event_content(title: str, message: str) -> None:
             status_code=422,
             detail=f"內容未通過審核：{reason}",
         )
+
+
+async def analyze_event_content(
+    title: str,
+    message: str,
+    severity: str,
+    latitude: float,
+    longitude: float,
+) -> dict | None:
+    """取得事件分析；AI 故障時回傳空值，不阻擋事件發布。"""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.post(
+                f"{AI_SERVICE_URL}/analyze-event",
+                json={
+                    "title": title,
+                    "message": message,
+                    "severity": severity,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                },
+            )
+            response.raise_for_status()
+            return EventAnalysisResponse.model_validate(response.json()).model_dump(mode="json")
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("event analysis unavailable (event allowed): %s", e)
+        return None
 
 
 async def broadcast_to_notification_service(broadcast_payload: dict) -> dict:
@@ -143,6 +175,7 @@ async def get_events(
                     duration_minutes=event.get("duration_minutes", 60),
                     image_url=event.get("image_url"),
                     user_id=event.get("user_id", ""),
+                    analysis=event.get("analysis"),
                 )
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
@@ -196,9 +229,19 @@ async def update_event(event_id: str, payload: EventUpdate) -> dict[str, object]
     # 編輯不產生新事件也不推播，重複偵測對「只改幾個字」反而誤擋）
     await moderate_event_content(payload.title, payload.message)
 
+    analysis = await analyze_event_content(
+        payload.title,
+        payload.message,
+        payload.severity,
+        event["latitude"],
+        event["longitude"],
+    )
+
     event["title"] = payload.title
     event["message"] = payload.message
     event["severity"] = payload.severity
+    if analysis is not None:
+        event["analysis"] = analysis
 
     event_key = f"event:{event_id}"
     try:
@@ -253,8 +296,18 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
     # AI 內容審核：判定垃圾訊息會 raise 422；服務不可用時放行
     await moderate_event_content(payload.title, payload.message)
 
+    analysis = await analyze_event_content(
+        payload.title,
+        payload.message,
+        payload.severity,
+        payload.latitude,
+        payload.longitude,
+    )
+
     event_data = payload.model_dump()
     event_data["created_at"] = datetime.now(timezone.utc).isoformat()
+    if analysis is not None:
+        event_data["analysis"] = analysis
 
     try:
         await redis.set(
@@ -294,6 +347,7 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
                 datetime.fromisoformat(event_data["created_at"])
                 + timedelta(minutes=payload.duration_minutes)
             ).isoformat(),
+            "analysis": analysis,
         }
     )
 

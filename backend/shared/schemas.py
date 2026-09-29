@@ -41,6 +41,29 @@ class EventUpdate(BaseModel):
     )
 
 
+class EventAnalysisResponse(BaseModel):
+    """AI 事件分析結果；建議欄位不會直接覆蓋使用者選擇。"""
+    category: Literal[
+        "suspected_stalking",
+        "safety",
+        "traffic",
+        "lost_found",
+        "activity",
+        "space",
+        "food",
+        "construction",
+        "other",
+    ] = "other"
+    suggested_severity: Literal["info", "warning", "danger", "urgent"] = "info"
+    summary: str = Field(..., min_length=1, max_length=500)
+    incident_facts: list[str] = Field(default_factory=list, max_length=10)
+    advice: list[str] = Field(default_factory=list, max_length=10)
+    emergency_contacts: list[str] = Field(default_factory=list, max_length=5)
+    report_summary: str = Field(..., min_length=1, max_length=2000)
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    provider: str = "unknown"
+
+
 class EventNotification(BaseModel):
     type: Literal["event"] = "event"
     event_id: str
@@ -58,6 +81,7 @@ class EventNotification(BaseModel):
     # 新增：通知時保留圖片
     image_base64: str | None = None
     image_url: str | None = None
+    analysis: EventAnalysisResponse | None = None
 
 
 class EventResponse(BaseModel):
@@ -73,6 +97,7 @@ class EventResponse(BaseModel):
     image_url: str | None = None
     # 舊事件資料沒有 user_id，預設空字串以維持向下相容
     user_id: str = ""
+    analysis: EventAnalysisResponse | None = None
 
 
 class ModerationRequest(BaseModel):
@@ -87,6 +112,17 @@ class ModerationResponse(BaseModel):
     score: float = Field(0.0, ge=0.0, le=1.0)
     provider: str = "unknown"
     reason: str = ""
+
+
+class EventAnalysisRequest(BaseModel):
+    """使用者自然語言事件的 AI 分析請求。"""
+    title: str = Field(..., min_length=1, max_length=100)
+    message: str = Field(..., min_length=1, max_length=2000)
+    severity: Literal["info", "warning", "danger", "urgent"] = "info"
+    latitude: float | None = Field(None, ge=-90, le=90)
+    longitude: float | None = Field(None, ge=-180, le=180)
+    location_label: str | None = Field(None, max_length=200)
+    occurred_at: datetime | None = None
 
 
 class NearbyBroadcast(BaseModel):
@@ -109,6 +145,7 @@ class NearbyBroadcast(BaseModel):
     duration_minutes: int = Field(60, ge=1, le=1440)
     created_at: datetime | None = None
     expires_at: datetime | None = None
+    analysis: EventAnalysisResponse | None = None
 
 
 class PushSubscriptionKeys(BaseModel):

@@ -60,6 +60,12 @@ async def post_moderate(payload: dict) -> httpx.Response:
         return await client.post("/moderate", json=payload)
 
 
+async def post_analyze(payload: dict) -> httpx.Response:
+    transport = ASGITransport(app=ai_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        return await client.post("/analyze-event", json=payload)
+
+
 @pytest.mark.asyncio
 async def test_healthz() -> None:
     transport = ASGITransport(app=ai_service.app)
@@ -68,6 +74,38 @@ async def test_healthz() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_analyze_event_detects_suspected_stalking() -> None:
+    response = await post_analyze(
+        {
+            "title": "有人一直跟著我",
+            "message": "我在捷運站，陌生人已經尾隨我兩個出口。",
+            "latitude": 25.033,
+            "longitude": 121.565,
+        }
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["category"] == "suspected_stalking"
+    assert body["suggested_severity"] == "urgent"
+    assert "110" in body["emergency_contacts"]
+    assert "事件類型" in body["report_summary"]
+
+
+@pytest.mark.asyncio
+async def test_analyze_event_rejects_invalid_coordinates() -> None:
+    response = await post_analyze(
+        {
+            "title": "事件",
+            "message": "測試內容",
+            "latitude": 100,
+        }
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
