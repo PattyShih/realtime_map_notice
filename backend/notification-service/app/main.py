@@ -2,12 +2,14 @@ import asyncio
 import json
 import logging
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from redis.exceptions import RedisError
 
 from backend.shared.config import DEFAULT_ALERT_RADIUS_METERS, USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
 from backend.shared.cors import configure_cors
 from backend.shared.redis_client import create_redis
-from backend.shared.schemas import EventNotification, NearbyBroadcast
+from backend.shared import push
+from backend.shared.schemas import EventNotification, NearbyBroadcast, PushSubscription
 
 # 設定日誌
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +34,48 @@ def user_channel(user_id: str) -> str:
 async def healthz() -> dict[str, str]:
     await redis.ping()
     return {"status": "ok"}
+
+
+@app.get("/push/public-key")
+async def get_push_public_key() -> dict[str, object]:
+    return {
+        "public_key": push.VAPID_PUBLIC_KEY or None,
+        "configured": push.push_is_configured(),
+    }
+
+
+@app.post("/push-subscriptions/{user_id}")
+async def register_push_subscription(
+    user_id: str,
+    subscription: PushSubscription,
+) -> dict[str, str]:
+    try:
+        await push.register_subscription(
+            redis,
+            user_id,
+            subscription.model_dump(by_alias=True, exclude_none=True),
+        )
+    except RedisError as e:
+        logger.error("Push subscription storage failed: %s", e)
+        raise HTTPException(status_code=503, detail="Notification storage unavailable") from e
+    return {"status": "registered", "user_id": user_id}
+
+
+@app.delete("/push-subscriptions/{user_id}")
+async def unregister_push_subscription(
+    user_id: str,
+    subscription: PushSubscription,
+) -> dict[str, object]:
+    try:
+        removed = await push.remove_subscription(
+            redis,
+            user_id,
+            subscription.endpoint,
+        )
+    except RedisError as e:
+        logger.error("Push subscription removal failed: %s", e)
+        raise HTTPException(status_code=503, detail="Notification storage unavailable") from e
+    return {"status": "removed" if removed else "not_found", "user_id": user_id}
 
 
 @app.websocket("/ws/{user_id}")
@@ -144,6 +188,11 @@ async def ping_sender(websocket: WebSocket, heartbeat: dict) -> None:
 
 @app.post("/notify/{user_id}")
 async def notify_user(user_id: str, notification: EventNotification) -> dict[str, object]:
+    if notification.deep_link is None:
+        notification = notification.model_copy(
+            update={"deep_link": f"event:{notification.event_id}"}
+        )
+
     subscriber_count = await redis.publish(
         user_channel(user_id),
         notification.model_dump_json(),
@@ -192,6 +241,7 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
 
     # 3. pipeline 批次發布：每位使用者的通知帶各自距離，一次送出全部 publish
     pipe = redis.pipeline(transaction=False)
+    push_payloads: list[tuple[str, dict]] = []
     for user_id, distance in active_users:
         notification = EventNotification(
             event_id=broadcast.event_id,
@@ -203,8 +253,15 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
             severity=broadcast.severity,
             distance_meters=distance,
             duration_minutes=broadcast.duration_minutes,
+            created_at=broadcast.created_at,
+            expires_at=broadcast.expires_at,
+            deep_link=f"event:{broadcast.event_id}",
             image_base64=broadcast.image_base64,
             image_url=broadcast.image_url,
+        )
+
+        push_payloads.append(
+            (user_id, notification.model_dump(mode="json"))
         )
 
         # 透過 Redis pipeline 批次發布（一次送出全部 publish，取代逐一 await）
@@ -214,6 +271,17 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
         )
 
     subscriber_counts = await pipe.execute()
+
+    push_results = await asyncio.gather(
+        *(
+            push.send_push_notifications(redis, user_id, payload)
+            for user_id, payload in push_payloads
+        ),
+        return_exceptions=True,
+    )
+    push_delivered_count = sum(
+        result for result in push_results if isinstance(result, int)
+    )
 
     # 4. 統計：subscriber_count > 0 代表該使用者的 WebSocket 在線
     delivered_to = [
@@ -234,5 +302,6 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
         "radius_meters": broadcast.radius_meters,
         "delivered_count": len(delivered_to),
         "failed_count": failed_count,
+        "push_delivered_count": push_delivered_count,
         "delivered_to": delivered_to[:20],  # 限制回傳數量避免過大
     }

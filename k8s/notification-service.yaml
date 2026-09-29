@@ -22,6 +22,24 @@ spec:
           env:
             - name: REDIS_URL
               value: redis://redis.realtime-map-notice.svc.cluster.local:6379/0
+            - name: VAPID_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: notification-vapid
+                  key: public-key
+                  optional: true
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: notification-vapid
+                  key: private-key
+                  optional: true
+            - name: VAPID_SUBJECT
+              valueFrom:
+                secretKeyRef:
+                  name: notification-vapid
+                  key: subject
+                  optional: true
           resources:
             requests:
               cpu: 100m

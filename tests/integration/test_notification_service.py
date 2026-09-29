@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 
 import pytest
 import time
@@ -36,6 +37,7 @@ class FakeRedis:
         self.published: list[tuple[str, str]] = []
         self.geosearch_result: list[tuple[str, str]] = []
         self.last_seen_keys: set[str] = set()
+        self.store: dict[str, str] = {}
 
     async def ping(self) -> bool:
         return True
@@ -46,6 +48,16 @@ class FakeRedis:
     async def publish(self, channel: str, message: str) -> int:
         self.published.append((channel, message))
         return 1
+
+    async def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> bool:
+        self.store[key] = value
+        return True
+
+    async def delete(self, key: str) -> int:
+        return int(self.store.pop(key, None) is not None)
 
     async def geosearch(self, *args, **kwargs):
         return self.geosearch_result
@@ -95,6 +107,49 @@ async def test_healthz(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_push_subscription_registration_and_removal(monkeypatch) -> None:
+    fake_redis = FakeRedis()
+    monkeypatch.setattr(notification_service, "redis", fake_redis)
+    subscription = {
+        "endpoint": "https://push.example/subscription-1",
+        "keys": {"p256dh": "public-key", "auth": "auth-key"},
+    }
+
+    transport = ASGITransport(app=notification_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        register_response = await client.post(
+            "/push-subscriptions/u-0001",
+            json=subscription,
+        )
+        remove_response = await client.request(
+            "DELETE",
+            "/push-subscriptions/u-0001",
+            json=subscription,
+        )
+
+    assert register_response.status_code == 200
+    assert register_response.json() == {"status": "registered", "user_id": "u-0001"}
+    assert remove_response.status_code == 200
+    assert remove_response.json() == {"status": "removed", "user_id": "u-0001"}
+    assert fake_redis.store == {}
+
+
+@pytest.mark.asyncio
+async def test_push_subscription_requires_keys(monkeypatch) -> None:
+    fake_redis = FakeRedis()
+    monkeypatch.setattr(notification_service, "redis", fake_redis)
+
+    transport = ASGITransport(app=notification_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/push-subscriptions/u-0001",
+            json={"endpoint": "https://push.example/subscription-1"},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_notify_user(monkeypatch) -> None:
     fake_redis = FakeRedis()
     monkeypatch.setattr(notification_service, "redis", fake_redis)
@@ -117,6 +172,11 @@ async def test_notify_user(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["subscriber_count"] == 1
     assert fake_redis.published[0][0] == notification_service.user_channel("u-0001")
+
+    published_notification = json.loads(fake_redis.published[0][1])
+    assert published_notification["type"] == "event"
+    assert published_notification["event_id"] == "uuid"
+    assert published_notification["deep_link"] == "event:uuid"
 
 
 @pytest.mark.asyncio
@@ -155,6 +215,11 @@ async def test_broadcast_nearby_filters_offline_users(monkeypatch) -> None:
     assert [c for c, _ in fake_redis.published] == [
         notification_service.user_channel("u-online")
     ]
+
+    published_notification = json.loads(fake_redis.published[0][1])
+    assert published_notification["type"] == "event"
+    assert published_notification["distance_meters"] == 120.0
+    assert published_notification["deep_link"] == "event:uuid-1"
 
 
 @pytest.mark.asyncio

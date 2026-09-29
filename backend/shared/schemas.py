@@ -42,6 +42,7 @@ class EventUpdate(BaseModel):
 
 
 class EventNotification(BaseModel):
+    type: Literal["event"] = "event"
     event_id: str
     user_id: str = ""  # 發布者身份，前端用它顯示「自己的事件」編輯/刪除按鈕
     title: str
@@ -51,6 +52,9 @@ class EventNotification(BaseModel):
     severity: str
     distance_meters: float | None = None
     duration_minutes: int = 60
+    created_at: datetime | None = None
+    expires_at: datetime | None = None
+    deep_link: str | None = None
     # 新增：通知時保留圖片
     image_base64: str | None = None
     image_url: str | None = None
@@ -103,4 +107,19 @@ class NearbyBroadcast(BaseModel):
     image_url: str | None = None
     # 暫定60分鐘，之後可以調整
     duration_minutes: int = Field(60, ge=1, le=1440)
+    created_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str = Field(..., min_length=1)
+    auth: str = Field(..., min_length=1)
+
+
+class PushSubscription(BaseModel):
+    endpoint: str = Field(..., min_length=1, max_length=2048)
+    keys: PushSubscriptionKeys
+    expiration_time: int | None = Field(None, alias="expirationTime")
+
+    model_config = {"populate_by_name": True}
 

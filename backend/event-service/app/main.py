@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
@@ -289,6 +289,11 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
             "duration_minutes": payload.duration_minutes,
             "image_base64": payload.image_base64,
             "image_url": payload.image_url,
+            "created_at": event_data["created_at"],
+            "expires_at": (
+                datetime.fromisoformat(event_data["created_at"])
+                + timedelta(minutes=payload.duration_minutes)
+            ).isoformat(),
         }
     )
 
