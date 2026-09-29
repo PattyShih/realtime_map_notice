@@ -110,6 +110,8 @@ def test_event_notification_all_fields() -> None:
 
     assert payload.distance_meters == 120.0
     assert payload.severity == "urgent"
+    assert payload.type == "event"
+    assert payload.deep_link is None
 
 
 def test_event_notification_no_distance() -> None:

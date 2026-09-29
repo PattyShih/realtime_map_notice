@@ -258,6 +258,8 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
     assert sent_payload["duration_minutes"] == 60
     assert sent_payload["radius_meters"] == 500
     stored_event = json.loads(fake_redis.set_calls[0]["value"])
+    assert sent_payload["created_at"] == stored_event["created_at"]
+    assert sent_payload["expires_at"]
     assert stored_event["image_url"] == "https://example.com/library.jpg"
     assert len(fake_redis.set_calls) == 1
     assert fake_redis.set_calls[0]["ex"] == 60 * 60
