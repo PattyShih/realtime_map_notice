@@ -179,10 +179,6 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   border: 1px solid transparent; border-radius: 10px; font-size: 0.95rem; outline: none; transition: all 0.2s; font-family: inherit;
 }
 .input-light:focus, .select-light:focus { background-color: #fff; border-color: #ff7f50; box-shadow: 0 0 0 3px rgba(255, 127, 80, 0.15); }
-.category-group { background-color: #f8f8f8; padding: 12px; border-radius: 10px; }
-.radio-options { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
-.radio-item { display: flex; align-items: center; gap: 10px; font-size: 0.95rem; cursor: pointer; }
-.radio-item input[type="radio"] { accent-color: #ff7f50; width: 18px; height: 18px; }
 .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
 .upload-box input[type="file"] { display: none; }
 .upload-label {
@@ -198,7 +194,112 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: 6px; box-shadow: 0 4px 12px rgba(255, 127, 80, 0.3); transition: all 0.2s;
 }
 .submit-btn:active { background-color: #e06d40; transform: scale(0.98); }
+/* ========================================== */
+/* 事件分類選擇器 (精緻 iOS 膠囊風格)         */
+/* ========================================== */
+.category-selector-container {
+  margin: 8px 0 16px 0;
+  text-align: left;
+}
 
+.category-label {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #3a3a3c;
+  margin-bottom: 10px;
+}
+
+.category-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: none;
+  overflow: visible;
+  padding: 2px 0;
+}
+
+/* 滾動條美化（細長半透明） */
+.category-groups::-webkit-scrollbar {
+  width: 4px;
+}
+.category-groups::-webkit-scrollbar-thumb {
+  background: #d1d1d6;
+  border-radius: 4px;
+}
+
+/* 每一組的大卡片 */
+.category-group-card {
+  background: #f7f7f9;
+  border-radius: 12px;
+  padding: 12px 14px;
+  border: 1px solid #ebebf0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.category-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.category-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.category-group-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+/* 標籤排版區：設定適當的間距 */
+.category-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 膠囊按鈕基礎樣式：圓角、消除預設邊框與背景 */
+.category-tag-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #ffffff;
+  border: 1px solid #e5e5ea;
+  color: #48484a;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* 滑鼠懸停微動態 */
+.category-tag-btn:hover {
+  background-color: #f2f2f7;
+  color: #1c1c1e;
+  transform: translateY(-1px);
+}
+
+/* 選中狀態：立體反饋與對應色彩邊框 */
+.category-tag-btn.active {
+  font-weight: 700;
+  border-width: 1.5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+/* 點擊瞬間微縮反饋 */
+.category-tag-btn:active {
+  transform: scale(0.96);
+}
 /* ========================================================= */
 /* 5. 響應式佈局 RWD (>= 768px 電腦/平板適應)                 */
 /* ========================================================= */
