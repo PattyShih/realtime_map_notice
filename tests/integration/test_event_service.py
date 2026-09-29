@@ -7,6 +7,7 @@ import json
 import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
+from redis.exceptions import RedisError
 
 from tests.conftest import load_module
 
@@ -186,6 +187,23 @@ async def test_healthz(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_healthz_returns_503_when_redis_is_unavailable(monkeypatch) -> None:
+    fake_redis = install_fake_redis(monkeypatch)
+
+    async def fail_ping() -> bool:
+        raise RedisError("redis unavailable")
+
+    monkeypatch.setattr(fake_redis, "ping", fail_ping)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/healthz")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Event storage unavailable"}
 
 
 @pytest.mark.asyncio
@@ -738,6 +756,27 @@ async def test_update_missing_event_returns_404(monkeypatch) -> None:
         )
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_invalid_stored_event_returns_503(monkeypatch) -> None:
+    fake_redis = install_fake_redis(monkeypatch)
+    fake_redis.store["event:corrupt-event"] = "not-json"
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.put(
+            "/events/corrupt-event",
+            json={
+                "user_id": "u-owner",
+                "title": "updated",
+                "message": "updated message",
+                "severity": "info",
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Event data unavailable"}
 
 
 @pytest.mark.asyncio

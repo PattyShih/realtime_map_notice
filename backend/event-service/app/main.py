@@ -80,7 +80,11 @@ antispam = EventAntiSpam(redis)
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    await redis.ping()
+    try:
+        await redis.ping()
+    except RedisError as e:
+        logger.error("Health check failed: %s", e)
+        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
     return {"status": "ok"}
 
 @app.get("/events", response_model=list[EventResponse])
@@ -109,7 +113,11 @@ async def get_events(
     for event_id in event_ids:
         pipe.get(f"event:{event_id}")
 
-    event_data_list = await pipe.execute()
+    try:
+        event_data_list = await pipe.execute()
+    except RedisError as e:
+        logger.error("Event data lookup failed: %s", e)
+        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
 
     events = []
     expired_events = []
@@ -143,20 +151,38 @@ async def get_events(
 
     # 清掉已過期的 GEO 資料
     if expired_events:
-        await redis.zrem(
-            EVENT_LOCATION_KEY,
-            *expired_events,
-        )
+        try:
+            await redis.zrem(
+                EVENT_LOCATION_KEY,
+                *expired_events,
+            )
+        except RedisError as e:
+            logger.error("Expired event cleanup failed: %s", e)
+            raise HTTPException(status_code=503, detail="Event storage unavailable") from e
 
     return events
 
 async def _load_owned_event(event_id: str, user_id: str) -> dict:
     """載入事件並驗證操作者是發布者；不存在回 404、非發布者回 403。"""
-    raw = await redis.get(f"event:{event_id}")
+    try:
+        raw = await redis.get(f"event:{event_id}")
+    except RedisError as e:
+        logger.error("Event lookup failed: %s", e)
+        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
+
     if raw is None:
         raise HTTPException(status_code=404, detail="事件不存在或已過期")
 
-    event = json.loads(raw)
+    try:
+        event = json.loads(raw)
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.error("Invalid event data for %s: %s", event_id, e)
+        raise HTTPException(status_code=503, detail="Event data unavailable") from e
+
+    if not isinstance(event, dict):
+        logger.error("Invalid event data for %s: expected object", event_id)
+        raise HTTPException(status_code=503, detail="Event data unavailable")
+
     if event.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="只有發布者可以修改或刪除這則事件")
     return event
@@ -175,7 +201,12 @@ async def update_event(event_id: str, payload: EventUpdate) -> dict[str, object]
     event["severity"] = payload.severity
 
     event_key = f"event:{event_id}"
-    ttl = await redis.ttl(event_key)
+    try:
+        ttl = await redis.ttl(event_key)
+    except RedisError as e:
+        logger.error("Event TTL lookup failed: %s", e)
+        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
+
     if ttl <= 0:
         # get 與 ttl 之間剛好過期：視為不存在，避免復活死事件
         raise HTTPException(status_code=404, detail="事件不存在或已過期")
