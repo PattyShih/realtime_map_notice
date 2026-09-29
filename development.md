@@ -90,7 +90,7 @@ Invoke-RestMethod `
   -Method Post `
   -Uri http://localhost:8002/events `
   -ContentType application/json `
-  -Body '{"title":"Library seats","message":"3F has seats near windows","latitude":25.0173,"longitude":121.5397,"severity":"info","radius_meters":500}'
+    -Body '{"user_id":"u-0001","title":"Library seats","message":"3F has seats near windows","latitude":25.0173,"longitude":121.5397,"severity":"info","radius_meters":500}'
 ```
 
 測試 WebSocket 通知時，可以先用瀏覽器或 WebSocket client 連到：

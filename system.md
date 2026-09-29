@@ -149,6 +149,7 @@ Request:
 
 ```json
 {
+  "user_id": "u-0001",
   "title": "Library seats",
   "message": "3F has seats near windows",
   "latitude": 25.0173,
