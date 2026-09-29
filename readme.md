@@ -7,7 +7,7 @@
 ## 專題目標
 
 - 建立一個能展示即時地圖、即時定位與區域推播的 Web App 架構。
-- 使用微服務拆分位置更新、事件發布與通知推播。
+- 使用微服務拆分位置更新、事件發布、通知推播與 AI 內容分析。
 - 使用 Redis 暫存即時座標，支援快速查詢附近使用者。
 - 定義即時位置更新資料、更新頻率與地圖標記同步策略。
 - 使用 WebSocket 讓伺服器主動推播事件到使用者端。
@@ -18,14 +18,14 @@
 
 目前 repo 已完成專題初步骨架與文件規劃：
 
-- 已建立三個後端服務的目錄與初版 FastAPI 程式。
+- 已建立四個後端服務的目錄與初版 FastAPI 程式。
 - 已建立 Redis GEO 位置儲存與 WebSocket 通知的基本方向。
 - 已建立 Dockerfile、docker-compose 與 Kubernetes YAML。
-- 已建立壓測腳本，用來模擬大量虛擬使用者上傳座標。
-- 已建立 Web App 前端方向文件，但尚未實作完整 React + Vite 前端。
+- 已建立壓測腳本與 K8s 叢集內壓測 Job，用來模擬大量虛擬使用者上傳座標。
+- 已建立 Web App 前端方向文件，並完成基礎 React + Vite 前端。
 - 已補上專案計畫、系統設計、測試計畫、Web App UI/UX 設計說明與 K8s 使用說明。
 
-後續開發的優先順序是：補 `.dockerignore`、完成 Web App、測試與 K8s Demo。CORS middleware 已先加入三個後端服務。
+後續開發的優先順序是：優化 Web App 地圖體驗、測試與 K8s Demo。CORS middleware 已先加入四個後端服務。
 
 ## 使用情境
 
@@ -53,10 +53,11 @@ realtime_map_notice/
 │   ├── location-service/        # 接收 GPS 座標更新
 │   ├── event-service/           # 發布事件與查詢附近使用者
 │   ├── notification-service/    # WebSocket 即時推播
+│   ├── ai-service/              # AI 事件分析與過濾
 │   └── shared/                  # 共用 schema、設定與 Redis client
-├── web-app/                     # Web 前端（僅有 README，尚未實作）
+├── web-app/                     # Web 前端（React + Vite）
 ├── simulator/                   # 500-1,000 虛擬使用者壓測腳本，進階可調到 3,000
-├── k8s/                         # Kubernetes Deployment、Service、HPA
+├── k8s/                         # Kubernetes Deployment、Service、HPA、Jobs
 ├── docs/                        # 補充文件
 ├── docker-compose.yml           # 本機開發環境
 ├── readme.md                    # 專案總覽
@@ -74,7 +75,7 @@ realtime_map_notice/
 - Container: Docker
 - Orchestration: Kubernetes
 - Autoscaling: Horizontal Pod Autoscaler
-- Load Simulation: Python asyncio + httpx
+- Load Simulation: Python asyncio + httpx / K8s Jobs
 - Testing Plan: pytest, httpx.AsyncClient, fakeredis, Vitest, MSW, WebSocket tests
 
 ## 核心 API 摘要
@@ -85,6 +86,7 @@ realtime_map_notice/
 | Location Service | `GET /locations/nearby` | 查詢指定座標半徑內的使用者 |
 | Event Service | `POST /events` | 建立事件並觸發附近使用者通知 |
 | Event Service | `GET /events` | 查詢指定座標半徑內的有效事件 |
+| AI Service | `POST /analyze-event` | 透過 AI 分析事件內容、判定真實度與危險層級 |
 | Notification Service | `GET /healthz` | 健康檢查 |
 | Notification Service | `POST /broadcast/nearby` | 查詢附近在線使用者並批次推播事件 |
 | Notification Service | `POST /notify/{user_id}` | 對指定使用者發布通知 |
@@ -94,21 +96,17 @@ realtime_map_notice/
 
 - 成員 A：Web App、地圖介面、瀏覽器定位、UI/UX。
 - 成員 B：後端 API、事件發布、商業邏輯。
-- 成員 C：Redis GEO、WebSocket、即時推播。
+- 成員 C：Redis GEO、WebSocket、即時推播、CI/CD 與 AI 服務整合。
 - 成員 D：Docker、Kubernetes、HPA、壓測與 Demo。
 
 ## 專案階段（十週計畫）
 
 詳細每週進度表請見 [docs/project-plan.md](./docs/project-plan.md) 的「十週進度表」章節。
 
-第一階段（第 1-2 週）：先完成可展示的系統骨架：後端三個微服務、Redis GEO、WebSocket、Docker Compose、K8s YAML 與壓測腳本。
-
+第一階段（第 1-2 週）：先完成可展示的系統骨架：後端四個微服務、Redis GEO、WebSocket、Docker Compose、K8s YAML 與壓測腳本。
 第二階段（第 3-5 週）：完成 Web App 與後端整合：地圖顯示、瀏覽器定位、事件插旗、附近事件通知、基本錯誤處理與 Demo 資料。
-
 第三階段（第 4-6 週）：即時推播整合與後端優化：多副本通知正確性、WebSocket 心跳、批次推送、冪等性。
-
 第四階段（第 6-8 週）：K8s 部署、HPA 自動擴展、Pod 容錯、500-1,000 人壓測；進階展示再挑戰 3,000 人。
-
 第五階段（第 8-10 週）：報告、架構圖、Demo 演練與最終展示。
 
 ## 相關文件
@@ -122,6 +120,21 @@ realtime_map_notice/
 - [docs/demo-runbook.md](./docs/demo-runbook.md)：Stage 5 Demo 演練劇本（邊界實證、心跳重連、壓測 HPA、延遲量化）。
 - [web-app/README.md](./web-app/README.md)：Web App 前端開發方向、地圖服務、UI/UX 與 API key。
 
+## 常見問題與疑難排解 (Troubleshooting)
+
+### ImagePullBackOff (GHCR 認證失敗)
+當切換至 GitHub Container Registry (GHCR) 部署時，若 Pod 狀態卡在 `ImagePullBackOff` 或 `ErrImagePull`，請檢查以下項目：
+1. 執行 `kubectl -n realtime-map-notice describe pod <pod-name>` 檢查 Events 區塊是否顯示 401/403 未授權。
+2. 確認是否已正確建立 `ghcr-secret`，且 `imagePullSecrets` 已加入 Deployment 的 `spec.template.spec` 中。
+3. 確認 GitHub Token 具備 `read:packages` 權限且尚未過期。
+4. 檢查 YAML 中的 Image 標籤與路徑大小寫是否與 GitHub Packages 完全一致。
+
 ## Stage 5: Production Build & E2E Integration Verified
 - Verified frontend build with Vite.
 - Verified E2E event flow with backend APIs.
+
+## Stage 6: Cloud Deployment & Resilience Testing
+- 導入 ai-service 進行事件智能分析。
+- 映像檔來源全面切換至 GHCR (GitHub Container Registry)。
+- 完成 3,000 人 K8s 叢集內部壓測驗證與 API 限流機制邊界測試。
+- 完成 ai-service 故障轉移與 Pod 容錯演練。
