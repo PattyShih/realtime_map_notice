@@ -9,17 +9,44 @@ import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_WS_URL } from './
 // ==========================================
 const DEFAULT_COORDS = { lat: 25.0366, lng: 121.4323 } // 預設座標（輔仁大學）
 const map = ref(null)
+const radarCircle = ref(null)
 const userMarker = ref(null)
 const currentCoords = ref({ ...DEFAULT_COORDS })
 const locationText = ref('正在取得真實 GPS 座標...')
 const eventsList = ref([])
 const markerMap = ref(new Map())
+// === 事件分類定義（通用版：涵蓋校園日常與街區突發） ===
+const CATEGORIES = [
+  {
+    group: '日常動態 / 活動',
+    severity: 'info',
+    color: '#34c759',
+    tags: ['圖書館空位', '學餐/餐廳空位', '活動/市集/擺攤', '校園/社區宣傳', '二手交流/借用']
+  },
+  {
+    group: '生活即時 / 擁擠',
+    severity: 'warning',
+    color: '#ff9500',
+    tags: ['失物招領', '排隊人潮長', '設施維修/故障', '交通延誤/擁塞', '空間吵鬧/違規']
+  },
+  {
+    group: '緊急突發 / 障礙 (500m推播)',
+    severity: 'danger',
+    color: '#ff3b30',
+    tags: ['道路/通道封閉', '車禍/交通意外', '走失動物/寵物', '天候危害/積水', '突發治安/可疑人士', '火警/瓦斯外洩']
+  }
+]
 
+// 目前選中的細項標籤（預設選圖書館空位）
+const selectedSubCategory = ref('圖書館空位')
+
+// 點選標籤切換
+const selectCategoryTag = (tag, severity) => {
+  selectedSubCategory.value = tag
+  formData.value.category = severity
+}
 let expirationTimer = null
 let locationReportTimer = null
-let eventsRefreshTimer = null
-// 剛發布成功的事件 ID：WS 廣播會把自己發的事件再推回來，用來避免重複加入列表與重複跳通知
-let lastPublishedEventId = null
 
 const fetchAddress = async (lat, lng) => {
   try {
@@ -77,9 +104,6 @@ const getOrCreateUserId = () => {
   return userId
 }
 
-// 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕
-const myUserId = getOrCreateUserId()
-
 // ==========================================
 // 座標上報 Location Service
 // 沒上報就不會進 GEO 索引，附近有事件時永遠收不到推播
@@ -106,11 +130,28 @@ const handleLocationSuccess = async (position) => {
   reportLocation(latitude, longitude)
 
   if (!map.value) return
+
+  // === 500 公尺半透明藍色雷達圈 ===
+  if (!radarCircle.value) {
+    radarCircle.value = L.circle([latitude, longitude], {
+      radius: 500,
+      color: '#007aff',       // 外框藍色
+      weight: 1.5,            // 外框線寬
+      fillColor: '#007aff',   // 填充藍色
+      fillOpacity: 0.12,      // 柔和半透明
+      interactive: false      // 不阻擋地圖底層點擊事件
+    }).addTo(map.value)
+  } else {
+    radarCircle.value.setLatLng([latitude, longitude])
+  }
+  // ==============================
+
   // 鏡頭自動平滑飛向真實 GPS 座標
   map.value.flyTo([latitude, longitude], 16, {
     animate: true,
     duration: 1.2
   })
+
   // 確保地圖上永遠只有一個藍色定位點
   if (userMarker.value) {
     userMarker.value.setLatLng([latitude, longitude])
@@ -241,14 +282,13 @@ const setupWebSocket = () => {
         const eventLng = eventData.longitude
         const dist = getDistance(currentCoords.value.lat, currentCoords.value.lng, eventLat, eventLng)
         const walkTime = Math.max(1, Math.round(dist / 80))
-        const durationMinutes = parseFloat(eventData.duration_minutes ?? eventData.duration) || 60
+        const durationMinutes = parseFloat(eventData.duration) || 60
         const expiresAt = eventData.expires_at ? new Date(eventData.expires_at).getTime() : (Date.now() + durationMinutes * 60 * 1000)
 
         if (Date.now() >= expiresAt) return
 
         const newEvent = {
           id: eventData.event_id || eventData.id || Date.now(),
-          userId: eventData.user_id || '',
           title: eventData.title || '即時新通知',
           category: eventData.severity === 'urgent' ? 'danger' : (eventData.severity || 'info'),
           description: eventData.message || eventData.description || '周遭有新動態發布',
@@ -273,10 +313,7 @@ const setupWebSocket = () => {
           }
 
           markerMap.value.set(newEvent.id, marker)
-          // 自己剛發布的事件會從 WS 廣播回來，不再跳「收到通報」
-          if (newEvent.id !== lastPublishedEventId) {
-            triggerToast(`🔔 收到周遭即時通報：「${newEvent.title}」`)
-          }
+          triggerToast(`🔔 收到周遭即時通報：「${newEvent.title}」`)
         }
       }
     } catch (err) {
@@ -313,16 +350,11 @@ onMounted(() => {
   locationReportTimer = setInterval(() => {
     reportLocation(currentCoords.value.lat, currentCoords.value.lng)
   }, 30000)
-  // 每 15 秒重抓附近事件：讓別人編輯/刪除的事件在本地列表同步（v1 無即時編輯推播）
-  eventsRefreshTimer = setInterval(() => {
-    fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
-  }, 15000)
 })
 
 onUnmounted(() => {
   if (expirationTimer) clearInterval(expirationTimer)
   if (locationReportTimer) clearInterval(locationReportTimer)
-  if (eventsRefreshTimer) clearInterval(eventsRefreshTimer)
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
 })
 
@@ -420,15 +452,21 @@ const triggerToast = (msg) => {
 const handleSubmit = async () => {
   const durationMinutes = parseFloat(formData.value.duration) || 60
   const expiresAt = Date.now() + durationMinutes * 60 * 1000
+
+  // 1. 自動為標題附帶選中的分類標籤（例如：[圖書館空位] 文理大道有位子）
+  const finalTitle = formData.value.title.startsWith(`[${selectedSubCategory.value}]`)
+    ? formData.value.title
+    : `[${selectedSubCategory.value}] ${formData.value.title}`
+
   const apiPayload = {
-    user_id: getOrCreateUserId(),
-    title: formData.value.title,
+    title: finalTitle,
     message: formData.value.description || '無詳細描述',
     latitude: currentCoords.value.lat,
     longitude: currentCoords.value.lng,
     severity: formData.value.category === 'danger' ? 'urgent' : formData.value.category,
     radius_meters: 500,
-    image_url: formData.value.imagePreview || ''
+    image_url: formData.value.imagePreview || '',
+    user_id: getOrCreateUserId() // 補上後端要求的發布者身份驗證
   }
 
   try {
@@ -439,16 +477,12 @@ const handleSubmit = async () => {
     })
 
     if (response.ok) {
-      // 用後端回傳的正式 event_id 當列表 ID，WebSocket 廣播回來時才能對應到同一筆、不會重複
-      const body = await response.json()
-      lastPublishedEventId = body.event_id || null
       const dist = getDistance(currentCoords.value.lat, currentCoords.value.lng, currentCoords.value.lat, currentCoords.value.lng)
       const walkTime = Math.max(1, Math.round(dist / 80))
-
+      
       const newEvent = {
-        id: body.event_id || Date.now(),
-        userId: myUserId,
-        title: formData.value.title,
+        id: Date.now(),
+        title: finalTitle,
         category: formData.value.category,
         description: formData.value.description || '無詳細描述',
         imageUrl: formData.value.imagePreview || '',
@@ -474,107 +508,16 @@ const handleSubmit = async () => {
 
       showModal.value = false
       triggerToast(`成功發布「${newEvent.title}」！已同步新增至地圖與清單。`)
+
+      // 重置表單與預設標籤
       formData.value = { title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' }
+      selectedSubCategory.value = '圖書館空位'
     } else {
-      // 後端反垃圾訊息（429 頻率限制 / 409 重複內容）或欄位驗證失敗，顯示後端回傳的原因
-      let errorMsg = '發布失敗，請確認 API 欄位格式！'
-      try {
-        const err = await response.json()
-        if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
-      } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
-      triggerToast(errorMsg)
+      triggerToast('發布失敗，請確認 API 欄位格式！')
     }
   } catch (error) {
     console.error('網路連線失敗:', error)
     triggerToast('網路請求失敗，請確認後端服務是否正常！')
-  }
-}
-
-// ==========================
-// 編輯 / 刪除自己的事件
-// ==========================
-const showEditModal = ref(false)
-const editingEventId = ref(null)
-const editForm = ref({ title: '', category: 'info', description: '' })
-const deletingId = ref(null)
-
-const startEditEvent = (item) => {
-  editingEventId.value = item.id
-  editForm.value = {
-    title: item.title,
-    category: item.category, // 前端類別：info / warning / danger
-    description: item.description
-  }
-  showEditModal.value = true
-}
-
-const submitEdit = async () => {
-  const severity = editForm.value.category === 'danger' ? 'urgent' : editForm.value.category
-  try {
-    const response = await fetch(`${EVENT_SERVICE_URL}/events/${editingEventId.value}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: myUserId,
-        title: editForm.value.title,
-        message: editForm.value.description || '無詳細描述',
-        severity
-      })
-    })
-
-    if (response.ok) {
-      const item = eventsList.value.find(e => e.id === editingEventId.value)
-      if (item) {
-        item.title = editForm.value.title
-        item.description = editForm.value.description || '無詳細描述'
-        item.category = editForm.value.category
-        const marker = markerMap.value.get(item.id)
-        if (marker) marker.bindPopup(createPopupContent(item))
-      }
-      showEditModal.value = false
-      triggerToast('✅ 事件已更新')
-    } else {
-      let errorMsg = '更新失敗，請稍後再試！'
-      try {
-        const err = await response.json()
-        if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
-      } catch (_) { /* 非 JSON 回應維持預設訊息 */ }
-      triggerToast(errorMsg)
-    }
-  } catch (error) {
-    console.error('更新事件失敗:', error)
-    triggerToast('網路請求失敗，請確認後端服務是否正常！')
-  }
-}
-
-const deleteEvent = async (item) => {
-  if (!confirm(`確定要刪除「${item.title}」嗎？`)) return
-  deletingId.value = item.id
-  try {
-    const response = await fetch(
-      `${EVENT_SERVICE_URL}/events/${item.id}?user_id=${encodeURIComponent(myUserId)}`,
-      { method: 'DELETE' }
-    )
-
-    if (response.ok) {
-      const marker = markerMap.value.get(item.id)
-      if (marker && map.value) map.value.removeLayer(marker)
-      markerMap.value.delete(item.id)
-      eventsList.value = eventsList.value.filter(e => e.id !== item.id)
-      triggerToast('🗑️ 事件已刪除')
-    } else {
-      let errorMsg = '刪除失敗，請稍後再試！'
-      try {
-        const err = await response.json()
-        if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
-      } catch (_) { /* 非 JSON 回應維持預設訊息 */ }
-      triggerToast(errorMsg)
-    }
-  } catch (error) {
-    console.error('刪除事件失敗:', error)
-    triggerToast('網路請求失敗，請確認後端服務是否正常！')
-  } finally {
-    deletingId.value = null
   }
 }
 
@@ -608,7 +551,6 @@ const fetchNearbyEvents = async (lat, lng) => {
 
         const newEvent = {
           id: event.event_id || event.id || Date.now(),
-          userId: event.user_id || '',
           title: event.title || '周遭動態',
           category: event.severity === 'urgent' ? 'danger' : (event.severity || 'info'), 
           description: event.message || event.description || '附近有動態發布',
@@ -786,10 +728,6 @@ window.openImageLightbox = openLightbox
               <div class="card-meta">
                 <span>距離 {{ item.distance }}公尺</span>
                 <span>發布時間  {{ item.timestamp }}</span>
-                <span v-if="item.userId === myUserId" class="card-actions">
-                  <button type="button" class="card-action-btn" title="編輯事件" @click.stop="startEditEvent(item)">✏️</button>
-                  <button type="button" class="card-action-btn" title="刪除事件" :disabled="deletingId === item.id" @click.stop="deleteEvent(item)">🗑️</button>
-                </span>
               </div>
             </div>
           </div>
@@ -809,27 +747,32 @@ window.openImageLightbox = openLightbox
         <form @submit.prevent="handleSubmit" class="modal-form">
           <div class="location-badge">📍 {{ locationText }}</div>
           <div class="form-group">
-            <input type="text" v-model="formData.title" placeholder="請輸入事件名稱..." required maxlength="100" class="input-light" />
+            <input type="text" v-model="formData.title" placeholder="請輸入事件名稱..." required class="input-light" />
           </div>
 
-          <div class="form-group category-group">
-            <label class="group-label">事件類別選擇：</label>
-            <div class="radio-options">
-              <label class="radio-item">
-                <input type="radio" v-model="formData.category" value="info" />
-                <span class="dot dot-green"></span>
-                <span>空位 / 活動 (綠色圖釘)</span>
-              </label>
-              <label class="radio-item">
-                <input type="radio" v-model="formData.category" value="warning" />
-                <span class="dot dot-yellow"></span>
-                <span>遺失 / 擁擠 (黃色圖釘)</span>
-              </label>
-              <label class="radio-item">
-                <input type="radio" v-model="formData.category" value="danger" />
-                <span class="dot dot-red"></span>
-                <span>緊急 / 突發 (紅色圖釘)</span>
-              </label>
+          <!-- 事件分類選擇器 -->
+          <div class="category-selector-container">
+            <label class="category-label">事件分類與危害程度：</label>
+            <div class="category-groups">
+              <div v-for="cat in CATEGORIES" :key="cat.group" class="category-group-card">
+                <div class="category-group-header">
+                  <span class="category-dot" :style="{ backgroundColor: cat.color }"></span>
+                  <span class="category-group-title" :style="{ color: cat.color }">{{ cat.group }}</span>
+                </div>
+                <div class="category-tags">
+                  <button
+                    type="button"
+                    v-for="tag in cat.tags"
+                    :key="tag"
+                    class="category-tag-btn"
+                    :class="{ active: selectedSubCategory === tag }"
+                    :style="selectedSubCategory === tag ? { borderColor: cat.color, color: cat.color, backgroundColor: cat.color + '18' } : {}"
+                    @click="selectCategoryTag(tag, cat.severity)"
+                  >
+                    {{ tag }}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -857,53 +800,10 @@ window.openImageLightbox = openLightbox
           </div>
 
           <div class="form-group">
-            <textarea v-model="formData.description" rows="3" maxlength="1000" placeholder="詳細描述：補充說明具體位置、特徵或狀況..." class="input-light"></textarea>
+            <textarea v-model="formData.description" rows="3" placeholder="詳細描述：補充說明具體位置、特徵或狀況..." class="input-light"></textarea>
           </div>
 
           <button type="submit" class="submit-btn">確認發布</button>
-        </form>
-      </div>
-    </div>
-    <!-- 編輯事件表單 -->
-    <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
-      <div class="modal-card">
-        <header class="modal-header">
-          <button class="close-btn" @click="showEditModal = false">⊗</button>
-          <h3>編輯事件</h3>
-          <div style="width: 24px;"></div>
-        </header>
-
-        <form @submit.prevent="submitEdit" class="modal-form">
-          <div class="form-group">
-            <input type="text" v-model="editForm.title" placeholder="事件名稱" required maxlength="100" class="input-light" />
-          </div>
-
-          <div class="form-group category-group">
-            <label class="group-label">事件類別：</label>
-            <div class="radio-options">
-              <label class="radio-item">
-                <input type="radio" v-model="editForm.category" value="info" />
-                <span class="dot dot-green"></span>
-                <span>空位 / 活動</span>
-              </label>
-              <label class="radio-item">
-                <input type="radio" v-model="editForm.category" value="warning" />
-                <span class="dot dot-yellow"></span>
-                <span>遺失 / 擁擠</span>
-              </label>
-              <label class="radio-item">
-                <input type="radio" v-model="editForm.category" value="danger" />
-                <span class="dot dot-red"></span>
-                <span>緊急 / 突發</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <textarea v-model="editForm.description" rows="3" maxlength="1000" placeholder="詳細描述..." class="input-light"></textarea>
-          </div>
-
-          <button type="submit" class="submit-btn">儲存變更</button>
         </form>
       </div>
     </div>
