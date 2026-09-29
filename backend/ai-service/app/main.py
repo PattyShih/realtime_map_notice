@@ -21,7 +21,12 @@ import httpx
 from fastapi import FastAPI
 
 from backend.shared.cors import configure_cors
-from backend.shared.schemas import ModerationRequest, ModerationResponse
+from backend.shared.schemas import (
+    EventAnalysisRequest,
+    EventAnalysisResponse,
+    ModerationRequest,
+    ModerationResponse,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,12 +45,24 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "8"))
+ANALYSIS_PROVIDER = os.getenv("ANALYSIS_PROVIDER") or "keyword"
 
 MODERATION_SYSTEM_PROMPT = (
     "你是校園地圖公告板的內容審核員。判斷使用者發布的事件是否為垃圾訊息："
     "商業廣告、詐騙、釣魚連結、辱罵人身攻擊、與校園生活無關的行銷內容都算垃圾。"
     "正常的校園生活資訊（空位、遺失物、活動、交通、突發事件）不是垃圾。"
     '只回覆 JSON：{"spam": true 或 false, "score": 0.0 到 1.0 的垃圾信心分數, "reason": "簡短繁體中文原因"}'
+)
+
+ANALYSIS_SYSTEM_PROMPT = (
+    "你是校園安全事件整理助手。請把使用者的自然語言描述整理成結構化事件資料。"
+    "只能根據使用者提供的內容，不可以捏造地址、時間、人物或事實。"
+    "suggested_severity 只是建議，不代表已確認發生犯罪。"
+    "若有立即危險，建議前往人多且有工作人員的地方，並聯絡當地緊急服務。"
+    "只回覆 JSON，欄位必須是："
+    "category（suspected_stalking/safety/traffic/lost_found/activity/space/food/construction/other）、"
+    "suggested_severity（info/warning/danger/urgent）、summary、incident_facts（字串陣列）、"
+    "advice（字串陣列）、emergency_contacts（字串陣列）、report_summary、confidence（0 到 1）。"
 )
 
 app = FastAPI(title="realtime_map_notice AI Service", version="0.1.0")
@@ -81,6 +98,87 @@ def _extract_json(text: str) -> dict:
     if start == -1 or end == -1:
         raise ValueError("no JSON object in LLM response")
     return json.loads(cleaned[start : end + 1])
+
+
+def _keyword_analyze(payload: EventAnalysisRequest) -> EventAnalysisResponse:
+    text = f"{payload.title}\n{payload.message}".lower()
+    if any(word in text for word in ("跟蹤", "尾隨", "一直跟著", "stalking")):
+        category = "suspected_stalking"
+        suggested_severity = "urgent"
+        summary = "使用者描述疑似遭到陌生人跟蹤或尾隨。"
+        advice = ["前往人多且有工作人員的地方", "聯絡可信任的緊急聯絡人"]
+        contacts = ["110"]
+    elif any(word in text for word in ("受傷", "危險", "攻擊", "救命", "火災")):
+        category = "safety"
+        suggested_severity = "urgent"
+        summary = "使用者描述可能涉及人身安全或緊急危險。"
+        advice = ["先移動到安全且有人員協助的地方", "如有立即危險請聯絡緊急服務"]
+        contacts = ["110", "119"]
+    else:
+        category = "other"
+        suggested_severity = payload.severity
+        summary = payload.title
+        advice = []
+        contacts = []
+
+    facts = [payload.message]
+    location = payload.location_label or (
+        f"座標 {payload.latitude}, {payload.longitude}"
+        if payload.latitude is not None and payload.longitude is not None
+        else "地點未提供"
+    )
+    report_summary = f"事件類型：{category}\n地點：{location}\n事件經過：\n- {payload.message}"
+    return EventAnalysisResponse(
+        category=category,
+        suggested_severity=suggested_severity,
+        summary=summary,
+        incident_facts=facts,
+        advice=advice,
+        emergency_contacts=contacts,
+        report_summary=report_summary,
+        confidence=0.75 if category != "other" else 0.2,
+        provider="keyword",
+    )
+
+
+async def _llm_analyze(payload: EventAnalysisRequest) -> EventAnalysisResponse:
+    if not OPENAI_API_KEY:
+        return _keyword_analyze(payload).model_copy(
+            update={"provider": "keyword-fallback"}
+        )
+
+    context = [f"標題：{payload.title}", f"內容：{payload.message}"]
+    if payload.location_label:
+        context.append(f"使用者提供的地點名稱：{payload.location_label}")
+    if payload.latitude is not None and payload.longitude is not None:
+        context.append(f"座標：{payload.latitude}, {payload.longitude}")
+    if payload.occurred_at:
+        context.append(f"使用者提供的發生時間：{payload.occurred_at.isoformat()}")
+
+    try:
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"{OPENAI_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                json={
+                    "model": OPENAI_MODEL,
+                    "messages": [
+                        {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                        {"role": "user", "content": "\n".join(context)},
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0,
+                },
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+        result = _extract_json(content)
+        return EventAnalysisResponse.model_validate({**result, "provider": "llm"})
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as e:
+        logger.warning("LLM event analysis failed (keyword fallback): %s", e)
+        return _keyword_analyze(payload).model_copy(
+            update={"provider": "keyword-fallback"}
+        )
 
 
 async def _llm_moderate(payload: ModerationRequest) -> ModerationResponse:
@@ -132,3 +230,10 @@ async def moderate(payload: ModerationRequest) -> ModerationResponse:
     if MODERATION_PROVIDER == "llm":
         return await _llm_moderate(payload)
     return _keyword_moderate(payload)
+
+
+@app.post("/analyze-event", response_model=EventAnalysisResponse)
+async def analyze_event(payload: EventAnalysisRequest) -> EventAnalysisResponse:
+    if ANALYSIS_PROVIDER == "llm":
+        return await _llm_analyze(payload)
+    return _keyword_analyze(payload)

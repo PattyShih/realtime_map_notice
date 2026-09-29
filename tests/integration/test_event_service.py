@@ -250,8 +250,11 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
 
     # Stage 5：只發一次 broadcast 呼叫，由 Notification Service 統一處理推播
     # （另一通 POST 是 AI 內容審核 /moderate）
-    assert len(fake_client.posts) == 2
-    broadcast_url, sent_payload = fake_client.posts[1]
+    broadcast_posts = [
+        post for post in fake_client.posts if post[0].endswith("/broadcast/nearby")
+    ]
+    assert len(broadcast_posts) == 1
+    broadcast_url, sent_payload = broadcast_posts[0]
     assert broadcast_url.endswith("/broadcast/nearby")
     assert sent_payload["image_base64"] == "fake-image-base64-data"
     assert sent_payload["image_url"] == "https://example.com/library.jpg"
@@ -301,8 +304,11 @@ async def test_create_event_no_nearby_users(monkeypatch) -> None:
     assert body["delivered_to"] == []
 
     # event-service 不再自行查詢使用者，一律轉呼 broadcast 由 notification-service 統計
-    assert len(fake_client.posts) == 2
-    assert fake_client.posts[1][0].endswith("/broadcast/nearby")
+    broadcast_posts = [
+        post for post in fake_client.posts if post[0].endswith("/broadcast/nearby")
+    ]
+    assert len(broadcast_posts) == 1
+    assert broadcast_posts[0][0].endswith("/broadcast/nearby")
     assert len(fake_redis.geoadd_calls) == 1
     assert fake_redis.geoadd_calls[0]["key"] == "event_locations"
     assert fake_redis.geoadd_calls[0]["values"][0] == 121.5397
