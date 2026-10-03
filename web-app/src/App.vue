@@ -47,6 +47,9 @@ const selectCategoryTag = (tag, severity) => {
 }
 let expirationTimer = null
 let locationReportTimer = null
+let eventsRefreshTimer = null
+// 剛發布成功的事件 ID：WS 廣播會把自己發的事件再推回來，用來避免重複加入列表與重複跳通知
+let lastPublishedEventId = null
 
 const fetchAddress = async (lat, lng) => {
   try {
@@ -103,6 +106,9 @@ const getOrCreateUserId = () => {
   }
   return userId
 }
+
+// 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕
+const myUserId = getOrCreateUserId()
 
 // ==========================================
 // 座標上報 Location Service
@@ -247,6 +253,40 @@ const checkAndCleanExpiredEvents = () => {
 }
 
 // ==========================
+// 列表新增（統一去重入口）
+// 同一事件可能同時從「發布後立即加入」與「WebSocket 廣播」兩條路進來，
+// 一律先檢查 ID 與內容，避免列表出現重複卡片——重複 key 也會讓
+// v-for 渲染錯亂，連帶造成左下角列表按鈕等畫面元素異常消失。
+// ==========================
+const addEventUnique = (newEvent, { notify = true } = {}) => {
+  if (!newEvent.id || markerMap.value.has(newEvent.id)) return false
+
+  // 內容層級防禦：ID 不同但標題與描述完全相同者視為同一則
+  const isContentDuplicate = eventsList.value.some(
+    e => e.title === newEvent.title && e.description === newEvent.description
+  )
+  if (isContentDuplicate) return false
+
+  eventsList.value.unshift(newEvent)
+
+  const marker = L.marker([newEvent.location.lat, newEvent.location.lng], {
+    icon: createColoredPin(newEvent.category)
+  })
+  marker.bindPopup(createPopupContent(newEvent))
+
+  if (selectedFilters.value[newEvent.category]) {
+    marker.addTo(map.value)
+  }
+
+  markerMap.value.set(newEvent.id, marker)
+
+  if (notify) {
+    triggerToast(`🔔 收到周遭即時通報：「${newEvent.title}」`)
+  }
+  return true
+}
+
+// ==========================
 // WebSocket 連線與即時推播
 // ==========================
 const wsStatus = ref('connecting')
@@ -282,13 +322,14 @@ const setupWebSocket = () => {
         const eventLng = eventData.longitude
         const dist = getDistance(currentCoords.value.lat, currentCoords.value.lng, eventLat, eventLng)
         const walkTime = Math.max(1, Math.round(dist / 80))
-        const durationMinutes = parseFloat(eventData.duration) || 60
+        const durationMinutes = parseFloat(eventData.duration_minutes ?? eventData.duration) || 60
         const expiresAt = eventData.expires_at ? new Date(eventData.expires_at).getTime() : (Date.now() + durationMinutes * 60 * 1000)
 
         if (Date.now() >= expiresAt) return
 
         const newEvent = {
           id: eventData.event_id || eventData.id || Date.now(),
+          userId: eventData.user_id || '',
           title: eventData.title || '即時新通知',
           category: eventData.severity === 'urgent' ? 'danger' : (eventData.severity || 'info'),
           description: eventData.message || eventData.description || '周遭有新動態發布',
@@ -300,21 +341,8 @@ const setupWebSocket = () => {
           expiresAt: expiresAt
         }
 
-        if (!markerMap.value.has(newEvent.id)) {
-          eventsList.value.unshift(newEvent)
-
-          const marker = L.marker([newEvent.location.lat, newEvent.location.lng], {
-            icon: createColoredPin(newEvent.category)
-          })
-          marker.bindPopup(createPopupContent(newEvent))
-
-          if (selectedFilters.value[newEvent.category]) {
-            marker.addTo(map.value)
-          }
-
-          markerMap.value.set(newEvent.id, marker)
-          triggerToast(`🔔 收到周遭即時通報：「${newEvent.title}」`)
-        }
+        // 自己剛發布的事件會從 WS 廣播回來，不再跳「收到通報」
+        addEventUnique(newEvent, { notify: newEvent.id !== lastPublishedEventId })
       }
     } catch (err) {
       console.log('解析推播訊息失敗:', err)
@@ -350,11 +378,16 @@ onMounted(() => {
   locationReportTimer = setInterval(() => {
     reportLocation(currentCoords.value.lat, currentCoords.value.lng)
   }, 30000)
+  // 每 15 秒重抓附近事件：讓別人編輯/刪除的事件在本地列表同步（v1 無即時編輯推播）
+  eventsRefreshTimer = setInterval(() => {
+    fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
+  }, 15000)
 })
 
 onUnmounted(() => {
   if (expirationTimer) clearInterval(expirationTimer)
   if (locationReportTimer) clearInterval(locationReportTimer)
+  if (eventsRefreshTimer) clearInterval(eventsRefreshTimer)
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
 })
 
@@ -477,11 +510,15 @@ const handleSubmit = async () => {
     })
 
     if (response.ok) {
+      // 用後端回傳的正式 event_id 當列表 ID，WebSocket 廣播回來時才能對應到同一筆、不會重複
+      const body = await response.json()
+      lastPublishedEventId = body.event_id || null
       const dist = getDistance(currentCoords.value.lat, currentCoords.value.lng, currentCoords.value.lat, currentCoords.value.lng)
       const walkTime = Math.max(1, Math.round(dist / 80))
-      
+
       const newEvent = {
-        id: Date.now(),
+        id: body.event_id || Date.now(),
+        userId: myUserId,
         title: finalTitle,
         category: formData.value.category,
         description: formData.value.description || '無詳細描述',
@@ -492,19 +529,12 @@ const handleSubmit = async () => {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         expiresAt: expiresAt
       }
-      
-      eventsList.value.unshift(newEvent)
-      
-      const marker = L.marker([newEvent.location.lat, newEvent.location.lng], { 
-        icon: createColoredPin(newEvent.category) 
-      })
-      marker.bindPopup(createPopupContent(newEvent))
-      
-      if (selectedFilters.value[newEvent.category]) {
-        marker.addTo(map.value).openPopup()
+
+      addEventUnique(newEvent, { notify: false })
+      const marker = markerMap.value.get(newEvent.id)
+      if (marker && selectedFilters.value[newEvent.category]) {
+        marker.openPopup()
       }
-      
-      markerMap.value.set(newEvent.id, marker)
 
       showModal.value = false
       triggerToast(`成功發布「${newEvent.title}」！已同步新增至地圖與清單。`)
@@ -513,11 +543,105 @@ const handleSubmit = async () => {
       formData.value = { title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' }
       selectedSubCategory.value = '圖書館空位'
     } else {
-      triggerToast('發布失敗，請確認 API 欄位格式！')
+      // 後端反垃圾機制（429 頻率限制 / 409 重複內容 / 422 未過 AI 審核）顯示具體原因
+      let errorMsg = '發布失敗，請確認 API 欄位格式！'
+      try {
+        const err = await response.json()
+        if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
+      } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
+      triggerToast(errorMsg)
     }
   } catch (error) {
     console.error('網路連線失敗:', error)
     triggerToast('網路請求失敗，請確認後端服務是否正常！')
+  }
+}
+
+// ==========================
+// 編輯 / 刪除自己的事件
+// ==========================
+const showEditModal = ref(false)
+const editingEventId = ref(null)
+const editForm = ref({ title: '', category: 'info', description: '' })
+const deletingId = ref(null)
+
+const startEditEvent = (item) => {
+  editingEventId.value = item.id
+  editForm.value = {
+    title: item.title,
+    category: item.category, // 前端類別：info / warning / danger
+    description: item.description
+  }
+  showEditModal.value = true
+}
+
+const submitEdit = async () => {
+  const severity = editForm.value.category === 'danger' ? 'urgent' : editForm.value.category
+  try {
+    const response = await fetch(`${EVENT_SERVICE_URL}/events/${editingEventId.value}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: myUserId,
+        title: editForm.value.title,
+        message: editForm.value.description || '無詳細描述',
+        severity
+      })
+    })
+
+    if (response.ok) {
+      const item = eventsList.value.find(e => e.id === editingEventId.value)
+      if (item) {
+        item.title = editForm.value.title
+        item.description = editForm.value.description || '無詳細描述'
+        item.category = editForm.value.category
+        const marker = markerMap.value.get(item.id)
+        if (marker) marker.bindPopup(createPopupContent(item))
+      }
+      showEditModal.value = false
+      triggerToast('✅ 事件已更新')
+    } else {
+      let errorMsg = '更新失敗，請稍後再試！'
+      try {
+        const err = await response.json()
+        if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
+      } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
+      triggerToast(errorMsg)
+    }
+  } catch (error) {
+    console.error('更新事件失敗:', error)
+    triggerToast('網路請求失敗，請確認後端服務是否正常！')
+  }
+}
+
+const deleteEvent = async (item) => {
+  if (!confirm(`確定要刪除「${item.title}」嗎？`)) return
+  deletingId.value = item.id
+  try {
+    const response = await fetch(
+      `${EVENT_SERVICE_URL}/events/${item.id}?user_id=${encodeURIComponent(myUserId)}`,
+      { method: 'DELETE' }
+    )
+
+    if (response.ok) {
+      const marker = markerMap.value.get(item.id)
+      if (marker && map.value) map.value.removeLayer(marker)
+      markerMap.value.delete(item.id)
+      eventsList.value = eventsList.value.filter(e => e.id !== item.id)
+      triggerToast('🗑️ 事件已刪除')
+    } else {
+      let errorMsg = '刪除失敗，請稍後再試！'
+      try {
+        const err = await response.json()
+        if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
+      } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
+      triggerToast(errorMsg)
+    }
+  } catch (error) {
+    console.error('刪除事件失敗:', error)
+    triggerToast('網路請求失敗，請確認後端服務是否正常！')
+  } finally {
+    deletingId.value = null
   }
 }
 
@@ -534,15 +658,21 @@ const fetchNearbyEvents = async (lat, lng) => {
       eventsList.value = []
 
       const rawEvents = Array.isArray(data) ? data : (data.events || [])
+      const seenIds = new Set()
 
       rawEvents.forEach(event => {
         if (typeof event === 'string') return
+
+        const eventId = event.event_id || event.id
+        // 回應本身可能帶重複，先按 ID 去重
+        if (!eventId || seenIds.has(eventId)) return
+        seenIds.add(eventId)
 
         const eventLat = event.latitude || lat
         const eventLng = event.longitude || lng
         const dist = getDistance(lat, lng, eventLat, eventLng)
         const walkTime = Math.max(1, Math.round(dist / 80))
-        
+
         const createdAtMs = event.created_at ? new Date(event.created_at).getTime() : Date.now()
         const durationMs = (event.duration_minutes || 60) * 60 * 1000
         const expiresAt = event.expires_at ? new Date(event.expires_at).getTime() : (createdAtMs + durationMs)
@@ -550,9 +680,10 @@ const fetchNearbyEvents = async (lat, lng) => {
         if (Date.now() >= expiresAt) return
 
         const newEvent = {
-          id: event.event_id || event.id || Date.now(),
+          id: eventId,
+          userId: event.user_id || '',
           title: event.title || '周遭動態',
-          category: event.severity === 'urgent' ? 'danger' : (event.severity || 'info'), 
+          category: event.severity === 'urgent' ? 'danger' : (event.severity || 'info'),
           description: event.message || event.description || '附近有動態發布',
           imageUrl: event.image_url || event.image || event.imageUrl || '',
           location: { lat: eventLat, lng: eventLng },
@@ -561,18 +692,18 @@ const fetchNearbyEvents = async (lat, lng) => {
           timestamp: new Date(createdAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           expiresAt: expiresAt
         }
-        
+
         eventsList.value.push(newEvent)
-        
-        const marker = L.marker([newEvent.location.lat, newEvent.location.lng], { 
-          icon: createColoredPin(newEvent.category) 
+
+        const marker = L.marker([newEvent.location.lat, newEvent.location.lng], {
+          icon: createColoredPin(newEvent.category)
         })
         marker.bindPopup(createPopupContent(newEvent))
-        
+
         if (selectedFilters.value[newEvent.category]) {
           marker.addTo(map.value)
         }
-        
+
         markerMap.value.set(newEvent.id, marker)
       })
     }
@@ -728,6 +859,10 @@ window.openImageLightbox = openLightbox
               <div class="card-meta">
                 <span>距離 {{ item.distance }}公尺</span>
                 <span>發布時間  {{ item.timestamp }}</span>
+                <span v-if="item.userId === myUserId" class="card-actions">
+                  <button type="button" class="card-action-btn" title="編輯事件" @click.stop="startEditEvent(item)">✏️</button>
+                  <button type="button" class="card-action-btn" title="刪除事件" :disabled="deletingId === item.id" @click.stop="deleteEvent(item)">🗑️</button>
+                </span>
               </div>
             </div>
           </div>
@@ -804,6 +939,49 @@ window.openImageLightbox = openLightbox
           </div>
 
           <button type="submit" class="submit-btn">確認發布</button>
+        </form>
+      </div>
+    </div>
+    <!-- 編輯事件表單 -->
+    <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
+      <div class="modal-card">
+        <header class="modal-header">
+          <button class="close-btn" @click="showEditModal = false">⊗</button>
+          <h3>編輯事件</h3>
+          <div style="width: 24px;"></div>
+        </header>
+
+        <form @submit.prevent="submitEdit" class="modal-form">
+          <div class="form-group">
+            <input type="text" v-model="editForm.title" placeholder="事件名稱" required maxlength="100" class="input-light" />
+          </div>
+
+          <div class="form-group category-group">
+            <label class="group-label">事件類別：</label>
+            <div class="radio-options">
+              <label class="radio-item">
+                <input type="radio" v-model="editForm.category" value="info" />
+                <span class="dot dot-green"></span>
+                <span>空位 / 活動</span>
+              </label>
+              <label class="radio-item">
+                <input type="radio" v-model="editForm.category" value="warning" />
+                <span class="dot dot-yellow"></span>
+                <span>遺失 / 擁擠</span>
+              </label>
+              <label class="radio-item">
+                <input type="radio" v-model="editForm.category" value="danger" />
+                <span class="dot dot-red"></span>
+                <span>緊急 / 突發</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <textarea v-model="editForm.description" rows="3" maxlength="1000" placeholder="詳細描述..." class="input-light"></textarea>
+          </div>
+
+          <button type="submit" class="submit-btn">儲存變更</button>
         </form>
       </div>
     </div>
