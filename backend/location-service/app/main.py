@@ -24,7 +24,8 @@ async def cleanup_stale_locations() -> None:
     while True:
         try:
             await asyncio.sleep(GEO_CLEANUP_INTERVAL_SECONDS)
-            members = [m async for m in redis.zscan_iter(USER_LOCATION_KEY)]
+            # zscan_iter 吐出 (member, score) tuple，取 member 即可
+            members = [member async for member, _score in redis.zscan_iter(USER_LOCATION_KEY)]
             if not members:
                 continue
 
@@ -82,12 +83,19 @@ async def update_location(payload: LocationUpdate) -> dict[str, str]:
 
 @app.get("/locations/online")
 async def online_users() -> dict[str, int]:
-    """目前在線使用者數（GEO 索引成員數）。
+    """目前在線使用者數（last_seen 尚未過期的 GEO 成員）。
 
-    last_seen 過期的成員由背景清理移除，ZCARD 即近即時的在線人數；
-    壓測模擬使用者同樣計入，demo 時可看到人數暴衝。
+    只統計 last_seen 還活著的成員：模擬壓測停止後，人數會隨 TTL
+    （預設 60 秒）自然回落，不必等背景清理週期，demo 即時性更好。
     """
-    return {"online": int(await redis.zcard(USER_LOCATION_KEY))}
+    members = [member async for member, _score in redis.zscan_iter(USER_LOCATION_KEY)]
+    if not members:
+        return {"online": 0}
+    pipe = redis.pipeline(transaction=False)
+    for member in members:
+        pipe.get(f"{USER_LAST_SEEN_PREFIX}:{member}")
+    last_seen_values = await pipe.execute()
+    return {"online": sum(1 for seen in last_seen_values if seen)}
 
 
 @app.get("/locations/nearby")
