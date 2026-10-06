@@ -506,6 +506,14 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   border-radius: 50%;
 }
 
+/* 即時在線人數膠囊：位於連線狀態膠囊下方 */
+.connection-pill.online-pill {
+  top: 102px;
+  background: rgba(232, 245, 233, 0.92);
+  color: #1b5e20;
+  border: 1px solid #c8e6c9;
+}
+
 /* 已連線狀態 (淡綠) */
 .connection-pill.connected {
   background: rgba(255, 255, 255, 0.92);

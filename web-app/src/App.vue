@@ -366,6 +366,18 @@ const setupWebSocket = () => {
 // ==========================
 // 生命週期管理
 // ==========================
+// 即時在線人數：每 3 秒查詢 location-service 的 GEO 索引成員數
+const onlineCount = ref(0)
+let onlinePollTimer = null
+const fetchOnlineCount = async () => {
+  try {
+    const res = await fetch(`${LOCATION_SERVICE_URL}/locations/online`)
+    if (res.ok) onlineCount.value = (await res.json()).online
+  } catch {
+    // 服務未就緒時沿用上一次數值
+  }
+}
+
 onMounted(() => {
   map.value = L.map('map').setView([currentCoords.value.lat, currentCoords.value.lng], 16)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map.value)
@@ -373,6 +385,8 @@ onMounted(() => {
   setupWebSocket()
   requestUserLocation() // 統一由此函式初始化定位與單一標記
 
+  fetchOnlineCount()
+  onlinePollTimer = setInterval(fetchOnlineCount, 3000)
   expirationTimer = setInterval(checkAndCleanExpiredEvents, 10000)
   // 每 30 秒重報座標：last_seen TTL 60 秒，定期上報維持「在線」狀態
   locationReportTimer = setInterval(() => {
@@ -388,6 +402,7 @@ onUnmounted(() => {
   if (expirationTimer) clearInterval(expirationTimer)
   if (locationReportTimer) clearInterval(locationReportTimer)
   if (eventsRefreshTimer) clearInterval(eventsRefreshTimer)
+  if (onlinePollTimer) clearInterval(onlinePollTimer)
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
 })
 
@@ -774,6 +789,10 @@ window.openImageLightbox = openLightbox
     <span v-if="wsStatus === 'connected'">即時同步中</span>
     <span v-else-if="wsStatus === 'reconnecting'">連線中斷，重試中...</span>
     <span v-else>伺服器未連線</span>
+  </div>
+    <!-- 即時在線人數膠囊（GEO 索引成員數，含模擬壓測使用者） -->
+  <div class="connection-pill online-pill">
+    <span>👥 即時在線 {{ onlineCount }} 人</span>
   </div>
     <!-- Toast 通知 -->
     <transition name="toast">

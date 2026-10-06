@@ -80,6 +80,16 @@ async def update_location(payload: LocationUpdate) -> dict[str, str]:
     return {"status": "accepted", "user_id": payload.user_id}
 
 
+@app.get("/locations/online")
+async def online_users() -> dict[str, int]:
+    """目前在線使用者數（GEO 索引成員數）。
+
+    last_seen 過期的成員由背景清理移除，ZCARD 即近即時的在線人數；
+    壓測模擬使用者同樣計入，demo 時可看到人數暴衝。
+    """
+    return {"online": int(await redis.zcard(USER_LOCATION_KEY))}
+
+
 @app.get("/locations/nearby")
 async def nearby_users(
     latitude: float = Query(..., ge=-90, le=90),

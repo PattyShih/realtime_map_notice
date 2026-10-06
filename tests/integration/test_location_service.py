@@ -16,11 +16,13 @@ class FakeRedis:
     geoadd_calls: list[tuple[str, tuple[float, float, str]]]
     set_calls: list[tuple[str, str, int | None]]
     geosearch_result: list[str]
+    zcard_result: int
 
     def __init__(self) -> None:
         self.geoadd_calls = []
         self.set_calls = []
         self.geosearch_result = []
+        self.zcard_result = 0
 
     async def ping(self) -> bool:
         return True
@@ -35,6 +37,9 @@ class FakeRedis:
 
     async def geosearch(self, *args, **kwargs):
         return self.geosearch_result
+
+    async def zcard(self, key: str) -> int:
+        return self.zcard_result
 
 
 @pytest.mark.asyncio
@@ -106,3 +111,17 @@ async def test_get_nearby_users_no_result(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"users": []}
+
+
+@pytest.mark.asyncio
+async def test_online_users(monkeypatch) -> None:
+    fake_redis = FakeRedis()
+    fake_redis.zcard_result = 1500
+    monkeypatch.setattr(location_service, "redis", fake_redis)
+
+    transport = ASGITransport(app=location_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/locations/online")
+
+    assert response.status_code == 200
+    assert response.json() == {"online": 1500}
