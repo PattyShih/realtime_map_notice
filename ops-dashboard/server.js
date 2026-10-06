@@ -18,6 +18,7 @@ const exec = promisify(execFile);
 const PORT = Number(process.env.OPS_PORT || 8090);
 const ROOT = path.resolve(__dirname, '..');
 const SIMULATOR_SCRIPT = path.join(ROOT, 'simulator', 'simulate_users.py');
+const EVENT_GEN_SCRIPT = path.join(__dirname, 'event_gen.py');
 const JOB_YAML = path.join(ROOT, 'k8s', 'load-generator-job.yaml');
 const COMPOSE_PROJECT = 'realtime_map_notice';
 const COMPOSE_NET = `${COMPOSE_PROJECT}_default`;
@@ -143,6 +144,22 @@ function loadWorkerNames(count) {
   return Array.from({ length: count }, (_, i) => `ops-load-gen-${i + 1}`);
 }
 
+// 壓測結束後主動清除模擬使用者（u-* 與真實使用者的 user_* 前缀不同，不會誤傷），
+// 讓前端「即時在線人數」在數秒內回落，不必等 last_seen TTL 與背景清理週期。
+async function purgeSimUsers() {
+  await sh('docker', ['rm', '-f', 'ops-redis-purge']);
+  const script = [
+    "members=$(redis-cli -h redis --scan --pattern 'realtime_map_notice:user:last_seen:u-*' | sed 's/.*last_seen://')",
+    '[ -n "$members" ] && redis-cli -h redis zrem user:locations $members',
+    "redis-cli -h redis --scan --pattern 'realtime_map_notice:user:last_seen:u-*' | xargs -r redis-cli -h redis del",
+    'echo purged',
+  ].join(' && ');
+  return sh('docker', [
+    'run', '--rm', '--name', 'ops-redis-purge', '--network', COMPOSE_NET,
+    'redis:7-alpine', 'sh', '-c', script,
+  ]);
+}
+
 async function startLoadCompose(users) {
   await stopLoadCompose();
   const count = LOAD_WORKERS.find((w) => users <= w.max).count;
@@ -158,20 +175,32 @@ async function startLoadCompose(users) {
       `pip install -q httpx==0.28.1 && python /code/simulate_users.py --users ${perWorker} --target ${target} --interval 0.5`,
     ]);
   }
+  // 低量事件流：讓 event / notification / ai 服務在壓測期間也有可見流量
+  await sh('docker', [
+    'run', '-d', '--name', 'ops-event-gen',
+    '--network', COMPOSE_NET,
+    '-v', `${EVENT_GEN_SCRIPT}:/code/event_gen.py:ro`,
+    'python:3.12-slim',
+    'sh', '-c', 'pip install -q httpx==0.28.1 && python /code/event_gen.py',
+  ]);
   state.load = { running: true, users };
-  logEvent(`⚡ 開始壓測：模擬 ${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人，經 ops 輪詢分流至 ${state.replicas} 副本）`);
+  logEvent(`⚡ 開始壓測：模擬 ${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人 + 事件產生器，經 ops 輪詢分流至 ${state.replicas} 副本）`);
 }
 
 async function stopLoadCompose() {
   let had = false;
-  for (const name of [...loadWorkerNames(LOAD_WORKERS.at(-1).count), 'ops-load-generator']) {
+  for (const name of [...loadWorkerNames(LOAD_WORKERS.at(-1).count), 'ops-event-gen', 'ops-load-generator']) {
     const r = await sh('docker', ['rm', '-f', name]);
     if (r.ok) had = true;
   }
   if (had && state.load.running) logEvent(`⏹ 停止壓測（${state.load.users} 人已撤）`);
-  state.load = { running: false, users: 0 };
+  state.load = { running: false, users: 0, workers: 0 };
   state.lowTicks = 0;
   state.upTicks = 0;
+  if (had) {
+    const purged = await purgeSimUsers();
+    if (purged.ok) logEvent('🧹 已清除模擬使用者在線紀錄（在線人數即時回落）');
+  }
 }
 
 async function composeStatus() {
@@ -185,10 +214,10 @@ async function composeStatus() {
     ? Math.round(locContainers.reduce((s, c) => s + (c.cpu || 0), 0) / locContainers.length)
     : null;
 
-  // 卡片：location-service 各副本合併為一張；模擬 worker 不佔卡片（人數顯示於左側面板）
+  // 卡片：location-service 各副本合併為一張；ops 自己的輔助容器不佔卡片
   const byService = new Map();
   for (const s of stats) {
-    if (/^ops-load-gen-\d+$/.test(s.name)) continue;
+    if (/^ops-(load-gen-\d+|event-gen|redis-purge|load-generator)$/.test(s.name)) continue;
     const key = s.location ? 'location-service' : s.short;
     const entry = byService.get(key) || { short: key, cpus: [], mem: s.mem, replicas: 0 };
     entry.cpus.push(s.cpu || 0);
@@ -197,7 +226,8 @@ async function composeStatus() {
   }
   const services = [...byService.values()].map((e) => ({
     short: e.short,
-    cpu: Math.round(e.cpus.reduce((a, b) => a + b, 0) / e.cpus.length),
+    // 保留一位小數：低流量服務（0.x%）也看得出變化
+    cpu: Math.round((e.cpus.reduce((a, b) => a + b, 0) / e.cpus.length) * 10) / 10,
     mem: e.mem,
     replicas: e.replicas,
   }));
