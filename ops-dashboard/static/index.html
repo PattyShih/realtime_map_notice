@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Realtime Map Notice — K8s 運維儀表板</title>
+<title>Realtime Map Notice（即時地圖通知）— K8s 運維儀表板</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <style>
   :root {
@@ -66,7 +66,7 @@
 </head>
 <body>
 <header>
-  <h1>⚡ Realtime Map Notice — 運維儀表板</h1>
+  <h1>⚡ Realtime Map Notice（即時地圖通知）— K8s 運維儀表板</h1>
   <span id="modeBadge" class="badge">偵測模式中…</span>
   <span id="loadBadge" class="badge">無壓測</span>
 </header>
@@ -104,8 +104,6 @@
 
 <script>
 const MAX_POINTS = 60;
-const palette = ['#38bdf8', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6'];
-const colorOf = {}; // short name → color
 
 const chart = new Chart(document.getElementById('chart'), {
   type: 'line',
@@ -121,26 +119,39 @@ const chart = new Chart(document.getElementById('chart'), {
   },
 });
 
-function ensureDataset(key, label) {
-  let ds = chart.data.datasets.find((d) => d.label === label);
+function ensureDataset(key, label, extra = {}) {
+  let ds = chart.data.datasets.find((d) => d.key === key);
   if (!ds) {
-    if (!colorOf[key]) colorOf[key] = palette[Object.keys(colorOf).length % palette.length];
-    ds = { label, data: [], borderColor: colorOf[key], backgroundColor: colorOf[key],
-           tension: .3, pointRadius: 0, borderWidth: 2 };
+    ds = {
+      key, label, data: [],
+      borderColor: key === 'guide' ? 'rgba(251,191,36,.65)' : '#38bdf8',
+      backgroundColor: '#38bdf8',
+      tension: .3, pointRadius: 0, borderWidth: 2, ...extra,
+    };
     chart.data.datasets.push(ds);
   }
   return ds;
 }
 
+// 服務卡片的繁中說明
+const ZH_NAMES = {
+  'location-service': '定位服務',
+  'event-service': '事件服務',
+  'notification-service': '通知服務',
+  'ai-service': 'AI 審核服務',
+  'redis': '快取資料庫',
+};
+
 function renderCards(status) {
   const el = document.getElementById('cards');
   el.innerHTML = status.services.map((s) => {
     const cpu = s.cpu == null ? '?' : s.cpu;
+    const zh = ZH_NAMES[s.short] ? `（${ZH_NAMES[s.short]}）` : '';
     const replicaTag = s.replicas && s.replicas > 1
       ? `<span class="replica-tag">× ${s.replicas} 副本</span>` : '';
     const mem = s.mem ? ` · ${s.mem.replace(/[^0-9.]*MiB.*/, '').trim()}MiB` : '';
     return `<div class="svc">
-      <div class="name">${s.short}${replicaTag}</div>
+      <div class="name">${s.short}${zh}${replicaTag}</div>
       <div class="cpu" style="color:${cpu > 50 ? '#fbbf24' : '#34d399'}">${cpu}%</div>
       <div class="meta">${s.phase || 'running'}${mem}</div>
     </div>`;
@@ -157,8 +168,9 @@ function renderLoad(status) {
   const running = status.load && status.load.running;
   document.getElementById('btnStart').disabled = running;
   document.getElementById('btnStop').disabled = !running;
+  const workers = status.load.workers ? ` · ${status.load.workers} 個模擬 worker` : '';
   document.getElementById('loadInfo').innerHTML = running
-    ? `模擬中：<b>${status.load.users || '…'} 人</b> 持續湧入`
+    ? `模擬中：<b>${status.load.users || '…'} 人</b>${workers} 持續湧入`
     : '目前無模擬流量';
   document.getElementById('loadBadge').textContent = running
     ? `壓測中：${status.load.users || '…'} 人` : '無壓測';
@@ -175,11 +187,15 @@ async function poll() {
     renderLoad(status);
     renderEvents(status.events || []);
 
+    // 圖表只追蹤主角服務（location-service / HPA CPU%）＋ 擴展門檻虛線
     const label = new Date().toTimeString().slice(0, 8);
     chart.data.labels.push(label);
-    for (const s of status.services) {
-      const v = typeof s.cpu === 'number' ? s.cpu : (parseFloat(s.cpu) || 0);
-      ensureDataset(s.short, s.short).data.push(v);
+    for (const s of status.chart.series) {
+      ensureDataset('main', s.label).data.push(s.value ?? 0);
+    }
+    if (status.chart.guide != null) {
+      ensureDataset('guide', `擴展門檻 ${status.chart.guide}%`, { borderDash: [6, 4] })
+        .data.push(status.chart.guide);
     }
     for (const ds of chart.data.datasets) {
       while (ds.data.length > MAX_POINTS) ds.data.shift();

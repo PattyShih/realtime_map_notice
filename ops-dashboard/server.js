@@ -180,18 +180,38 @@ async function composeStatus() {
   state.replicas = Math.max(1, locContainers.length);
   const workers = stats.filter((s) => /^ops-load-gen-\d+$/.test(s.name));
   if (workers.length && !state.load.running) state.load.running = true;
-  if (!workers.length) state.load = { running: false, users: 0 };
+  if (!workers.length) state.load = { running: false, users: 0, workers: 0 };
   const avgCpu = locContainers.length
     ? Math.round(locContainers.reduce((s, c) => s + (c.cpu || 0), 0) / locContainers.length)
     : null;
+
+  // 卡片：location-service 各副本合併為一張；模擬 worker 不佔卡片（人數顯示於左側面板）
+  const byService = new Map();
+  for (const s of stats) {
+    if (/^ops-load-gen-\d+$/.test(s.name)) continue;
+    const key = s.location ? 'location-service' : s.short;
+    const entry = byService.get(key) || { short: key, cpus: [], mem: s.mem, replicas: 0 };
+    entry.cpus.push(s.cpu || 0);
+    entry.replicas += 1;
+    byService.set(key, entry);
+  }
+  const services = [...byService.values()].map((e) => ({
+    short: e.short,
+    cpu: Math.round(e.cpus.reduce((a, b) => a + b, 0) / e.cpus.length),
+    mem: e.mem,
+    replicas: e.replicas,
+  }));
+
   return {
     mode: 'compose',
     autoscaler: { up: SCALE_UP_CPU, down: SCALE_DOWN_CPU, max: MAX_REPLICAS, avgCpu },
     pool: [PRIMARY_PORT, ...REPLICA_PORTS.slice(0, state.replicas - 1)],
-    services: stats
-      .filter((s) => !s.replica || s.location)
-      .map((s) => ({ ...s, replicas: s.location ? state.replicas : undefined })),
-    load: state.load,
+    chart: {
+      series: [{ label: 'location-service CPU%', value: avgCpu }],
+      guide: SCALE_UP_CPU,
+    },
+    services,
+    load: { ...state.load, workers: workers.length },
     events: state.events.slice(0, 30),
   };
 }
@@ -299,6 +319,10 @@ async function k8sStatus() {
     mode: 'k8s',
     autoscaler: hpaInfo,
     pool: [],
+    chart: {
+      series: [{ label: 'HPA CPU%', value: hpaInfo ? hpaInfo.cpu : null }],
+      guide: hpaInfo ? hpaInfo.targetCpu : null,
+    },
     services,
     load,
     events: state.events.slice(0, 30),
