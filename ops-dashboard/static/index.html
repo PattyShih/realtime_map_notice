@@ -62,6 +62,46 @@
   #events li { padding: 4px 0; border-bottom: 1px dashed var(--line); color: var(--muted); }
   #events li b { color: var(--text); font-weight: 500; margin-right: 8px; }
   .foot { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  /* 容器擴展現場 */
+  .banner {
+    font-size: 15px; font-weight: 700; padding: 9px 14px; border-radius: 8px;
+    margin-bottom: 12px; border: 1px solid var(--line); background: var(--bg);
+    transition: all .3s ease;
+  }
+  .banner.ok { color: var(--green); border-color: rgba(52, 211, 153, .5); }
+  .banner.hot { color: var(--amber); border-color: var(--amber); animation: bannerPulse 1.2s infinite; }
+  .banner.scale { color: var(--accent); border-color: var(--accent); }
+  @keyframes bannerPulse { 50% { opacity: .55; } }
+  .pod-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .flow-src {
+    font-size: 12px; color: var(--muted); white-space: nowrap;
+    padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  }
+  .flowline {
+    flex: 0 0 56px; height: 6px; border-radius: 3px;
+    background: repeating-linear-gradient(90deg, var(--accent) 0 8px, transparent 8px 16px);
+    animation: flow .5s linear infinite;
+  }
+  @keyframes flow { to { background-position: 16px 0; } }
+  .pod {
+    border: 2px solid var(--green); background: rgba(52, 211, 153, .08);
+    border-radius: 10px; padding: 8px 14px; min-width: 150px;
+  }
+  .pod.new { animation: pop .45s ease-out; }
+  .pod .pname { font-size: 12px; color: var(--muted); }
+  .pod .pcpu { font-size: 20px; font-weight: 700; color: var(--green); }
+  .pod.hot { border-color: var(--amber); background: rgba(251, 191, 36, .08); }
+  .pod.hot .pcpu { color: var(--amber); }
+  @keyframes pop {
+    0% { transform: scale(.4); opacity: 0; }
+    70% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .slot {
+    border: 2px dashed var(--line); border-radius: 10px; padding: 14px;
+    min-width: 150px; color: var(--muted); font-size: 12px; text-align: center;
+  }
+  .other-line { font-size: 12px; color: var(--muted); margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -83,6 +123,12 @@
 
   <div>
     <div class="cards" id="cards"></div>
+    <div class="panel" style="margin-bottom:14px">
+      <h2>容器擴展現場（location-service · 定位服務）</h2>
+      <div id="banner" class="banner ok">等待資料…</div>
+      <div id="podRow"></div>
+      <div id="otherLine" class="other-line"></div>
+    </div>
     <div class="panel">
       <h2>容器 CPU 使用率（%）</h2>
       <div class="chart-wrap"><canvas id="chart"></canvas></div>
@@ -146,9 +192,14 @@ const ZH_NAMES = {
   'redis': '快取資料庫',
 };
 
+// 主角卡片只留定位與事件服務，其餘容器收進一行小字
+const MAIN_CARDS = ['location-service', 'event-service'];
+
 function renderCards(status) {
   const el = document.getElementById('cards');
-  el.innerHTML = status.services.map((s) => {
+  const shown = status.services.filter((s) => MAIN_CARDS.includes(s.short));
+  const others = status.services.filter((s) => !MAIN_CARDS.includes(s.short));
+  el.innerHTML = shown.map((s) => {
     const cpu = s.cpu == null ? '?' : s.cpu;
     const zh = ZH_NAMES[s.short] ? `（${ZH_NAMES[s.short]}）` : '';
     const replicaTag = s.replicas && s.replicas > 1
@@ -160,6 +211,73 @@ function renderCards(status) {
       <div class="meta">${s.phase || 'running'}${mem}</div>
     </div>`;
   }).join('');
+  document.getElementById('otherLine').textContent = others.length
+    ? `其他容器：${others.map((o) => `${o.short} ${o.cpu == null ? '?' : o.cpu}%`).join(' · ')}`
+    : '';
+}
+
+// 容器擴展現場：大字狀態橫幅 + Pod 方塊 + 流量流線動畫
+let prevReplicas = null;
+let knownPods = new Set();
+
+function renderPods(status) {
+  const banner = document.getElementById('banner');
+  const row = document.getElementById('podRow');
+  const a = status.autoscaler || {};
+  const isK8s = status.mode === 'k8s';
+  const replicas = isK8s ? (a.current ?? 0) : status.pool.length;
+  const max = a.max || 3;
+  const avg = isK8s ? a.cpu : a.avgCpu;
+  const up = isK8s ? (a.targetCpu || 50) : (a.up ?? 25);
+  const down = a.down ?? 8;
+
+  let cls = 'banner ok';
+  let txt = `🟢 負載正常 — ${replicas} 個副本運行中（CPU ${avg ?? '?'}% ／ 門檻 ${up}%）`;
+  if (prevReplicas != null && replicas > prevReplicas) {
+    cls = 'banner scale';
+    txt = `📈 容器擴展！自動新增 1 個副本 → 現在 ${replicas} 個，流量自動平分`;
+  } else if (prevReplicas != null && replicas < prevReplicas) {
+    cls = 'banner scale';
+    txt = `📉 負載回落 — 縮回至 ${replicas} 個副本`;
+  } else if (avg != null && avg >= up && replicas < max) {
+    cls = 'banner hot';
+    txt = `🔥 高負載！CPU ${avg}% ≥ 門檻 ${up}% — 正在擴展…`;
+  } else if (avg != null && avg <= down && replicas > 1) {
+    cls = 'banner hot';
+    txt = `🌙 負載回落（CPU ${avg}% ≤ ${down}%）— 準備縮回…`;
+  }
+  banner.textContent = txt;
+  banner.className = cls;
+  prevReplicas = replicas;
+
+  const pods = status.pods || [];
+  const prevIds = knownPods;
+  const nextIds = new Set();
+  const users = status.load && status.load.running
+    ? `📡 ${status.load.users || '…'} 人` : '📡 無模擬流量';
+  let html = '';
+  for (let i = 0; i < max; i++) {
+    const p = pods[i];
+    if (p) {
+      const isNew = !prevIds.has(p.id);
+      nextIds.add(p.id);
+      const hot = Number(p.cpu) >= up;
+      html += `<div class="pod-row">
+        ${i === 0 ? `<span class="flow-src">${users}</span><span class="flowline"></span>` : `<span style="flex:0 0 56px"></span><span style="flex:0 0 10px"></span>`}
+        <div class="pod ${isNew ? 'new' : ''} ${hot ? 'hot' : ''}">
+          <div class="pname">Pod ${i + 1} · ${p.label}</div>
+          <div class="pcpu">${p.cpu == null ? '?' : p.cpu}%</div>
+        </div>
+      </div>`;
+    } else {
+      html += `<div class="pod-row">
+        ${i === 0 ? `<span class="flow-src" style="visibility:hidden">${users}</span><span style="flex:0 0 56px"></span>` : `<span style="flex:0 0 56px"></span><span style="flex:0 0 10px"></span>`}
+        <div class="slot">空位 — 負載超過門檻時自動擴展</div>
+      </div>`;
+    }
+  }
+  row.innerHTML = html;
+  knownPods = nextIds;
 }
 
 function renderEvents(events) {
@@ -188,6 +306,7 @@ async function poll() {
     badge.className = `badge ${status.mode === 'k8s' ? 'k8s' : 'compose'}`;
 
     renderCards(status);
+    renderPods(status);
     renderLoad(status);
     renderEvents(status.events || []);
 

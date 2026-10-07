@@ -214,6 +214,15 @@ async function composeStatus() {
     ? Math.round(locContainers.reduce((s, c) => s + (c.cpu || 0), 0) / locContainers.length)
     : null;
 
+  // 每個副本的獨立資訊（給前端「容器擴展現場」面板畫方塊）
+  const extraPort = { 'ops-location-r2': REPLICA_PORTS[0], 'ops-location-r3': REPLICA_PORTS[1] };
+  const pods = locContainers.map((c, i) => ({
+    id: c.name,
+    label: c.name === PRIMARY_CONTAINER ? ':8001' : `:${extraPort[c.name] || '?'}`,
+    cpu: c.cpu,
+    idx: i,
+  }));
+
   // 卡片：location-service 各副本合併為一張；ops 自己的輔助容器不佔卡片
   const byService = new Map();
   for (const s of stats) {
@@ -236,6 +245,7 @@ async function composeStatus() {
     mode: 'compose',
     autoscaler: { up: SCALE_UP_CPU, down: SCALE_DOWN_CPU, max: MAX_REPLICAS, avgCpu },
     pool: [PRIMARY_PORT, ...REPLICA_PORTS.slice(0, state.replicas - 1)],
+    pods,
     chart: {
       series: [{ label: 'location-service CPU%', value: avgCpu }],
       guide: SCALE_UP_CPU,
@@ -349,6 +359,9 @@ async function k8sStatus() {
     mode: 'k8s',
     autoscaler: hpaInfo,
     pool: [],
+    pods: services
+      .filter((s) => s.short === 'location-service')
+      .map((s) => ({ id: s.name, label: s.name.replace(/-location-service.*/, ''), cpu: s.cpu })),
     chart: {
       series: [{ label: 'HPA CPU%', value: hpaInfo ? hpaInfo.cpu : null }],
       guide: hpaInfo ? hpaInfo.targetCpu : null,
