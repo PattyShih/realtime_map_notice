@@ -2,7 +2,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
+import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
+import { PUSH_SUPPORTED, getPushState, enablePush } from './push.js'
 
 // ==========================================
 // 地圖核心與狀態
@@ -109,6 +110,25 @@ const getOrCreateUserId = () => {
 
 // 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕
 const myUserId = getOrCreateUserId()
+
+// ==========================
+// 手機推播（Web Push）
+// ==========================
+const pushBtnVisible = ref(false)
+const onEnablePush = async () => {
+  try {
+    await enablePush(myUserId)
+    pushBtnVisible.value = false
+    triggerToast('🔔 手機推播已啟用')
+  } catch (err) {
+    triggerToast(err?.message || '推播啟用失敗')
+  }
+}
+if (PUSH_SUPPORTED) {
+  getPushState().then((s) => {
+    pushBtnVisible.value = s.supported && !s.subscribed
+  })
+}
 
 // ==========================================
 // 座標上報 Location Service
@@ -794,6 +814,10 @@ window.openImageLightbox = openLightbox
   <div class="connection-pill online-pill">
     <span>👥 即時在線 {{ onlineCount }} 人</span>
   </div>
+    <!-- 啟用手機推播（未訂閱且支援時顯示） -->
+  <button v-if="pushBtnVisible" class="connection-pill push-btn" @click="onEnablePush">
+    🔔 啟用手機推播通知
+  </button>
     <!-- Toast 通知 -->
     <transition name="toast">
       <div v-if="showToast" class="toast-card">

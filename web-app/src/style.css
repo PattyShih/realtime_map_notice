@@ -514,6 +514,18 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   border: 1px solid #c8e6c9;
 }
 
+/* 啟用手機推播按鈕：位於在線人數膠囊下方，可點擊 */
+.connection-pill.push-btn {
+  top: 136px;
+  background: rgba(255, 248, 225, 0.95);
+  color: #8d6e00;
+  border: 1px solid #ffe082;
+  pointer-events: auto;
+  cursor: pointer;
+  font-weight: 600;
+  animation: pulse 2s infinite;
+}
+
 /* 已連線狀態 (淡綠) */
 .connection-pill.connected {
   background: rgba(255, 255, 255, 0.92);
