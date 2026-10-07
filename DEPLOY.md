@@ -1,5 +1,21 @@
 # 部署指南：讓專題上線、可以被搜尋、可以裝到手機
 
+## 線上環境（2026-10-07 已部署）
+
+| 項目 | 網址 |
+|---|---|
+| 前端（Vercel） | https://realtime-map-notice.vercel.app |
+| location-service | https://rmn-location.onrender.com |
+| event-service | https://rmn-event.onrender.com |
+| notification-service | https://rmn-notification.onrender.com |
+| ai-service | https://rmn-ai.onrender.com |
+
+手機安裝：直接用手機瀏覽器開前端網址 → Android Chrome「安裝」／ iOS Safari 分享 → 加入主畫面。
+
+更新線上版本：前端在本機 `cd web-app && npx vercel --prod`；後端 push 分支後在 Render Dashboard 手動 Manual Deploy（或改用 Git 整合自動化）。
+
+---
+
 目標架構（全免費層即可運作）：
 
 ```
