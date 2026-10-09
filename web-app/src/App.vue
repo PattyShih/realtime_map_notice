@@ -143,7 +143,7 @@ const TABS = [
 const TAB_INDEX = { ops: 0, map: 1, mine: 2 }
 const activeTab = ref('map')
 const trackStyle = computed(() => ({
-  transform: `translateX(-${TAB_INDEX[activeTab.value] * 100}%)`
+  transform: `translateX(-${TAB_INDEX[activeTab.value] * 100}vw)`
 }))
 const switchTab = (id) => {
   if (!TABS.some(t => t.id === id)) return
@@ -182,7 +182,37 @@ const onTouchEnd = (e) => {
 // ==========================================
 const myEvents = computed(() => eventsList.value
   .filter(e => e.userId === myUserId)
-  .sort((a, b) => b.expiresAt - a.expiresAt))
+  .sort((a, b) => (b.createdAt || b.expiresAt) - (a.createdAt || a.expiresAt)))
+
+// 相對時間顯示：剛剛 / N 分鐘前 / N 小時前
+const timeAgo = (createdAt) => {
+  if (!createdAt) return ''
+  const mins = Math.floor((Date.now() - createdAt) / 60000)
+  if (mins < 1) return '剛剛'
+  if (mins < 60) return `${mins} 分鐘前`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} 小時前`
+  return `${Math.floor(hrs / 24)} 天前`
+}
+// 事件剩餘壽命（分鐘）與生命週期百分比
+const remainingMinutes = (expiresAt) => Math.max(0, Math.ceil((expiresAt - Date.now()) / 60000))
+const lifePercent = (item) => {
+  if (!item.createdAt || !item.expiresAt) return 100
+  const total = item.expiresAt - item.createdAt
+  if (total <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round(((item.expiresAt - Date.now()) / total) * 100)))
+}
+const categoryMeta = (cat) => ({
+  info:    { label: '空位/活動', color: '#34c759', icon: '🟢' },
+  warning: { label: '遺失/擁擠', color: '#ff9500', icon: '🟡' },
+  danger:  { label: '緊急突發', color: '#ff3b30', icon: '🔴' },
+}[cat] || { label: '其他', color: '#ff7f50', icon: '📍' })
+
+// 從「我的發布」直接發布：切回地圖頁並打開表單
+const publishFromMine = () => {
+  switchTab('map')
+  showModal.value = true
+}
 const dangerEventCount = computed(() =>
   eventsList.value.filter(e => e.category === 'danger').length)
 
@@ -449,6 +479,7 @@ const setupWebSocket = () => {
         const newEvent = {
           id: eventData.event_id || eventData.id || Date.now(),
           userId: eventData.user_id || '',
+          createdAt: Date.now(),
           title: eventData.title || '即時新通知',
           category: eventData.severity === 'urgent' ? 'danger' : (eventData.severity || 'info'),
           description: eventData.message || eventData.description || '周遭有新動態發布',
@@ -653,6 +684,7 @@ const handleSubmit = async () => {
       const newEvent = {
         id: body.event_id || Date.now(),
         userId: myUserId,
+        createdAt: Date.now(),
         title: finalTitle,
         category: formData.value.category,
         description: formData.value.description || '無詳細描述',
@@ -816,6 +848,7 @@ const fetchNearbyEvents = async (lat, lng) => {
         const newEvent = {
           id: eventId,
           userId: event.user_id || '',
+          createdAt: createdAtMs,
           title: event.title || '周遭動態',
           category: event.severity === 'urgent' ? 'danger' : (event.severity || 'info'),
           description: event.message || event.description || '附近有動態發布',
@@ -1017,30 +1050,54 @@ window.openImageLightbox = openLightbox
 
         <!-- 頁面 3：我的發布 -->
         <section class="tab-panel mine-panel">
-          <div class="ops-header">📋 我的發布</div>
+          <div class="mine-header">
+            <span class="mine-header-title">📋 我的發布</span>
+            <span v-if="myEvents.length" class="mine-count">{{ myEvents.length }} 則進行中</span>
+          </div>
 
-          <div v-if="myEvents.length === 0" class="empty-state mine-empty">
-            你還沒有發布過事件。<br />點右下角「＋」發布第一則吧！
+          <div v-if="myEvents.length === 0" class="mine-empty">
+            <div class="mine-empty-icon">📍</div>
+            <div class="mine-empty-title">還沒有發布過事件</div>
+            <div class="mine-empty-desc">發布的內容會出現在這裡，<br />可以隨時編輯或刪除。</div>
+            <button type="button" class="mine-cta" @click="publishFromMine">＋ 發布第一則事件</button>
           </div>
 
           <div v-else class="mine-list">
-            <div v-for="item in myEvents" :key="item.id" class="event-card mine-card">
-              <div class="card-content">
-                <div class="card-header">
-                  <span class="card-title">{{ item.title }}</span>
-                  <span class="card-badge" :class="item.category">
-                    步行時間約 {{ item.walkTime }} 分鐘
-                  </span>
+            <div
+              v-for="item in myEvents"
+              :key="item.id"
+              class="mine-card"
+              :style="{ borderLeftColor: categoryMeta(item.category).color }"
+            >
+              <div class="mine-card-top">
+                <span
+                  class="mine-chip"
+                  :style="{ backgroundColor: categoryMeta(item.category).color + '1a', color: categoryMeta(item.category).color }"
+                >
+                  {{ categoryMeta(item.category).icon }} {{ categoryMeta(item.category).label }}
+                </span>
+                <span class="mine-timeago">{{ timeAgo(item.createdAt) }}</span>
+              </div>
+
+              <div class="mine-card-title">{{ item.title }}</div>
+              <p class="mine-card-desc">{{ item.description }}</p>
+
+              <div class="mine-life">
+                <div class="mine-life-bar">
+                  <div
+                    class="mine-life-fill"
+                    :style="{ width: lifePercent(item) + '%', backgroundColor: categoryMeta(item.category).color }"
+                  ></div>
                 </div>
-                <p class="card-desc">{{ item.description }}</p>
-                <div class="card-meta">
-                  <span>距離 {{ item.distance }}公尺</span>
-                  <span>發布時間  {{ item.timestamp }}</span>
-                  <span class="card-actions">
-                    <button type="button" class="card-action-btn" title="編輯事件" @click="startEditEvent(item)">✏️</button>
-                    <button type="button" class="card-action-btn" title="刪除事件" :disabled="deletingId === item.id" @click="deleteEvent(item)">🗑️</button>
-                  </span>
-                </div>
+                <span class="mine-life-text">剩餘 {{ remainingMinutes(item.expiresAt) }} 分鐘</span>
+              </div>
+
+              <div class="mine-card-footer">
+                <span class="mine-meta">📍 距離 {{ item.distance }} 公尺</span>
+                <span class="card-actions">
+                  <button type="button" class="card-action-btn" title="編輯事件" @click="startEditEvent(item)">✏️</button>
+                  <button type="button" class="card-action-btn" title="刪除事件" :disabled="deletingId === item.id" @click="deleteEvent(item)">🗑️</button>
+                </span>
               </div>
             </div>
           </div>
