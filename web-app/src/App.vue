@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL, AI_SERVICE_URL } from './config.js'
-import { PUSH_SUPPORTED, getPushState, enablePush } from './push.js'
+import { PUSH_SUPPORTED, getPushState, enablePush, disablePush, isStandalone } from './push.js'
 
 // ==========================================
 // 地圖核心與狀態
@@ -49,6 +49,7 @@ const selectCategoryTag = (tag, severity) => {
 let expirationTimer = null
 let locationReportTimer = null
 let eventsRefreshTimer = null
+let countdownTimer = null
 // 剛發布成功的事件 ID：WS 廣播會把自己發的事件再推回來，用來避免重複加入列表與重複跳通知
 let lastPublishedEventId = null
 
@@ -114,20 +115,43 @@ const myUserId = getOrCreateUserId()
 // ==========================
 // 手機推播（Web Push）
 // ==========================
-const pushBtnVisible = ref(false)
+const pushState = ref({ supported: PUSH_SUPPORTED, subscribed: false })
+const showPushPrompt = ref(false)
+const refreshPushState = async () => { pushState.value = await getPushState() }
+refreshPushState()
+
+// 從主畫面圖示（standalone）開啟 App 時：若未訂閱且之前沒拒絕過，主動詢問要不要開通知
+if (PUSH_SUPPORTED && isStandalone() && !localStorage.getItem('push_prompt_dismissed')) {
+  setTimeout(async () => {
+    const st = await getPushState()
+    pushState.value = st
+    if (!st.subscribed) showPushPrompt.value = true
+  }, 1500)
+}
+
 const onEnablePush = async () => {
   try {
     await enablePush(myUserId)
-    pushBtnVisible.value = false
+    await refreshPushState()
+    showPushPrompt.value = false
+    localStorage.setItem('push_prompt_dismissed', 'enabled')
     triggerToast('🔔 手機推播已啟用')
   } catch (err) {
     triggerToast(err?.message || '推播啟用失敗')
   }
 }
-if (PUSH_SUPPORTED) {
-  getPushState().then((s) => {
-    pushBtnVisible.value = s.supported && !s.subscribed
-  })
+const onDisablePush = async () => {
+  try {
+    await disablePush(myUserId)
+    await refreshPushState()
+    triggerToast('🔕 手機推播已關閉')
+  } catch (err) {
+    triggerToast(err?.message || '推播關閉失敗')
+  }
+}
+const dismissPushPrompt = () => {
+  showPushPrompt.value = false
+  localStorage.setItem('push_prompt_dismissed', 'dismissed')
 }
 
 // ==========================================
@@ -180,6 +204,19 @@ const onTouchEnd = (e) => {
 // ==========================================
 // 戰情摘要頁：統計卡與 AI 事件分析
 // ==========================================
+const nowTick = ref(Date.now())
+const formatCountdown = (expiresAt) => {
+  const total = Math.max(0, Math.floor((expiresAt - nowTick.value) / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = total % 60
+  const parts = []
+  if (h) parts.push(`${h} 時`)
+  if (h || m) parts.push(`${m} 分`)
+  parts.push(`${sec} 秒`)
+  return parts.join(' ')
+}
+
 const myEvents = computed(() => eventsList.value
   .filter(e => e.userId === myUserId)
   .sort((a, b) => (b.createdAt || b.expiresAt) - (a.createdAt || a.expiresAt)))
@@ -546,12 +583,15 @@ onMounted(() => {
   eventsRefreshTimer = setInterval(() => {
     fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
   }, 15000)
+  // 每秒更新倒數計時
+  countdownTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
 })
 
 onUnmounted(() => {
   if (expirationTimer) clearInterval(expirationTimer)
   if (locationReportTimer) clearInterval(locationReportTimer)
   if (eventsRefreshTimer) clearInterval(eventsRefreshTimer)
+  if (countdownTimer) clearInterval(countdownTimer)
   if (onlinePollTimer) clearInterval(onlinePollTimer)
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
 })
@@ -936,18 +976,6 @@ window.openImageLightbox = openLightbox
 
 <template>
   <div class="app-container">
-    <!-- 頂部純淨搜尋列 -->
-    <header class="top-nav">
-      <div class="search-bar">
-        <span class="search-icon">
-          <svg viewBox="0 0 24 24" width="18" height="18" stroke="#888888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-        </span>
-        <input type="text" placeholder="尋找事件或地點..." />
-      </div>
-    </header>
     <!-- 連線狀態指示膠囊 -->
   <div class="connection-pill" :class="wsStatus">
     <span class="status-indicator-dot"></span>
@@ -959,10 +987,6 @@ window.openImageLightbox = openLightbox
   <div class="connection-pill online-pill">
     <span>👥 即時在線 {{ onlineCount }} 人</span>
   </div>
-    <!-- 啟用手機推播（未訂閱且支援時顯示） -->
-  <button v-if="pushBtnVisible" class="connection-pill push-btn" @click="onEnablePush">
-    🔔 啟用手機推播通知
-  </button>
     <!-- Toast 通知 -->
     <transition name="toast">
       <div v-if="showToast" class="toast-card">
@@ -1068,6 +1092,26 @@ window.openImageLightbox = openLightbox
             <span v-if="myEvents.length" class="mine-count">{{ myEvents.length }} 則進行中</span>
           </div>
 
+          <div v-if="pushState.supported" class="mine-push-card">
+            <div class="mine-push-info">
+              <span class="mine-push-icon">🔔</span>
+              <div>
+                <div class="mine-push-title">推播通知</div>
+                <div class="mine-push-status">
+                  {{ pushState.subscribed ? '已啟用——緊急事件會推播到這台裝置' : '未啟用——啟用後沒開 App 也能收到事件通知' }}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="mine-push-btn"
+              :class="{ off: pushState.subscribed }"
+              @click="pushState.subscribed ? onDisablePush() : onEnablePush()"
+            >
+              {{ pushState.subscribed ? '關閉' : '開啟' }}
+            </button>
+          </div>
+
           <div v-if="myEvents.length === 0" class="mine-empty">
             <div class="mine-empty-icon">📍</div>
             <div class="mine-empty-title">還沒有發布過事件</div>
@@ -1102,7 +1146,7 @@ window.openImageLightbox = openLightbox
                     :style="{ width: lifePercent(item) + '%', backgroundColor: categoryMeta(item.category).color }"
                   ></div>
                 </div>
-                <span class="mine-life-text">剩餘 {{ remainingMinutes(item.expiresAt) }} 分鐘</span>
+                <span class="mine-life-text">⏳ 剩餘 {{ formatCountdown(item.expiresAt) }}</span>
               </div>
 
               <div class="mine-card-footer">
@@ -1331,6 +1375,20 @@ window.openImageLightbox = openLightbox
       </div>
     </div>
   </div>
+  <!-- 加入主畫面後的推播詢問 -->
+  <transition name="toast">
+    <div v-if="showPushPrompt" class="push-prompt-overlay">
+      <div class="push-prompt-card">
+        <div class="push-prompt-icon">🔔</div>
+        <div class="push-prompt-title">開啟通知？</div>
+        <p class="push-prompt-desc">開啟後即使沒有打開 App，附近有緊急事件時也會直接推播到這台裝置。</p>
+        <div class="push-prompt-actions">
+          <button type="button" class="push-prompt-later" @click="dismissPushPrompt">先不用</button>
+          <button type="button" class="push-prompt-enable" @click="onEnablePush">開啟通知</button>
+        </div>
+      </div>
+    </div>
+  </transition>
   <!-- 大圖燈箱 Lightbox Modal -->
   <transition name="toast">
     <div v-if="showLightbox" class="lightbox-overlay" @click="closeLightbox">

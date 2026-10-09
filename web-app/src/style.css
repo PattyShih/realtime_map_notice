@@ -484,7 +484,7 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 /* 連線狀態膠囊 */
 .connection-pill {
   position: absolute;
-  top: 68px;
+  top: 16px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
@@ -508,7 +508,7 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 
 /* 即時在線人數膠囊：位於連線狀態膠囊下方 */
 .connection-pill.online-pill {
-  top: 102px;
+  top: 50px;
   background: rgba(232, 245, 233, 0.92);
   color: #1b5e20;
   border: 1px solid #c8e6c9;
@@ -818,3 +818,83 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   align-items: center;
 }
 .mine-meta { font-size: 0.74rem; color: #999; }
+
+/* ========================================== */
+/* 10. 推播設定卡與詢問彈窗                     */
+/* ========================================== */
+.mine-push-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #fff8ec, #ffffff);
+  border: 1px solid #ffe0b2;
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.mine-push-info { display: flex; align-items: center; gap: 10px; }
+.mine-push-icon { font-size: 1.4rem; }
+.mine-push-title { font-size: 0.9rem; font-weight: 700; color: #1c1c1e; }
+.mine-push-status { font-size: 0.72rem; color: #888; max-width: 210px; }
+.mine-push-btn {
+  border: none;
+  background: #34c759;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 18px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.mine-push-btn:hover { transform: translateY(-1px); opacity: 0.9; }
+.mine-push-btn.off { background: #e5e5ea; color: #666; }
+
+.push-prompt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.push-prompt-card {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 26px 22px 20px;
+  max-width: 340px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+.push-prompt-icon { font-size: 2.4rem; margin-bottom: 10px; }
+.push-prompt-title { font-size: 1.15rem; font-weight: 700; color: #1c1c1e; margin-bottom: 8px; }
+.push-prompt-desc { font-size: 0.85rem; color: #777; line-height: 1.6; margin-bottom: 18px; }
+.push-prompt-actions { display: flex; gap: 10px; }
+.push-prompt-later {
+  flex: 1;
+  border: 1px solid #d9d9de;
+  background: #f2f2f7;
+  color: #555;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 11px 0;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.push-prompt-enable {
+  flex: 1;
+  border: none;
+  background: #ff6b4a;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 11px 0;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(255, 107, 74, 0.35);
+}

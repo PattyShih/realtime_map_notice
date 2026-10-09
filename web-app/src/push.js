@@ -60,3 +60,17 @@ export async function enablePush(userId) {
   if (!save.ok) throw new Error('訂閱儲存失敗，請稍後再試')
   return true
 }
+
+// 取消訂閱：刪除後端紀錄並解除瀏覽器推播訂閱
+export async function disablePush(userId) {
+  if (!PUSH_SUPPORTED) return false
+  const reg = await navigator.serviceWorker.getRegistration()
+  const sub = reg && await reg.pushManager.getSubscription()
+  if (!sub) return false
+  await fetch(
+    `${NOTIFICATION_SERVICE_URL}/push-subscriptions/${encodeURIComponent(userId)}`,
+    { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(sub.toJSON()) }
+  ).catch(() => {})
+  await sub.unsubscribe()
+  return true
+}
