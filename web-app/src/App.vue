@@ -1260,7 +1260,6 @@ window.openImageLightbox = openLightbox
           <div class="form-group">
             <label class="group-label">⏳ 事件時效：</label>
             <select v-model="formData.duration" class="select-light">
-              <option value="0.16">⚡ 測試用：10 秒後自動過期</option>
               <option value="30">保留 30 分鐘 (即時狀況)</option>
               <option value="60">保留 1 小時</option>
               <option value="120">保留 2 小時</option>
