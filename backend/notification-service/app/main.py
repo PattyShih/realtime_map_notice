@@ -227,23 +227,26 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
         withdist=True,  # 回傳距離資訊用於除錯
     )
 
-    # 2. 過濾離線使用者：last_seen key 帶 TTL，過期即視為離線
+    # 2. 依 last_seen 分流：
+    #    在線使用者 → WebSocket＋系統推播；
+    #    離線但已訂閱推播的使用者 → 僅送系統推播（用最後已知位置，
+    #    這是 Web Push「沒開 App 也收得到」的核心價值）
     pipe = redis.pipeline(transaction=False)
     for uid, _ in nearby_users:
         pipe.get(f"{USER_LAST_SEEN_PREFIX}:{uid}")
 
     last_seen_values = await pipe.execute()
-    active_users = [
-        (uid, float(distance))
-        for (uid, distance), last_seen in zip(nearby_users, last_seen_values)
-        if last_seen
-    ]
+    active_users = []
+    offline_push_users = []
+    for (uid, distance), last_seen in zip(nearby_users, last_seen_values):
+        if last_seen:
+            active_users.append((uid, float(distance)))
+        elif await push.has_subscriptions(redis, uid):
+            offline_push_users.append((uid, float(distance)))
 
     # 3. pipeline 批次發布：每位使用者的通知帶各自距離，一次送出全部 publish
-    pipe = redis.pipeline(transaction=False)
-    push_payloads: list[tuple[str, dict]] = []
-    for user_id, distance in active_users:
-        notification = EventNotification(
+    def build_notification(distance: float) -> EventNotification:
+        return EventNotification(
             event_id=broadcast.event_id,
             user_id=broadcast.user_id,
             title=broadcast.title,
@@ -261,6 +264,11 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
             analysis=broadcast.analysis,
         )
 
+    pipe = redis.pipeline(transaction=False)
+    push_payloads: list[tuple[str, dict]] = []
+    for user_id, distance in active_users:
+        notification = build_notification(distance)
+
         push_payloads.append(
             (user_id, notification.model_dump(mode="json"))
         )
@@ -272,6 +280,12 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
         )
 
     subscriber_counts = await pipe.execute()
+
+    # 離線但已訂閱推播的使用者：只送系統推播（冪等，失敗的訂閱會被清除）
+    for user_id, distance in offline_push_users:
+        push_payloads.append(
+            (user_id, build_notification(distance).model_dump(mode="json"))
+        )
 
     push_results = await asyncio.gather(
         *(
@@ -300,6 +314,7 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
         "event_id": broadcast.event_id,
         "total_nearby_users": len(nearby_users),
         "active_user_count": len(active_users),
+        "offline_push_user_count": len(offline_push_users),
         "radius_meters": broadcast.radius_meters,
         "delivered_count": len(delivered_to),
         "failed_count": failed_count,

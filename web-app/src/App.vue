@@ -714,7 +714,6 @@ const handleImageUpload = async (e) => {
       : compressed
     formData.value.imageFile = file
     formData.value.imagePreview = finalPreview
-    triggerToast('🖼️ 照片已自動壓縮')
   } catch (err) {
     console.error('照片處理失敗:', err)
     triggerToast(`⚠️ ${err?.message || '照片處理失敗，請換一張試試'}`)

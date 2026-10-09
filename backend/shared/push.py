@@ -16,6 +16,14 @@ def subscription_key(user_id: str) -> str:
     return f"{PUSH_SUBSCRIPTIONS_PREFIX}:{user_id}"
 
 
+async def has_subscriptions(redis, user_id: str) -> bool:
+    """使用者是否曾啟用推播（訂閱紀錄存在 Redis）。
+
+    供廣播與清理流程判斷：離線但有訂閱的使用者仍可透過最後已知
+    位置收到 Web Push。"""
+    return bool(await redis.exists(subscription_key(user_id)))
+
+
 def push_is_configured() -> bool:
     return bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY and VAPID_SUBJECT)
 
