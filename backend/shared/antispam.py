@@ -135,4 +135,4 @@ class EventAntiSpam:
         expires_at = now_ts + duration_minutes * 60
         await self.redis.zadd(active_key, {event_id: expires_at})
         # 活躍清單本身設一個略長於事件壽命的 TTL，避免沒人再發布時留下死 key
-        await self.redis.expire(active_key, duration_minutes * 60 + 60)
+        await self.redis.expire(active_key, int(duration_minutes * 60) + 60)

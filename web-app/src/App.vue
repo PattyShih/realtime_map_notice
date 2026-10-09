@@ -136,7 +136,7 @@ if (PUSH_SUPPORTED) {
 // 避免與地圖平移手勢衝突）
 // ==========================================
 const TABS = [
-  { id: 'ops', label: '戰情', icon: '📊' },
+  { id: 'ops', label: '事件', icon: '📊' },
   { id: 'map', label: '地圖', icon: '🗺️' },
   { id: 'mine', label: '我的', icon: '📋' },
 ]
@@ -641,6 +641,18 @@ const removeImage = () => {
   formData.value.imagePreview = '' 
 }
 
+// FastAPI 驗證錯誤的 detail 可能是字串或物件陣列，統一轉成可讀字串
+const formatApiDetail = (detail) => {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail.map(d => {
+      const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : ''
+      return field ? `${field}：${d.msg}` : (d.msg || JSON.stringify(d))
+    }).join('；')
+  }
+  return JSON.stringify(detail)
+}
+
 const triggerToast = (msg) => { 
   toastMessage.value = msg
   showToast.value = true
@@ -663,6 +675,7 @@ const handleSubmit = async () => {
     longitude: currentCoords.value.lng,
     severity: formData.value.category === 'danger' ? 'urgent' : formData.value.category,
     radius_meters: 500,
+    duration_minutes: durationMinutes,
     image_url: formData.value.imagePreview || '',
     user_id: getOrCreateUserId() // 補上後端要求的發布者身份驗證
   }
@@ -713,7 +726,7 @@ const handleSubmit = async () => {
       let errorMsg = '發布失敗，請確認 API 欄位格式！'
       try {
         const err = await response.json()
-        if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
+        if (err && err.detail) errorMsg = `⚠️ ${formatApiDetail(err.detail)}`
       } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
       triggerToast(errorMsg)
     }

@@ -313,7 +313,7 @@ async def create_event(payload: EventCreate) -> dict[str, object]:
         await redis.set(
             f"event:{event_id}",
             json.dumps(event_data),
-            ex=payload.duration_minutes * 60,
+            ex=max(1, int(payload.duration_minutes * 60)),
         )
 
         await redis.geoadd(
