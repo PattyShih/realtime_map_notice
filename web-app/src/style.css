@@ -36,6 +36,10 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 .chip-red.active { background: #ff3b30; }
 
 #map { width: 100%; height: 100%; z-index: 1; }
+/* iPhone 動態島：地圖頁的縮放控制下移避開安全區域 */
+.map-panel .leaflet-top {
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
+}
 
 /* ========================================== */
 /* 2. 純 CSS 水滴圖釘 & 懸浮按鈕               */
@@ -484,7 +488,7 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 /* 連線狀態膠囊 */
 .connection-pill {
   position: absolute;
-  top: 16px;
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
@@ -508,7 +512,7 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 
 /* 即時在線人數膠囊：位於連線狀態膠囊下方 */
 .connection-pill.online-pill {
-  top: 50px;
+  top: calc(env(safe-area-inset-top, 0px) + 52px);
   background: rgba(232, 245, 233, 0.92);
   color: #1b5e20;
   border: 1px solid #c8e6c9;
@@ -628,7 +632,7 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 /* 7. 戰情摘要頁                               */
 /* ========================================== */
 .ops-panel, .mine-panel {
-  padding: 120px 16px calc(80px + env(safe-area-inset-bottom));
+  padding: calc(env(safe-area-inset-top, 0px) + 120px) 16px calc(80px + env(safe-area-inset-bottom));
   background: #f7f8fa;
 }
 .ops-header, .mine-header-title {

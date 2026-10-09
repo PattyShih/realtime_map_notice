@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL, AI_SERVICE_URL } from './config.js'
+import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
 import { PUSH_SUPPORTED, getPushState, enablePush, disablePush, isStandalone } from './push.js'
 
 // ==========================================
@@ -253,48 +253,10 @@ const publishFromMine = () => {
 const dangerEventCount = computed(() =>
   eventsList.value.filter(e => e.category === 'danger').length)
 
-const opsSelectedId = ref('')
-const opsLoading = ref(false)
-const opsResult = ref(null)
-const opsError = ref('')
-
-const analyzeSelectedEvent = async () => {
-  const ev = eventsList.value.find(e => e.id === opsSelectedId.value)
-    || eventsList.value[0]
-  if (!ev) {
-    opsError.value = '附近目前沒有事件可以分析'
-    return
-  }
-  opsLoading.value = true
-  opsError.value = ''
-  try {
-    const response = await fetch(`${AI_SERVICE_URL}/analyze-event`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: ev.title,
-        message: ev.description,
-        severity: ev.category === 'danger' ? 'urgent' : ev.category,
-        latitude: ev.location.lat,
-        longitude: ev.location.lng
-      })
-    })
-    if (!response.ok) {
-      let detail = `HTTP ${response.status}`
-      try {
-        const err = await response.json()
-        if (err && err.detail) detail = err.detail
-      } catch (_) { /* 非 JSON 回應維持狀態碼 */ }
-      throw new Error(detail)
-    }
-    opsResult.value = await response.json()
-  } catch (err) {
-    opsResult.value = null
-    opsError.value = `AI 分析暫時不可用（${err.message}），請稍後再試`
-  } finally {
-    opsLoading.value = false
-  }
-}
+// AI 事件分析：此區塊由組員負責開發中
+// 後端端點已就緒：POST {AI_SERVICE_URL}/analyze-event
+// 請求／回應格式見 backend/shared/schemas.py 的
+// EventAnalysisRequest 與 EventAnalysisResponse
 
 // ==========================================
 // 座標上報 Location Service
@@ -1045,7 +1007,7 @@ window.openImageLightbox = openLightbox
 
         <!-- 頁面 1：戰情摘要 -->
         <section class="tab-panel ops-panel">
-          <div class="ops-header">📊 戰情摘要</div>
+          <div class="ops-header">📊 事件摘要</div>
 
           <div class="stats-grid">
             <div class="stat-card">
@@ -1068,59 +1030,7 @@ window.openImageLightbox = openLightbox
 
           <div class="ops-ai-card">
             <div class="ops-ai-header">🤖 AI 事件分析</div>
-            <p class="ops-ai-hint">選擇附近的事件，AI 會產生應變建議與報案摘要。</p>
-
-            <select v-model="opsSelectedId" class="select-light ops-select">
-              <option value="" disabled>請選擇事件...</option>
-              <option v-for="ev in eventsList" :key="ev.id" :value="ev.id">
-                {{ ev.title }}（{{ ev.distance }}m）
-              </option>
-            </select>
-
-            <button
-              type="button"
-              class="submit-btn ops-analyze-btn"
-              :disabled="opsLoading || !eventsList.length"
-              @click="analyzeSelectedEvent"
-            >
-              {{ opsLoading ? '分析中...' : '產生 AI 分析' }}
-            </button>
-
-            <div v-if="opsError" class="ops-error">{{ opsError }}</div>
-
-            <div v-if="opsResult" class="ops-result">
-              <div class="ops-result-summary">{{ opsResult.summary }}</div>
-
-              <div v-if="opsResult.advice && opsResult.advice.length" class="ops-result-block">
-                <div class="ops-result-title">✅ 建議事項</div>
-                <ul class="ops-result-list">
-                  <li v-for="(a, i) in opsResult.advice" :key="'a' + i">{{ a }}</li>
-                </ul>
-              </div>
-
-              <div v-if="opsResult.incident_facts && opsResult.incident_facts.length" class="ops-result-block">
-                <div class="ops-result-title">📌 事件要點</div>
-                <ul class="ops-result-list">
-                  <li v-for="(f, i) in opsResult.incident_facts" :key="'f' + i">{{ f }}</li>
-                </ul>
-              </div>
-
-              <div v-if="opsResult.emergency_contacts && opsResult.emergency_contacts.length" class="ops-result-block">
-                <div class="ops-result-title">☎️ 緊急聯絡</div>
-                <div class="ops-contacts">
-                  <span v-for="(c, i) in opsResult.emergency_contacts" :key="'c' + i" class="ops-contact-chip">{{ c }}</span>
-                </div>
-              </div>
-
-              <div class="ops-result-report">
-                <div class="ops-result-title">📝 報案摘要</div>
-                <p>{{ opsResult.report_summary }}</p>
-              </div>
-
-              <div class="ops-result-meta">
-                信心度 {{ Math.round((opsResult.confidence || 0) * 100) }}%｜提供者：{{ opsResult.provider }}
-              </div>
-            </div>
+            <p class="ops-ai-hint">此功能開發中，敬請期待。</p>
           </div>
         </section>
 
