@@ -440,20 +440,54 @@ const addEventUnique = (newEvent, { notify = true } = {}) => {
 const wsStatus = ref('connecting')
 let reconnectAttempts = 0
 let reconnectTimeout = null
+let ws = null
+let lastWsMessageAt = 0
+let heartbeatWatchdog = null
+let everConnected = false
+
+// 連線是否活著（OPEN 且近期有收到伺服器訊息）
+const isWsAlive = () => ws && ws.readyState === WebSocket.OPEN
+
+// 手機切背景時系統會凍結 WebSocket：回到前景立刻重連，不等重試倒數
+const resyncConnection = () => {
+  if (isWsAlive()) return
+  if (reconnectTimeout) clearTimeout(reconnectTimeout)
+  reconnectAttempts = 0
+  setupWebSocket()
+}
+
+// 看門狗：連線看似 OPEN 但超過 45 秒沒收到任何訊息（伺服器每 30 秒會 ping），
+// 視為半死連線，主動切斷觸發重連
+const startHeartbeatWatchdog = () => {
+  if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
+  heartbeatWatchdog = setInterval(() => {
+    if (isWsAlive() && Date.now() - lastWsMessageAt > 45000) {
+      console.log('⚠️ 連線逾時無訊息，主動重連')
+      ws.close()
+    }
+  }, 10000)
+}
 
 const setupWebSocket = () => {
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
-  
+  if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
+
   const userId = getOrCreateUserId()
-  const ws = new WebSocket(`${NOTIFICATION_WS_URL}/ws/${userId}`)
+  ws = new WebSocket(`${NOTIFICATION_WS_URL}/ws/${userId}`)
 
   ws.onopen = () => {
     console.log('✅ WebSocket 即時廣播頻道連線成功！')
     wsStatus.value = 'connected'
     reconnectAttempts = 0
+    lastWsMessageAt = Date.now()
+    startHeartbeatWatchdog()
+    // 重連後補抓附近事件：背景期間錯過的事件不會遺漏
+    if (everConnected) fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
+    everConnected = true
   }
 
   ws.onmessage = (event) => {
+    lastWsMessageAt = Date.now()
     try {
       const data = JSON.parse(event.data)
       if (data.type === 'hello') return
@@ -503,14 +537,22 @@ const setupWebSocket = () => {
   }
 
   ws.onclose = () => {
+    if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
     wsStatus.value = 'reconnecting'
     reconnectAttempts++
-    const delay = Math.min(10000, Math.pow(2, reconnectAttempts) * 1000)
+    // 手機回到前景時希望秒連：0.5s 起跳、上限 5 秒
+    const delay = Math.min(5000, 500 * Math.pow(2, reconnectAttempts))
     reconnectTimeout = setTimeout(() => {
       setupWebSocket()
     }, delay)
   }
 }
+
+// 回到前景／網路恢復時立刻檢查並重連
+const handleVisibilityResume = () => {
+  if (document.visibilityState === 'visible') resyncConnection()
+}
+const handleNetworkOnline = () => resyncConnection()
 
 // ==========================
 // 生命週期管理
@@ -547,6 +589,9 @@ onMounted(() => {
   }, 15000)
   // 每秒更新倒數計時
   countdownTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
+  // 前景恢復／網路恢復時立刻重連 WebSocket
+  document.addEventListener('visibilitychange', handleVisibilityResume)
+  window.addEventListener('online', handleNetworkOnline)
 })
 
 onUnmounted(() => {
@@ -556,6 +601,9 @@ onUnmounted(() => {
   if (countdownTimer) clearInterval(countdownTimer)
   if (onlinePollTimer) clearInterval(onlinePollTimer)
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
+  if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
+  document.removeEventListener('visibilitychange', handleVisibilityResume)
+  window.removeEventListener('online', handleNetworkOnline)
 })
 
 // ==========================
