@@ -664,15 +664,60 @@ const toastMessage = ref('')
 const showToast = ref(false)
 const formData = ref({ title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' })
 
-const handleImageUpload = (e) => {
-  const file = e.target.files[0]
-  if (file) {
-    formData.value.imageFile = file
+// 照片上傳前壓縮：手機原圖動輒 3-5MB，base64 後會超過後端上限，
+// 也會撐爆 Redis。最長邊縮到 1600px、轉 JPEG（品質 0.85），畫質肉眼幾乎無差。
+const compressImage = (file, maxSide = 1600, quality = 0.85) =>
+  new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = (event) => {
-      formData.value.imagePreview = event.target.result
+    reader.onerror = () => reject(new Error('讀取照片失敗'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('照片格式無法解析'))
+      img.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(img.width * scale))
+        canvas.height = Math.max(1, Math.round(img.height * scale))
+        const ctx = canvas.getContext('2d')
+        ctx.fillStyle = '#ffffff' // PNG 透明背景轉 JPEG 時鋪白底
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = reader.result
     }
     reader.readAsDataURL(file)
+  })
+
+const readFileAsDataURL = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('讀取照片失敗'))
+    reader.onload = (event) => resolve(event.target.result)
+    reader.readAsDataURL(file)
+  })
+
+const handleImageUpload = async (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+  try {
+    // 小於 200KB 的圖直接用原圖（維持原始格式與透明度）
+    if (file.size <= 200 * 1024) {
+      formData.value.imageFile = file
+      formData.value.imagePreview = await readFileAsDataURL(file)
+      return
+    }
+    const compressed = await compressImage(file)
+    // 壓縮後仍超過後端上限（罕見），再壓一次更狠的參數
+    const finalPreview = compressed.length > 2_000_000
+      ? await compressImage(file, 1080, 0.7)
+      : compressed
+    formData.value.imageFile = file
+    formData.value.imagePreview = finalPreview
+    triggerToast('🖼️ 照片已自動壓縮')
+  } catch (err) {
+    console.error('照片處理失敗:', err)
+    triggerToast(`⚠️ ${err?.message || '照片處理失敗，請換一張試試'}`)
   }
 }
 
