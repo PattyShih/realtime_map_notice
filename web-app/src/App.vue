@@ -983,14 +983,14 @@ window.openImageLightbox = openLightbox
 <template>
   <div class="app-container">
     <!-- 連線狀態指示膠囊 -->
-  <div class="connection-pill" :class="wsStatus">
+  <div v-show="activeTab !== 'mine'" class="connection-pill" :class="wsStatus">
     <span class="status-indicator-dot"></span>
     <span v-if="wsStatus === 'connected'">即時同步中</span>
     <span v-else-if="wsStatus === 'reconnecting'">連線中斷，重試中...</span>
     <span v-else>伺服器未連線</span>
   </div>
     <!-- 即時在線人數膠囊（GEO 索引成員數，含模擬壓測使用者） -->
-  <div class="connection-pill online-pill">
+  <div v-show="activeTab !== 'mine'" class="connection-pill online-pill">
     <span>👥 即時在線 {{ onlineCount }} 人</span>
   </div>
     <!-- Toast 通知 -->
@@ -1030,7 +1030,7 @@ window.openImageLightbox = openLightbox
 
           <div class="ops-ai-card">
             <div class="ops-ai-header">🤖 AI 事件分析</div>
-            <p class="ops-ai-hint">此功能開發中，敬請期待。</p>
+            <p class="ops-ai-hint">待開發</p>
           </div>
         </section>
 
