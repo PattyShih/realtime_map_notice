@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
+import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL, AI_SERVICE_URL } from './config.js'
 import { PUSH_SUPPORTED, getPushState, enablePush } from './push.js'
 
 // ==========================================
@@ -128,6 +128,105 @@ if (PUSH_SUPPORTED) {
   getPushState().then((s) => {
     pushBtnVisible.value = s.supported && !s.subscribed
   })
+}
+
+// ==========================================
+// 三分頁導覽：戰情摘要（左）／地圖（中）／我的發布（右）
+// 底部 tab bar 切換，頁面間支援左右滑動（地圖頁僅接受邊緣滑動，
+// 避免與地圖平移手勢衝突）
+// ==========================================
+const TABS = [
+  { id: 'ops', label: '戰情', icon: '📊' },
+  { id: 'map', label: '地圖', icon: '🗺️' },
+  { id: 'mine', label: '我的', icon: '📋' },
+]
+const TAB_INDEX = { ops: 0, map: 1, mine: 2 }
+const activeTab = ref('map')
+const trackStyle = computed(() => ({
+  transform: `translateX(-${TAB_INDEX[activeTab.value] * 100}%)`
+}))
+const switchTab = (id) => {
+  if (!TABS.some(t => t.id === id)) return
+  activeTab.value = id
+}
+
+let touchStart = null
+const EDGE_ZONE = 36 // 地圖頁只接受從左右邊緣開始的滑動
+const onTouchStart = (e) => {
+  const t = e.changedTouches[0]
+  touchStart = {
+    x: t.clientX,
+    y: t.clientY,
+    fromEdge: t.clientX < EDGE_ZONE || t.clientX > window.innerWidth - EDGE_ZONE
+  }
+}
+const onTouchEnd = (e) => {
+  if (!touchStart) return
+  const t = e.changedTouches[0]
+  const dx = t.clientX - touchStart.x
+  const dy = t.clientY - touchStart.y
+  const fromEdge = touchStart.fromEdge
+  touchStart = null
+
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return
+  // 地圖頁：橫向滑動是平移地圖的主要手勢，僅邊緣起始的滑動才切換分頁
+  if (activeTab.value === 'map' && !fromEdge) return
+
+  const idx = TAB_INDEX[activeTab.value]
+  if (dx < 0 && idx < TABS.length - 1) switchTab(TABS[idx + 1].id)
+  if (dx > 0 && idx > 0) switchTab(TABS[idx - 1].id)
+}
+
+// ==========================================
+// 戰情摘要頁：統計卡與 AI 事件分析
+// ==========================================
+const myEvents = computed(() => eventsList.value
+  .filter(e => e.userId === myUserId)
+  .sort((a, b) => b.expiresAt - a.expiresAt))
+const dangerEventCount = computed(() =>
+  eventsList.value.filter(e => e.category === 'danger').length)
+
+const opsSelectedId = ref('')
+const opsLoading = ref(false)
+const opsResult = ref(null)
+const opsError = ref('')
+
+const analyzeSelectedEvent = async () => {
+  const ev = eventsList.value.find(e => e.id === opsSelectedId.value)
+    || eventsList.value[0]
+  if (!ev) {
+    opsError.value = '附近目前沒有事件可以分析'
+    return
+  }
+  opsLoading.value = true
+  opsError.value = ''
+  try {
+    const response = await fetch(`${AI_SERVICE_URL}/analyze-event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: ev.title,
+        message: ev.description,
+        severity: ev.category === 'danger' ? 'urgent' : ev.category,
+        latitude: ev.location.lat,
+        longitude: ev.location.lng
+      })
+    })
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`
+      try {
+        const err = await response.json()
+        if (err && err.detail) detail = err.detail
+      } catch (_) { /* 非 JSON 回應維持狀態碼 */ }
+      throw new Error(detail)
+    }
+    opsResult.value = await response.json()
+  } catch (err) {
+    opsResult.value = null
+    opsError.value = `AI 分析暫時不可用（${err.message}），請稍後再試`
+  } finally {
+    opsLoading.value = false
+  }
 }
 
 // ==========================================
@@ -826,16 +925,136 @@ window.openImageLightbox = openLightbox
       </div>
     </transition>
 
-    <!-- 地圖容器 -->
-    <div id="map"></div>
+    <!-- 三分頁視窗：戰情摘要（左）／地圖（中）／我的發布（右） -->
+    <div class="tab-viewport" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
+      <div class="tab-track" :style="trackStyle">
 
-    <!-- 左下角：「📋 查看附近清單」按鈕 -->
-    <button class="list-fab-btn" @click="showListModal = true">
+        <!-- 頁面 1：戰情摘要 -->
+        <section class="tab-panel ops-panel">
+          <div class="ops-header">📊 戰情摘要</div>
+
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-value">{{ onlineCount }}</span>
+              <span class="stat-label">線上人數</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">{{ eventsList.length }}</span>
+              <span class="stat-label">進行中事件</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">{{ dangerEventCount }}</span>
+              <span class="stat-label">緊急事件</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">{{ myEvents.length }}</span>
+              <span class="stat-label">我的發布</span>
+            </div>
+          </div>
+
+          <div class="ops-ai-card">
+            <div class="ops-ai-header">🤖 AI 事件分析</div>
+            <p class="ops-ai-hint">選擇附近的事件，AI 會產生應變建議與報案摘要。</p>
+
+            <select v-model="opsSelectedId" class="select-light ops-select">
+              <option value="" disabled>請選擇事件...</option>
+              <option v-for="ev in eventsList" :key="ev.id" :value="ev.id">
+                {{ ev.title }}（{{ ev.distance }}m）
+              </option>
+            </select>
+
+            <button
+              type="button"
+              class="submit-btn ops-analyze-btn"
+              :disabled="opsLoading || !eventsList.length"
+              @click="analyzeSelectedEvent"
+            >
+              {{ opsLoading ? '分析中...' : '產生 AI 分析' }}
+            </button>
+
+            <div v-if="opsError" class="ops-error">{{ opsError }}</div>
+
+            <div v-if="opsResult" class="ops-result">
+              <div class="ops-result-summary">{{ opsResult.summary }}</div>
+
+              <div v-if="opsResult.advice && opsResult.advice.length" class="ops-result-block">
+                <div class="ops-result-title">✅ 建議事項</div>
+                <ul class="ops-result-list">
+                  <li v-for="(a, i) in opsResult.advice" :key="'a' + i">{{ a }}</li>
+                </ul>
+              </div>
+
+              <div v-if="opsResult.incident_facts && opsResult.incident_facts.length" class="ops-result-block">
+                <div class="ops-result-title">📌 事件要點</div>
+                <ul class="ops-result-list">
+                  <li v-for="(f, i) in opsResult.incident_facts" :key="'f' + i">{{ f }}</li>
+                </ul>
+              </div>
+
+              <div v-if="opsResult.emergency_contacts && opsResult.emergency_contacts.length" class="ops-result-block">
+                <div class="ops-result-title">☎️ 緊急聯絡</div>
+                <div class="ops-contacts">
+                  <span v-for="(c, i) in opsResult.emergency_contacts" :key="'c' + i" class="ops-contact-chip">{{ c }}</span>
+                </div>
+              </div>
+
+              <div class="ops-result-report">
+                <div class="ops-result-title">📝 報案摘要</div>
+                <p>{{ opsResult.report_summary }}</p>
+              </div>
+
+              <div class="ops-result-meta">
+                信心度 {{ Math.round((opsResult.confidence || 0) * 100) }}%｜提供者：{{ opsResult.provider }}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 頁面 2：地圖（主畫面） -->
+        <section class="tab-panel map-panel">
+          <div id="map"></div>
+        </section>
+
+        <!-- 頁面 3：我的發布 -->
+        <section class="tab-panel mine-panel">
+          <div class="ops-header">📋 我的發布</div>
+
+          <div v-if="myEvents.length === 0" class="empty-state mine-empty">
+            你還沒有發布過事件。<br />點右下角「＋」發布第一則吧！
+          </div>
+
+          <div v-else class="mine-list">
+            <div v-for="item in myEvents" :key="item.id" class="event-card mine-card">
+              <div class="card-content">
+                <div class="card-header">
+                  <span class="card-title">{{ item.title }}</span>
+                  <span class="card-badge" :class="item.category">
+                    步行時間約 {{ item.walkTime }} 分鐘
+                  </span>
+                </div>
+                <p class="card-desc">{{ item.description }}</p>
+                <div class="card-meta">
+                  <span>距離 {{ item.distance }}公尺</span>
+                  <span>發布時間  {{ item.timestamp }}</span>
+                  <span class="card-actions">
+                    <button type="button" class="card-action-btn" title="編輯事件" @click="startEditEvent(item)">✏️</button>
+                    <button type="button" class="card-action-btn" title="刪除事件" :disabled="deletingId === item.id" @click="deleteEvent(item)">🗑️</button>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 左下角：「📋 查看附近清單」按鈕（僅地圖頁顯示） -->
+    <button v-show="activeTab === 'map'" class="list-fab-btn" @click="showListModal = true">
       📋 列表 <span v-if="filteredSortedEvents.length > 0" class="badge">{{ filteredSortedEvents.length }}</span>
     </button>
 
-    <!-- 右下方「定位回正」按鈕 -->
-    <button class="recenter-btn" @click="recenterMap" title="回到我的位置">
+    <!-- 右下方「定位回正」按鈕（僅地圖頁顯示） -->
+    <button v-show="activeTab === 'map'" class="recenter-btn" @click="recenterMap" title="回到我的位置">
       <svg viewBox="0 0 24 24" width="20" height="20" stroke="#555555" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="8"></circle>
         <line x1="12" y1="2" x2="12" y2="4"></line>
@@ -845,8 +1064,22 @@ window.openImageLightbox = openLightbox
       </svg>
     </button>
 
-    <!-- 右下角懸浮按鈕 FAB -->
-    <button class="fab-btn" @click="showModal = true">＋</button>
+    <!-- 右下角懸浮按鈕 FAB（僅地圖頁顯示） -->
+    <button v-show="activeTab === 'map'" class="fab-btn" @click="showModal = true">＋</button>
+
+    <!-- 底部 tab bar -->
+    <nav class="tab-bar">
+      <button
+        v-for="t in TABS"
+        :key="t.id"
+        type="button"
+        :class="['tab-btn', { active: activeTab === t.id }]"
+        @click="switchTab(t.id)"
+      >
+        <span class="tab-icon">{{ t.icon }}</span>
+        <span class="tab-label">{{ t.label }}</span>
+      </button>
+    </nav>
 
     <!-- 周遭事件清單抽屜 -->
     <div v-if="showListModal" class="modal-overlay" @click.self="showListModal = false">

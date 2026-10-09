@@ -15,3 +15,6 @@ export const NOTIFICATION_WS_URL =
 
 export const NOTIFICATION_SERVICE_URL =
   import.meta.env.VITE_NOTIFICATION_SERVICE_URL || `${httpProtocol}//${host}:8003`
+
+export const AI_SERVICE_URL =
+  import.meta.env.VITE_AI_SERVICE_URL || `${httpProtocol}//${host}:8004`

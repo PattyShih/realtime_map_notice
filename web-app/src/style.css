@@ -563,3 +563,151 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   50% { opacity: 1; }
   100% { opacity: 0.7; }
 }
+/* ========================================== */
+/* 6. 三分頁導覽（tab bar + 滑動切換）          */
+/* ========================================== */
+.tab-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.tab-track {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.3s ease;
+}
+.tab-panel {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+}
+.map-panel { overflow: hidden; }
+
+.tab-bar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  background-color: #ffffff;
+  border-top: 1px solid #e5e5ea;
+  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 1200;
+}
+.tab-btn {
+  flex: 1;
+  border: none;
+  background: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 0 6px;
+  font-size: 0.72rem;
+  color: #999;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.tab-btn.active { color: #ff6b4a; font-weight: 600; }
+.tab-icon { font-size: 1.25rem; line-height: 1; }
+
+/* FAB 按鈕墊高，避開底部 tab bar */
+.fab-btn { bottom: calc(74px + env(safe-area-inset-bottom)); }
+.recenter-btn { bottom: calc(140px + env(safe-area-inset-bottom)); }
+.list-fab-btn { bottom: calc(68px + env(safe-area-inset-bottom)); }
+@media (min-width: 768px) {
+  .fab-btn { bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .recenter-btn { bottom: calc(146px + env(safe-area-inset-bottom)); }
+  .list-fab-btn { bottom: calc(74px + env(safe-area-inset-bottom)); }
+}
+
+/* ========================================== */
+/* 7. 戰情摘要頁                               */
+/* ========================================== */
+.ops-panel, .mine-panel {
+  padding: 120px 16px calc(80px + env(safe-area-inset-bottom));
+  background: #f7f8fa;
+}
+.ops-header, .mine-header-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #1c1c1e;
+  margin-bottom: 14px;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.stat-value { font-size: 1.5rem; font-weight: 700; color: #1b6b7a; }
+.stat-label { font-size: 0.78rem; color: #888; }
+
+.ops-ai-card {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.ops-ai-header { font-weight: 700; font-size: 1rem; margin-bottom: 6px; }
+.ops-ai-hint { font-size: 0.8rem; color: #888; margin-bottom: 10px; }
+.ops-select { margin-bottom: 10px; }
+.ops-analyze-btn { width: 100%; }
+.ops-analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ops-error {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: #c0392b;
+  background: #fdecea;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.ops-result { margin-top: 14px; border-top: 1px solid #eee; padding-top: 12px; }
+.ops-result-summary { font-size: 0.95rem; font-weight: 600; color: #222; margin-bottom: 10px; }
+.ops-result-block { margin-bottom: 10px; }
+.ops-result-title { font-size: 0.82rem; font-weight: 700; color: #1b6b7a; margin-bottom: 4px; }
+.ops-result-list { margin: 0; padding-left: 18px; font-size: 0.88rem; color: #333; }
+.ops-result-list li { margin-bottom: 3px; }
+.ops-contacts { display: flex; gap: 6px; flex-wrap: wrap; }
+.ops-contact-chip {
+  background: #eef4f5;
+  color: #1b6b7a;
+  font-weight: 600;
+  font-size: 0.82rem;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+.ops-result-report {
+  background: #f5f7f8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.ops-result-report p { margin: 0; font-size: 0.85rem; color: #444; white-space: pre-wrap; }
+.ops-result-meta { font-size: 0.72rem; color: #aaa; }
+
+/* ========================================== */
+/* 8. 我的發布頁                               */
+/* ========================================== */
+.mine-empty {
+  text-align: center;
+  color: #999;
+  font-size: 0.9rem;
+  line-height: 1.8;
+  padding-top: 80px;
+}
+.mine-list { display: flex; flex-direction: column; gap: 10px; }
+.mine-card { background: #ffffff; border-radius: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
