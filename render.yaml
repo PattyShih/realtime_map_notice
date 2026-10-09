@@ -1,0 +1,76 @@
+# Render Blueprint：一鍵部署四個後端服務 + Redis（皆為免費層）。
+# 使用方式：Render Dashboard → New + → Blueprint → 選擇本 repo 與分支 → Apply。
+# sync: false 的環境變數會在建立時要求手動填入，詳細步驟與前端部署見 DEPLOY.md。
+services:
+  - type: web
+    name: rmn-location
+    runtime: docker
+    dockerfilePath: ./backend/location-service/Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rmn-redis
+          property: connectionString
+      - key: CORS_ALLOW_ORIGINS
+        sync: false   # 填前端網址，例如 https://xxx.vercel.app
+
+  - type: web
+    name: rmn-event
+    runtime: docker
+    dockerfilePath: ./backend/event-service/Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rmn-redis
+          property: connectionString
+      - key: NOTIFICATION_SERVICE_URL
+        value: https://rmn-notification.onrender.com
+      - key: AI_SERVICE_URL
+        value: https://rmn-ai.onrender.com
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+
+  - type: web
+    name: rmn-notification
+    runtime: docker
+    dockerfilePath: ./backend/notification-service/Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rmn-redis
+          property: connectionString
+      - key: VAPID_PUBLIC_KEY
+        sync: false   # 手機推播用，npx web-push generate-vapid-keys 產生；留空僅停用 Web Push
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:admin@example.com
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+
+  - type: web
+    name: rmn-ai
+    runtime: docker
+    dockerfilePath: ./backend/ai-service/Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: AI_PROVIDER   # keyword=離線關鍵字（免費 demo）；有 OpenAI 相容 API key 可改 llm
+        value: keyword
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+
+  - type: redis
+    name: rmn-redis
+    plan: free
+    maxmemoryPolicy: noeviction
+    ipAllowList: []   # 僅允許同專案內部服務連線

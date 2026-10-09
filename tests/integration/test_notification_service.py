@@ -38,9 +38,15 @@ class FakeRedis:
         self.geosearch_result: list[tuple[str, str]] = []
         self.last_seen_keys: set[str] = set()
         self.store: dict[str, str] = {}
+        # 模擬推播訂閱：存在這個集合的 user_id 視為已訂閱
+        self.push_subscribed: set[str] = set()
 
     async def ping(self) -> bool:
         return True
+
+    async def exists(self, key: str) -> int:
+        # key 結尾是 user_id（realtime_map_notice:user:push_subscriptions:{uid}）
+        return int(key.rsplit(":", 1)[-1] in self.push_subscribed)
 
     def pubsub(self) -> FakePubSub:
         return FakePubSub()
@@ -220,6 +226,51 @@ async def test_broadcast_nearby_filters_offline_users(monkeypatch) -> None:
     assert published_notification["type"] == "event"
     assert published_notification["distance_meters"] == 120.0
     assert published_notification["deep_link"] == "event:uuid-1"
+
+
+@pytest.mark.asyncio
+async def test_broadcast_sends_push_to_offline_subscribed_users(monkeypatch) -> None:
+    """離線但已訂閱推播的使用者：沒有 WS publish，但會收到系統推播。"""
+    fake_redis = FakeRedis()
+    fake_redis.geosearch_result = [("u-offline-sub", "250.0")]
+    # last_seen 過期（離線），但有推播訂閱
+    fake_redis.push_subscribed.add("u-offline-sub")
+    monkeypatch.setattr(notification_service, "redis", fake_redis)
+
+    push_calls: list[tuple[str, dict]] = []
+
+    async def fake_send(redis, user_id, payload):
+        push_calls.append((user_id, payload))
+        return 1
+
+    monkeypatch.setattr(notification_service.push, "send_push_notifications", fake_send)
+
+    transport = ASGITransport(app=notification_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/broadcast/nearby",
+            json={
+                "event_id": "uuid-2",
+                "title": "Urgent notice",
+                "message": "Road blocked near library",
+                "latitude": 25.0173,
+                "longitude": 121.5397,
+                "severity": "urgent",
+                "radius_meters": 500,
+                "duration_minutes": 60,
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["active_user_count"] == 0
+    assert body["delivered_count"] == 0
+    assert body["offline_push_user_count"] == 1
+    assert body["push_delivered_count"] == 1
+    # 離線訂閱戶沒有 WS publish，改走系統推播
+    assert fake_redis.published == []
+    assert [u for u, _ in push_calls] == ["u-offline-sub"]
+    assert push_calls[0][1]["deep_link"] == "event:uuid-2"
 
 
 @pytest.mark.asyncio

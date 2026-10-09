@@ -22,8 +22,8 @@ class EventCreate(BaseModel):
         examples=["info", "warning", "danger", "urgent"],
     )
     radius_meters: int = Field(500, ge=50, le=3000)
-     # 新增：事件存在時間（分鐘）
-    duration_minutes: int = Field(60, ge=1, le=1440, examples=[30, 60, 1440])
+     # 新增：事件存在時間（分鐘）；支援小數（0.1 = 6 秒，demo 測試用）
+    duration_minutes: float = Field(60, gt=0, le=1440, examples=[30, 60, 1440])
 
     # 新增：圖片 Base64 字串
     image_base64: str | None = Field(None, description="現場照片 Base64 字串", max_length=2_000_000)
@@ -74,7 +74,7 @@ class EventNotification(BaseModel):
     longitude: float
     severity: str
     distance_meters: float | None = None
-    duration_minutes: int = 60
+    duration_minutes: float = 60
     created_at: datetime | None = None
     expires_at: datetime | None = None
     deep_link: str | None = None
@@ -93,7 +93,7 @@ class EventResponse(BaseModel):
     longitude: float
     radius_meters: int
     created_at: datetime
-    duration_minutes: int = 60
+    duration_minutes: float = 60
     image_url: str | None = None
     # 舊事件資料沒有 user_id，預設空字串以維持向下相容
     user_id: str = ""
@@ -141,8 +141,8 @@ class NearbyBroadcast(BaseModel):
     # 如果廣播也需要帶圖片，可以用
     image_base64: str | None = None
     image_url: str | None = None
-    # 暫定60分鐘，之後可以調整
-    duration_minutes: int = Field(60, ge=1, le=1440)
+    # 暫定60分鐘，之後可以調整；支援小數（demo 測試用）
+    duration_minutes: float = Field(60, gt=0, le=1440)
     created_at: datetime | None = None
     expires_at: datetime | None = None
     analysis: EventAnalysisResponse | None = None

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Realtime Map Notice（即時地圖通知）— K8s 運維儀表板</title>
+<script src="vendor/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1220; --panel: #111a2c; --line: #1f2b45; --text: #e2e8f0;
+    --muted: #7d8db1; --accent: #38bdf8; --green: #34d399; --amber: #fbbf24; --red: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+    padding: 20px 24px;
+  }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  header h1 { font-size: 19px; font-weight: 600; }
+  .badge {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  .badge.k8s { color: var(--green); border-color: var(--green); }
+  .badge.compose { color: var(--amber); border-color: var(--amber); }
+  .grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px;
+  }
+  .panel h2 { font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
+  label { font-size: 13px; color: var(--muted); }
+  input[type=number] {
+    width: 100%; margin: 6px 0 12px; padding: 9px 12px; font-size: 15px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+  }
+  button {
+    width: 100%; padding: 10px; margin-bottom: 8px; font-size: 14px; font-weight: 600;
+    border: none; border-radius: 8px; cursor: pointer; color: #04121f;
+  }
+  button.start { background: var(--accent); }
+  button.stop { background: var(--red); color: #2a0505; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .loadinfo { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .loadinfo b { color: var(--text); }
+  .cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .svc {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; min-width: 150px;
+  }
+  .svc .name { font-size: 13px; color: var(--muted); }
+  .svc .cpu { font-size: 22px; font-weight: 700; margin: 2px 0; }
+  .svc .meta { font-size: 11px; color: var(--muted); }
+  .replica-tag {
+    display: inline-block; margin-left: 6px; padding: 1px 8px; font-size: 11px;
+    border-radius: 999px; background: rgba(56,189,248,.15); color: var(--accent);
+  }
+  .chart-wrap { position: relative; height: 260px; }
+  #events { list-style: none; font-size: 13px; max-height: 220px; overflow-y: auto; }
+  #events li { padding: 4px 0; border-bottom: 1px dashed var(--line); color: var(--muted); }
+  #events li b { color: var(--text); font-weight: 500; margin-right: 8px; }
+  .foot { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  /* 容器擴展現場 */
+  .banner {
+    font-size: 15px; font-weight: 700; padding: 9px 14px; border-radius: 8px;
+    margin-bottom: 12px; border: 1px solid var(--line); background: var(--bg);
+    transition: all .3s ease;
+  }
+  .banner.ok { color: var(--green); border-color: rgba(52, 211, 153, .5); }
+  .banner.hot { color: var(--amber); border-color: var(--amber); animation: bannerPulse 1.2s infinite; }
+  .banner.scale { color: var(--accent); border-color: var(--accent); }
+  @keyframes bannerPulse { 50% { opacity: .55; } }
+  .pod-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .flow-src {
+    font-size: 12px; color: var(--muted); white-space: nowrap;
+    padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  }
+  .flowline {
+    flex: 0 0 56px; height: 6px; border-radius: 3px;
+    background: repeating-linear-gradient(90deg, var(--accent) 0 8px, transparent 8px 16px);
+    animation: flow .5s linear infinite;
+  }
+  @keyframes flow { to { background-position: 16px 0; } }
+  .pod {
+    border: 2px solid var(--green); background: rgba(52, 211, 153, .08);
+    border-radius: 10px; padding: 8px 14px; min-width: 150px;
+  }
+  .pod.new { animation: pop .45s ease-out; }
+  .pod .pname { font-size: 12px; color: var(--muted); }
+  .pod .pcpu { font-size: 20px; font-weight: 700; color: var(--green); }
+  .pod.hot { border-color: var(--amber); background: rgba(251, 191, 36, .08); }
+  .pod.hot .pcpu { color: var(--amber); }
+  @keyframes pop {
+    0% { transform: scale(.4); opacity: 0; }
+    70% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .slot {
+    border: 2px dashed var(--line); border-radius: 10px; padding: 14px;
+    min-width: 150px; color: var(--muted); font-size: 12px; text-align: center;
+  }
+  .other-line { font-size: 12px; color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ Realtime Map Notice（即時地圖通知）— K8s 運維儀表板</h1>
+  <span id="modeBadge" class="badge">偵測模式中…</span>
+  <span id="loadBadge" class="badge">無壓測</span>
+</header>
+
+<div class="grid">
+  <div class="panel">
+    <h2>流量模擬</h2>
+    <label>模擬湧入人數（100–3000）</label>
+    <input id="users" type="number" value="500" min="100" max="3000" step="100">
+    <button id="btnStart" class="start">⚡ 開始壓測</button>
+    <button id="btnStop" class="stop" disabled>⏹ 停止壓測</button>
+    <div class="loadinfo" id="loadInfo">目前無模擬流量</div>
+  </div>
+
+  <div>
+    <div class="cards" id="cards"></div>
+    <div class="panel" style="margin-bottom:14px">
+      <h2>容器擴展現場（location-service · 定位服務）</h2>
+      <div id="banner" class="banner ok">等待資料…</div>
+      <div id="podRow"></div>
+      <div id="otherLine" class="other-line"></div>
+    </div>
+    <div class="panel">
+      <h2>容器 CPU 使用率（%）</h2>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>自動擴展事件</h2>
+  <ul id="events"><li>等待資料…</li></ul>
+</div>
+
+<p class="foot">
+  compose 模式：HPA 由 ops 服務模擬（平均 CPU ≥ 25% 連續 2 次擴展、≤ 8% 連續 3 次縮回，最多 3 副本；
+  門檻可用環境變數調整），額外副本發布於 :18001/:18002，壓測流量經 ops 的 round-robin proxy 分流
+  （等效 K8s Service），模擬人數 > 800 自動拆多個 worker 容器。
+  k8s 模式：讀取真實 HPA / kubectl top，壓測以 load-generator Job 於叢集內發動。
+</p>
+
+<script>
+const MAX_POINTS = 60;
+
+// Chart.js 載入失敗（無網路）時仍保留數據面板功能，只是不畫圖
+const chart = window.Chart
+  ? new Chart(document.getElementById('chart'), {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          y: { min: 0, max: 100, ticks: { color: '#7d8db1' }, grid: { color: '#1f2b45' } },
+          x: { ticks: { color: '#7d8db1', maxTicksLimit: 8 }, grid: { display: false } },
+        },
+        plugins: { legend: { labels: { color: '#e2e8f0', boxWidth: 12 } } },
+      },
+    })
+  : null;
+
+function ensureDataset(key, label, extra = {}) {
+  if (!chart) return null;
+  let ds = chart.data.datasets.find((d) => d.key === key);
+  if (!ds) {
+    ds = {
+      key, label, data: [],
+      borderColor: key === 'guide' ? 'rgba(251,191,36,.65)' : '#38bdf8',
+      backgroundColor: '#38bdf8',
+      tension: .3, pointRadius: 0, borderWidth: 2, ...extra,
+    };
+    chart.data.datasets.push(ds);
+  }
+  return ds;
+}
+
+// 服務卡片的繁中說明
+const ZH_NAMES = {
+  'location-service': '定位服務',
+  'event-service': '事件服務',
+  'notification-service': '通知服務',
+  'ai-service': 'AI 審核服務',
+  'redis': '快取資料庫',
+};
+
+// 主角卡片只留定位與事件服務，其餘容器收進一行小字
+const MAIN_CARDS = ['location-service', 'event-service'];
+
+function renderCards(status) {
+  const el = document.getElementById('cards');
+  const shown = status.services.filter((s) => MAIN_CARDS.includes(s.short));
+  const others = status.services.filter((s) => !MAIN_CARDS.includes(s.short));
+  el.innerHTML = shown.map((s) => {
+    const cpu = s.cpu == null ? '?' : s.cpu;
+    const zh = ZH_NAMES[s.short] ? `（${ZH_NAMES[s.short]}）` : '';
+    const replicaTag = s.replicas && s.replicas > 1
+      ? `<span class="replica-tag">× ${s.replicas} 副本</span>` : '';
+    const mem = s.mem ? ` · ${s.mem.replace(/[^0-9.]*MiB.*/, '').trim()}MiB` : '';
+    return `<div class="svc">
+      <div class="name">${s.short}${zh}${replicaTag}</div>
+      <div class="cpu" style="color:${cpu > 50 ? '#fbbf24' : '#34d399'}">${cpu}%</div>
+      <div class="meta">${s.phase || 'running'}${mem}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('otherLine').textContent = others.length
+    ? `其他容器：${others.map((o) => `${o.short} ${o.cpu == null ? '?' : o.cpu}%`).join(' · ')}`
+    : '';
+}
+
+// 容器擴展現場：大字狀態橫幅 + Pod 方塊 + 流量流線動畫
+let prevReplicas = null;
+let knownPods = new Set();
+
+function renderPods(status) {
+  const banner = document.getElementById('banner');
+  const row = document.getElementById('podRow');
+  const a = status.autoscaler || {};
+  const isK8s = status.mode === 'k8s';
+  const replicas = isK8s ? (a.current ?? 0) : status.pool.length;
+  const max = a.max || 3;
+  const avg = isK8s ? a.cpu : a.avgCpu;
+  const up = isK8s ? (a.targetCpu || 50) : (a.up ?? 25);
+  const down = a.down ?? 8;
+
+  let cls = 'banner ok';
+  let txt = `🟢 負載正常 — ${replicas} 個副本運行中（CPU ${avg ?? '?'}% ／ 門檻 ${up}%）`;
+  if (prevReplicas != null && replicas > prevReplicas) {
+    cls = 'banner scale';
+    txt = `📈 容器擴展！自動新增 1 個副本 → 現在 ${replicas} 個，流量自動平分`;
+  } else if (prevReplicas != null && replicas < prevReplicas) {
+    cls = 'banner scale';
+    txt = `📉 負載回落 — 縮回至 ${replicas} 個副本`;
+  } else if (avg != null && avg >= up && replicas < max) {
+    cls = 'banner hot';
+    txt = `🔥 高負載！CPU ${avg}% ≥ 門檻 ${up}% — 正在擴展…`;
+  } else if (avg != null && avg <= down && replicas > 1) {
+    cls = 'banner hot';
+    txt = `🌙 負載回落（CPU ${avg}% ≤ ${down}%）— 準備縮回…`;
+  }
+  banner.textContent = txt;
+  banner.className = cls;
+  prevReplicas = replicas;
+
+  const pods = status.pods || [];
+  const prevIds = knownPods;
+  const nextIds = new Set();
+  const users = status.load && status.load.running
+    ? `📡 ${status.load.users || '…'} 人` : '📡 無模擬流量';
+  let html = '';
+  for (let i = 0; i < max; i++) {
+    const p = pods[i];
+    if (p) {
+      const isNew = !prevIds.has(p.id);
+      nextIds.add(p.id);
+      const hot = Number(p.cpu) >= up;
+      html += `<div class="pod-row">
+        ${i === 0 ? `<span class="flow-src">${users}</span><span class="flowline"></span>` : `<span style="flex:0 0 56px"></span><span style="flex:0 0 10px"></span>`}
+        <div class="pod ${isNew ? 'new' : ''} ${hot ? 'hot' : ''}">
+          <div class="pname">Pod ${i + 1} · ${p.label}</div>
+          <div class="pcpu">${p.cpu == null ? '?' : p.cpu}%</div>
+        </div>
+      </div>`;
+    } else {
+      html += `<div class="pod-row">
+        ${i === 0 ? `<span class="flow-src" style="visibility:hidden">${users}</span><span style="flex:0 0 56px"></span>` : `<span style="flex:0 0 56px"></span><span style="flex:0 0 10px"></span>`}
+        <div class="slot">空位 — 負載超過門檻時自動擴展</div>
+      </div>`;
+    }
+  }
+  row.innerHTML = html;
+  knownPods = nextIds;
+}
+
+function renderEvents(events) {
+  document.getElementById('events').innerHTML = events.length
+    ? events.map((e) => `<li><b>${e.t}</b>${e.msg}</li>`).join('')
+    : '<li>尚無事件</li>';
+}
+
+function renderLoad(status) {
+  const running = status.load && status.load.running;
+  document.getElementById('btnStop').disabled = !running;
+  // 「開始壓測」永遠可按：ops 端會先停掉舊壓測再以新的人數開新的
+  const workers = status.load.workers ? ` · ${status.load.workers} 個模擬 worker` : '';
+  document.getElementById('loadInfo').innerHTML = running
+    ? `模擬中：<b>${status.load.users || '…'} 人</b>${workers} 持續湧入（輸入新人數可直接覆蓋）`
+    : '目前無模擬流量';
+  document.getElementById('loadBadge').textContent = running
+    ? `壓測中：${status.load.users || '…'} 人` : '無壓測';
+}
+
+async function poll() {
+  try {
+    const status = await (await fetch('/api/status')).json();
+    const badge = document.getElementById('modeBadge');
+    badge.textContent = status.mode === 'k8s' ? 'K8s 模式（真 HPA）' : 'Docker Compose 模式（模擬 HPA）';
+    badge.className = `badge ${status.mode === 'k8s' ? 'k8s' : 'compose'}`;
+
+    renderCards(status);
+    renderPods(status);
+    renderLoad(status);
+    renderEvents(status.events || []);
+
+    // 圖表只追蹤主角服務（location-service / HPA CPU%）＋ 擴展門檻虛線
+    if (chart) {
+      const label = new Date().toTimeString().slice(0, 8);
+      chart.data.labels.push(label);
+      for (const s of status.chart.series) {
+        ensureDataset('main', s.label).data.push(s.value ?? 0);
+      }
+      if (status.chart.guide != null) {
+        ensureDataset('guide', `擴展門檻 ${status.chart.guide}%`, { borderDash: [6, 4] })
+          .data.push(status.chart.guide);
+      }
+      for (const ds of chart.data.datasets) {
+        while (ds.data.length > MAX_POINTS) ds.data.shift();
+      }
+      while (chart.data.labels.length > MAX_POINTS) chart.data.labels.shift();
+      chart.update('none');
+    }
+  } catch { /* ops 服務未就緒，下一輪再試 */ }
+}
+
+document.getElementById('btnStart').onclick = async () => {
+  const users = Number(document.getElementById('users').value) || 500;
+  await fetch('/api/load/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ users }),
+  });
+};
+document.getElementById('btnStop').onclick = () => fetch('/api/load/stop', { method: 'POST' });
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

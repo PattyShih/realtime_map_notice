@@ -2,7 +2,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
+import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
+import { PUSH_SUPPORTED, getPushState, enablePush, disablePush, isStandalone } from './push.js'
 
 // ==========================================
 // 地圖核心與狀態
@@ -48,6 +49,7 @@ const selectCategoryTag = (tag, severity) => {
 let expirationTimer = null
 let locationReportTimer = null
 let eventsRefreshTimer = null
+let countdownTimer = null
 // 剛發布成功的事件 ID：WS 廣播會把自己發的事件再推回來，用來避免重複加入列表與重複跳通知
 let lastPublishedEventId = null
 
@@ -109,6 +111,152 @@ const getOrCreateUserId = () => {
 
 // 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕
 const myUserId = getOrCreateUserId()
+
+// ==========================
+// 手機推播（Web Push）
+// ==========================
+const pushState = ref({ supported: PUSH_SUPPORTED, subscribed: false })
+const showPushPrompt = ref(false)
+const refreshPushState = async () => { pushState.value = await getPushState() }
+refreshPushState()
+
+// 從主畫面圖示（standalone）開啟 App 時：若未訂閱且之前沒拒絕過，主動詢問要不要開通知
+if (PUSH_SUPPORTED && isStandalone() && !localStorage.getItem('push_prompt_dismissed')) {
+  setTimeout(async () => {
+    const st = await getPushState()
+    pushState.value = st
+    if (!st.subscribed) showPushPrompt.value = true
+  }, 1500)
+}
+
+const onEnablePush = async () => {
+  try {
+    await enablePush(myUserId)
+    await refreshPushState()
+    showPushPrompt.value = false
+    localStorage.setItem('push_prompt_dismissed', 'enabled')
+    triggerToast('🔔 手機推播已啟用')
+  } catch (err) {
+    triggerToast(err?.message || '推播啟用失敗')
+  }
+}
+const onDisablePush = async () => {
+  try {
+    await disablePush(myUserId)
+    await refreshPushState()
+    triggerToast('🔕 手機推播已關閉')
+  } catch (err) {
+    triggerToast(err?.message || '推播關閉失敗')
+  }
+}
+const dismissPushPrompt = () => {
+  showPushPrompt.value = false
+  localStorage.setItem('push_prompt_dismissed', 'dismissed')
+}
+
+// ==========================================
+// 三分頁導覽：戰情摘要（左）／地圖（中）／我的發布（右）
+// 底部 tab bar 切換，頁面間支援左右滑動（地圖頁僅接受邊緣滑動，
+// 避免與地圖平移手勢衝突）
+// ==========================================
+const TABS = [
+  { id: 'ops', label: '事件', icon: '📊' },
+  { id: 'map', label: '地圖', icon: '🗺️' },
+  { id: 'mine', label: '我的', icon: '📋' },
+]
+const TAB_INDEX = { ops: 0, map: 1, mine: 2 }
+const activeTab = ref('map')
+const trackStyle = computed(() => ({
+  transform: `translateX(-${TAB_INDEX[activeTab.value] * 100}vw)`
+}))
+const switchTab = (id) => {
+  if (!TABS.some(t => t.id === id)) return
+  activeTab.value = id
+}
+
+let touchStart = null
+const EDGE_ZONE = 36 // 地圖頁只接受從左右邊緣開始的滑動
+const onTouchStart = (e) => {
+  const t = e.changedTouches[0]
+  touchStart = {
+    x: t.clientX,
+    y: t.clientY,
+    fromEdge: t.clientX < EDGE_ZONE || t.clientX > window.innerWidth - EDGE_ZONE
+  }
+}
+const onTouchEnd = (e) => {
+  if (!touchStart) return
+  const t = e.changedTouches[0]
+  const dx = t.clientX - touchStart.x
+  const dy = t.clientY - touchStart.y
+  const fromEdge = touchStart.fromEdge
+  touchStart = null
+
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return
+  // 地圖頁：橫向滑動是平移地圖的主要手勢，僅邊緣起始的滑動才切換分頁
+  if (activeTab.value === 'map' && !fromEdge) return
+
+  const idx = TAB_INDEX[activeTab.value]
+  if (dx < 0 && idx < TABS.length - 1) switchTab(TABS[idx + 1].id)
+  if (dx > 0 && idx > 0) switchTab(TABS[idx - 1].id)
+}
+
+// ==========================================
+// 戰情摘要頁：統計卡與 AI 事件分析
+// ==========================================
+const nowTick = ref(Date.now())
+const formatCountdown = (expiresAt) => {
+  const total = Math.max(0, Math.floor((expiresAt - nowTick.value) / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = total % 60
+  const parts = []
+  if (h) parts.push(`${h} 時`)
+  if (h || m) parts.push(`${m} 分`)
+  parts.push(`${sec} 秒`)
+  return parts.join(' ')
+}
+
+const myEvents = computed(() => eventsList.value
+  .filter(e => e.userId === myUserId)
+  .sort((a, b) => (b.createdAt || b.expiresAt) - (a.createdAt || a.expiresAt)))
+
+// 相對時間顯示：剛剛 / N 分鐘前 / N 小時前
+const timeAgo = (createdAt) => {
+  if (!createdAt) return ''
+  const mins = Math.floor((Date.now() - createdAt) / 60000)
+  if (mins < 1) return '剛剛'
+  if (mins < 60) return `${mins} 分鐘前`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} 小時前`
+  return `${Math.floor(hrs / 24)} 天前`
+}
+// 事件剩餘壽命（分鐘）與生命週期百分比
+const remainingMinutes = (expiresAt) => Math.max(0, Math.ceil((expiresAt - Date.now()) / 60000))
+const lifePercent = (item) => {
+  if (!item.createdAt || !item.expiresAt) return 100
+  const total = item.expiresAt - item.createdAt
+  if (total <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round(((item.expiresAt - Date.now()) / total) * 100)))
+}
+const categoryMeta = (cat) => ({
+  info:    { label: '空位/活動', color: '#34c759', icon: '🟢' },
+  warning: { label: '遺失/擁擠', color: '#ff9500', icon: '🟡' },
+  danger:  { label: '緊急突發', color: '#ff3b30', icon: '🔴' },
+}[cat] || { label: '其他', color: '#ff7f50', icon: '📍' })
+
+// 從「我的發布」直接發布：切回地圖頁並打開表單
+const publishFromMine = () => {
+  switchTab('map')
+  showModal.value = true
+}
+const dangerEventCount = computed(() =>
+  eventsList.value.filter(e => e.category === 'danger').length)
+
+// AI 事件分析：此區塊由組員負責開發中
+// 後端端點已就緒：POST {AI_SERVICE_URL}/analyze-event
+// 請求／回應格式見 backend/shared/schemas.py 的
+// EventAnalysisRequest 與 EventAnalysisResponse
 
 // ==========================================
 // 座標上報 Location Service
@@ -292,20 +440,54 @@ const addEventUnique = (newEvent, { notify = true } = {}) => {
 const wsStatus = ref('connecting')
 let reconnectAttempts = 0
 let reconnectTimeout = null
+let ws = null
+let lastWsMessageAt = 0
+let heartbeatWatchdog = null
+let everConnected = false
+
+// 連線是否活著（OPEN 且近期有收到伺服器訊息）
+const isWsAlive = () => ws && ws.readyState === WebSocket.OPEN
+
+// 手機切背景時系統會凍結 WebSocket：回到前景立刻重連，不等重試倒數
+const resyncConnection = () => {
+  if (isWsAlive()) return
+  if (reconnectTimeout) clearTimeout(reconnectTimeout)
+  reconnectAttempts = 0
+  setupWebSocket()
+}
+
+// 看門狗：連線看似 OPEN 但超過 45 秒沒收到任何訊息（伺服器每 30 秒會 ping），
+// 視為半死連線，主動切斷觸發重連
+const startHeartbeatWatchdog = () => {
+  if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
+  heartbeatWatchdog = setInterval(() => {
+    if (isWsAlive() && Date.now() - lastWsMessageAt > 45000) {
+      console.log('⚠️ 連線逾時無訊息，主動重連')
+      ws.close()
+    }
+  }, 10000)
+}
 
 const setupWebSocket = () => {
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
-  
+  if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
+
   const userId = getOrCreateUserId()
-  const ws = new WebSocket(`${NOTIFICATION_WS_URL}/ws/${userId}`)
+  ws = new WebSocket(`${NOTIFICATION_WS_URL}/ws/${userId}`)
 
   ws.onopen = () => {
     console.log('✅ WebSocket 即時廣播頻道連線成功！')
     wsStatus.value = 'connected'
     reconnectAttempts = 0
+    lastWsMessageAt = Date.now()
+    startHeartbeatWatchdog()
+    // 重連後補抓附近事件：背景期間錯過的事件不會遺漏
+    if (everConnected) fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
+    everConnected = true
   }
 
   ws.onmessage = (event) => {
+    lastWsMessageAt = Date.now()
     try {
       const data = JSON.parse(event.data)
       if (data.type === 'hello') return
@@ -330,6 +512,7 @@ const setupWebSocket = () => {
         const newEvent = {
           id: eventData.event_id || eventData.id || Date.now(),
           userId: eventData.user_id || '',
+          createdAt: Date.now(),
           title: eventData.title || '即時新通知',
           category: eventData.severity === 'urgent' ? 'danger' : (eventData.severity || 'info'),
           description: eventData.message || eventData.description || '周遭有新動態發布',
@@ -354,18 +537,38 @@ const setupWebSocket = () => {
   }
 
   ws.onclose = () => {
+    if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
     wsStatus.value = 'reconnecting'
     reconnectAttempts++
-    const delay = Math.min(10000, Math.pow(2, reconnectAttempts) * 1000)
+    // 手機回到前景時希望秒連：0.5s 起跳、上限 5 秒
+    const delay = Math.min(5000, 500 * Math.pow(2, reconnectAttempts))
     reconnectTimeout = setTimeout(() => {
       setupWebSocket()
     }, delay)
   }
 }
 
+// 回到前景／網路恢復時立刻檢查並重連
+const handleVisibilityResume = () => {
+  if (document.visibilityState === 'visible') resyncConnection()
+}
+const handleNetworkOnline = () => resyncConnection()
+
 // ==========================
 // 生命週期管理
 // ==========================
+// 即時在線人數：每 3 秒查詢 location-service 的 GEO 索引成員數
+const onlineCount = ref(0)
+let onlinePollTimer = null
+const fetchOnlineCount = async () => {
+  try {
+    const res = await fetch(`${LOCATION_SERVICE_URL}/locations/online`)
+    if (res.ok) onlineCount.value = (await res.json()).online
+  } catch {
+    // 服務未就緒時沿用上一次數值
+  }
+}
+
 onMounted(() => {
   map.value = L.map('map').setView([currentCoords.value.lat, currentCoords.value.lng], 16)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map.value)
@@ -373,6 +576,8 @@ onMounted(() => {
   setupWebSocket()
   requestUserLocation() // 統一由此函式初始化定位與單一標記
 
+  fetchOnlineCount()
+  onlinePollTimer = setInterval(fetchOnlineCount, 3000)
   expirationTimer = setInterval(checkAndCleanExpiredEvents, 10000)
   // 每 30 秒重報座標：last_seen TTL 60 秒，定期上報維持「在線」狀態
   locationReportTimer = setInterval(() => {
@@ -382,13 +587,23 @@ onMounted(() => {
   eventsRefreshTimer = setInterval(() => {
     fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
   }, 15000)
+  // 每秒更新倒數計時
+  countdownTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
+  // 前景恢復／網路恢復時立刻重連 WebSocket
+  document.addEventListener('visibilitychange', handleVisibilityResume)
+  window.addEventListener('online', handleNetworkOnline)
 })
 
 onUnmounted(() => {
   if (expirationTimer) clearInterval(expirationTimer)
   if (locationReportTimer) clearInterval(locationReportTimer)
   if (eventsRefreshTimer) clearInterval(eventsRefreshTimer)
+  if (countdownTimer) clearInterval(countdownTimer)
+  if (onlinePollTimer) clearInterval(onlinePollTimer)
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
+  if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
+  document.removeEventListener('visibilitychange', handleVisibilityResume)
+  window.removeEventListener('online', handleNetworkOnline)
 })
 
 // ==========================
@@ -459,21 +674,77 @@ const toastMessage = ref('')
 const showToast = ref(false)
 const formData = ref({ title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' })
 
-const handleImageUpload = (e) => {
-  const file = e.target.files[0]
-  if (file) {
-    formData.value.imageFile = file
+// 照片上傳前壓縮：手機原圖動輒 3-5MB，base64 後會超過後端上限，
+// 也會撐爆 Redis。最長邊縮到 1600px、轉 JPEG（品質 0.85），畫質肉眼幾乎無差。
+const compressImage = (file, maxSide = 1600, quality = 0.85) =>
+  new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = (event) => {
-      formData.value.imagePreview = event.target.result
+    reader.onerror = () => reject(new Error('讀取照片失敗'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('照片格式無法解析'))
+      img.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(img.width * scale))
+        canvas.height = Math.max(1, Math.round(img.height * scale))
+        const ctx = canvas.getContext('2d')
+        ctx.fillStyle = '#ffffff' // PNG 透明背景轉 JPEG 時鋪白底
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = reader.result
     }
     reader.readAsDataURL(file)
+  })
+
+const readFileAsDataURL = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('讀取照片失敗'))
+    reader.onload = (event) => resolve(event.target.result)
+    reader.readAsDataURL(file)
+  })
+
+const handleImageUpload = async (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+  try {
+    // 小於 200KB 的圖直接用原圖（維持原始格式與透明度）
+    if (file.size <= 200 * 1024) {
+      formData.value.imageFile = file
+      formData.value.imagePreview = await readFileAsDataURL(file)
+      return
+    }
+    const compressed = await compressImage(file)
+    // 壓縮後仍超過後端上限（罕見），再壓一次更狠的參數
+    const finalPreview = compressed.length > 2_000_000
+      ? await compressImage(file, 1080, 0.7)
+      : compressed
+    formData.value.imageFile = file
+    formData.value.imagePreview = finalPreview
+  } catch (err) {
+    console.error('照片處理失敗:', err)
+    triggerToast(`⚠️ ${err?.message || '照片處理失敗，請換一張試試'}`)
   }
 }
 
 const removeImage = () => { 
   formData.value.imageFile = null
   formData.value.imagePreview = '' 
+}
+
+// FastAPI 驗證錯誤的 detail 可能是字串或物件陣列，統一轉成可讀字串
+const formatApiDetail = (detail) => {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail.map(d => {
+      const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : ''
+      return field ? `${field}：${d.msg}` : (d.msg || JSON.stringify(d))
+    }).join('；')
+  }
+  return JSON.stringify(detail)
 }
 
 const triggerToast = (msg) => { 
@@ -498,6 +769,7 @@ const handleSubmit = async () => {
     longitude: currentCoords.value.lng,
     severity: formData.value.category === 'danger' ? 'urgent' : formData.value.category,
     radius_meters: 500,
+    duration_minutes: durationMinutes,
     image_url: formData.value.imagePreview || '',
     user_id: getOrCreateUserId() // 補上後端要求的發布者身份驗證
   }
@@ -519,6 +791,7 @@ const handleSubmit = async () => {
       const newEvent = {
         id: body.event_id || Date.now(),
         userId: myUserId,
+        createdAt: Date.now(),
         title: finalTitle,
         category: formData.value.category,
         description: formData.value.description || '無詳細描述',
@@ -547,7 +820,7 @@ const handleSubmit = async () => {
       let errorMsg = '發布失敗，請確認 API 欄位格式！'
       try {
         const err = await response.json()
-        if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
+        if (err && err.detail) errorMsg = `⚠️ ${formatApiDetail(err.detail)}`
       } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
       triggerToast(errorMsg)
     }
@@ -682,6 +955,7 @@ const fetchNearbyEvents = async (lat, lng) => {
         const newEvent = {
           id: eventId,
           userId: event.user_id || '',
+          createdAt: createdAtMs,
           title: event.title || '周遭動態',
           category: event.severity === 'urgent' ? 'danger' : (event.severity || 'info'),
           description: event.message || event.description || '附近有動態發布',
@@ -756,24 +1030,16 @@ window.openImageLightbox = openLightbox
 
 <template>
   <div class="app-container">
-    <!-- 頂部純淨搜尋列 -->
-    <header class="top-nav">
-      <div class="search-bar">
-        <span class="search-icon">
-          <svg viewBox="0 0 24 24" width="18" height="18" stroke="#888888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-        </span>
-        <input type="text" placeholder="尋找事件或地點..." />
-      </div>
-    </header>
     <!-- 連線狀態指示膠囊 -->
-  <div class="connection-pill" :class="wsStatus">
+  <div v-show="activeTab !== 'mine'" class="connection-pill" :class="wsStatus">
     <span class="status-indicator-dot"></span>
     <span v-if="wsStatus === 'connected'">即時同步中</span>
     <span v-else-if="wsStatus === 'reconnecting'">連線中斷，重試中...</span>
     <span v-else>伺服器未連線</span>
+  </div>
+    <!-- 即時在線人數膠囊（GEO 索引成員數，含模擬壓測使用者） -->
+  <div v-show="activeTab !== 'mine'" class="connection-pill online-pill">
+    <span>👥 即時在線 {{ onlineCount }} 人</span>
   </div>
     <!-- Toast 通知 -->
     <transition name="toast">
@@ -783,16 +1049,128 @@ window.openImageLightbox = openLightbox
       </div>
     </transition>
 
-    <!-- 地圖容器 -->
-    <div id="map"></div>
+    <!-- 三分頁視窗：戰情摘要（左）／地圖（中）／我的發布（右） -->
+    <div class="tab-viewport" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
+      <div class="tab-track" :style="trackStyle">
 
-    <!-- 左下角：「📋 查看附近清單」按鈕 -->
-    <button class="list-fab-btn" @click="showListModal = true">
+        <!-- 頁面 1：戰情摘要 -->
+        <section class="tab-panel ops-panel">
+          <div class="ops-header">📊 事件摘要</div>
+
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-value">{{ onlineCount }}</span>
+              <span class="stat-label">線上人數</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">{{ eventsList.length }}</span>
+              <span class="stat-label">進行中事件</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">{{ dangerEventCount }}</span>
+              <span class="stat-label">緊急事件</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">{{ myEvents.length }}</span>
+              <span class="stat-label">我的發布</span>
+            </div>
+          </div>
+
+          <div class="ops-ai-card">
+            <div class="ops-ai-header">🤖 AI 事件分析</div>
+            <p class="ops-ai-hint">待開發</p>
+          </div>
+        </section>
+
+        <!-- 頁面 2：地圖（主畫面） -->
+        <section class="tab-panel map-panel">
+          <div id="map"></div>
+        </section>
+
+        <!-- 頁面 3：我的發布 -->
+        <section class="tab-panel mine-panel">
+          <div class="mine-header">
+            <span class="mine-header-title">📋 我的發布</span>
+            <span v-if="myEvents.length" class="mine-count">{{ myEvents.length }} 則進行中</span>
+          </div>
+
+          <div v-if="pushState.supported" class="mine-push-card">
+            <div class="mine-push-info">
+              <span class="mine-push-icon">🔔</span>
+              <div>
+                <div class="mine-push-title">推播通知</div>
+                <div class="mine-push-status">
+                  {{ pushState.subscribed ? '已啟用——緊急事件會推播到這台裝置' : '未啟用——啟用後沒開 App 也能收到事件通知' }}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="mine-push-btn"
+              :class="{ off: pushState.subscribed }"
+              @click="pushState.subscribed ? onDisablePush() : onEnablePush()"
+            >
+              {{ pushState.subscribed ? '關閉' : '開啟' }}
+            </button>
+          </div>
+
+          <div v-if="myEvents.length === 0" class="mine-empty">
+            <div class="mine-empty-icon">📍</div>
+            <div class="mine-empty-title">還沒有發布過事件</div>
+            <div class="mine-empty-desc">發布的內容會出現在這裡，<br />可以隨時編輯或刪除。</div>
+            <button type="button" class="mine-cta" @click="publishFromMine">＋ 發布第一則事件</button>
+          </div>
+
+          <div v-else class="mine-list">
+            <div
+              v-for="item in myEvents"
+              :key="item.id"
+              class="mine-card"
+              :style="{ borderLeftColor: categoryMeta(item.category).color }"
+            >
+              <div class="mine-card-top">
+                <span
+                  class="mine-chip"
+                  :style="{ backgroundColor: categoryMeta(item.category).color + '1a', color: categoryMeta(item.category).color }"
+                >
+                  {{ categoryMeta(item.category).icon }} {{ categoryMeta(item.category).label }}
+                </span>
+                <span class="mine-timeago">{{ timeAgo(item.createdAt) }}</span>
+              </div>
+
+              <div class="mine-card-title">{{ item.title }}</div>
+              <p class="mine-card-desc">{{ item.description }}</p>
+
+              <div class="mine-life">
+                <div class="mine-life-bar">
+                  <div
+                    class="mine-life-fill"
+                    :style="{ width: lifePercent(item) + '%', backgroundColor: categoryMeta(item.category).color }"
+                  ></div>
+                </div>
+                <span class="mine-life-text">⏳ 剩餘 {{ formatCountdown(item.expiresAt) }}</span>
+              </div>
+
+              <div class="mine-card-footer">
+                <span class="mine-meta">📍 距離 {{ item.distance }} 公尺</span>
+                <span class="card-actions">
+                  <button type="button" class="card-action-btn" title="編輯事件" @click="startEditEvent(item)">✏️</button>
+                  <button type="button" class="card-action-btn" title="刪除事件" :disabled="deletingId === item.id" @click="deleteEvent(item)">🗑️</button>
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 左下角：「📋 查看附近清單」按鈕（僅地圖頁顯示） -->
+    <button v-show="activeTab === 'map'" class="list-fab-btn" @click="showListModal = true">
       📋 列表 <span v-if="filteredSortedEvents.length > 0" class="badge">{{ filteredSortedEvents.length }}</span>
     </button>
 
-    <!-- 右下方「定位回正」按鈕 -->
-    <button class="recenter-btn" @click="recenterMap" title="回到我的位置">
+    <!-- 右下方「定位回正」按鈕（僅地圖頁顯示） -->
+    <button v-show="activeTab === 'map'" class="recenter-btn" @click="recenterMap" title="回到我的位置">
       <svg viewBox="0 0 24 24" width="20" height="20" stroke="#555555" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="8"></circle>
         <line x1="12" y1="2" x2="12" y2="4"></line>
@@ -802,8 +1180,22 @@ window.openImageLightbox = openLightbox
       </svg>
     </button>
 
-    <!-- 右下角懸浮按鈕 FAB -->
-    <button class="fab-btn" @click="showModal = true">＋</button>
+    <!-- 右下角懸浮按鈕 FAB（僅地圖頁顯示） -->
+    <button v-show="activeTab === 'map'" class="fab-btn" @click="showModal = true">＋</button>
+
+    <!-- 底部 tab bar -->
+    <nav class="tab-bar">
+      <button
+        v-for="t in TABS"
+        :key="t.id"
+        type="button"
+        :class="['tab-btn', { active: activeTab === t.id }]"
+        @click="switchTab(t.id)"
+      >
+        <span class="tab-icon">{{ t.icon }}</span>
+        <span class="tab-label">{{ t.label }}</span>
+      </button>
+    </nav>
 
     <!-- 周遭事件清單抽屜 -->
     <div v-if="showListModal" class="modal-overlay" @click.self="showListModal = false">
@@ -914,7 +1306,6 @@ window.openImageLightbox = openLightbox
           <div class="form-group">
             <label class="group-label">⏳ 事件時效：</label>
             <select v-model="formData.duration" class="select-light">
-              <option value="0.16">⚡ 測試用：10 秒後自動過期</option>
               <option value="30">保留 30 分鐘 (即時狀況)</option>
               <option value="60">保留 1 小時</option>
               <option value="120">保留 2 小時</option>
@@ -986,6 +1377,20 @@ window.openImageLightbox = openLightbox
       </div>
     </div>
   </div>
+  <!-- 加入主畫面後的推播詢問 -->
+  <transition name="toast">
+    <div v-if="showPushPrompt" class="push-prompt-overlay">
+      <div class="push-prompt-card">
+        <div class="push-prompt-icon">🔔</div>
+        <div class="push-prompt-title">開啟通知？</div>
+        <p class="push-prompt-desc">開啟後即使沒有打開 App，附近有緊急事件時也會直接推播到這台裝置。</p>
+        <div class="push-prompt-actions">
+          <button type="button" class="push-prompt-later" @click="dismissPushPrompt">先不用</button>
+          <button type="button" class="push-prompt-enable" @click="onEnablePush">開啟通知</button>
+        </div>
+      </div>
+    </div>
+  </transition>
   <!-- 大圖燈箱 Lightbox Modal -->
   <transition name="toast">
     <div v-if="showLightbox" class="lightbox-overlay" @click="closeLightbox">
