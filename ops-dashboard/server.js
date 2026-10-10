@@ -29,9 +29,9 @@ const REPLICA_PORTS = [18001, 18002]; // 額外副本發布到主機的埠（r2�
 const MAX_REPLICAS = 1 + REPLICA_PORTS.length;
 const SCALE_UP_CPU = Number(process.env.OPS_SCALE_UP_CPU || 25); // 平均 CPU 高於此值 → 擴展
 const SCALE_DOWN_CPU = Number(process.env.OPS_SCALE_DOWN_CPU || 8); // 平均 CPU 低於此值連續 N 次 → 縮回
-const SCALE_DOWN_TICKS = 3;
-const SCALE_UP_TICKS = 2; // 連續 N 次超過門檻才擴展，避免單點尖峰誤觸發
-const CHECK_MS = 3000;
+const SCALE_DOWN_TICKS = 2;
+const SCALE_UP_TICKS = 1; // 一次達標即擴展：demo 節奏優先（人數指標本身可控，不會誤觸發）
+const CHECK_MS = 1000;
 // 單一模擬程序約 800 人後自身飽和（見 k8s/README.md），人數多時拆多個 worker 容器
 const LOAD_WORKERS = [
   { max: 800, count: 1 },
