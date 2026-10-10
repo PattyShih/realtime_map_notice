@@ -275,7 +275,8 @@ async function composeStatus() {
   };
 }
 
-// compose 模式的模擬 HPA：依 location-service 平均 CPU 決定副本數
+// compose 模式的模擬 HPA：以「模擬人數」為主指標（demo 直觀可控：
+// 100 人 → 2 副本、400 人 → 3 副本），平均 CPU 門檻為輔，取較多副本數
 async function autoscalerTick() {
   if (state.scaling) return;
   const stats = await composeStats();
@@ -284,14 +285,20 @@ async function autoscalerTick() {
   const avg = loc.reduce((s, c) => s + (c.cpu || 0), 0) / loc.length;
   const replicas = Math.max(1, loc.length);
   state.replicas = replicas;
-  if (avg >= SCALE_UP_CPU && replicas < MAX_REPLICAS) {
+
+  const users = state.load.running ? state.load.users : 0;
+  let desired = 1;
+  if (users >= 400 || avg >= SCALE_UP_CPU) desired = MAX_REPLICAS;
+  else if (users >= 100 || avg >= SCALE_UP_CPU * 0.6) desired = 2;
+
+  if (desired > replicas) {
     state.lowTicks = 0;
     state.upTicks += 1;
     if (state.upTicks >= SCALE_UP_TICKS) {
       state.upTicks = 0;
-      await scaleTo(replicas + 1);
+      await scaleTo(desired);
     }
-  } else if (avg <= SCALE_DOWN_CPU && replicas > 1) {
+  } else if (desired < replicas) {
     state.lowTicks += 1;
     if (state.lowTicks >= SCALE_DOWN_TICKS) {
       state.lowTicks = 0;

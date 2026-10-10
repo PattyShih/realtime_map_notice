@@ -36,8 +36,12 @@ SPOTS = [
      "title": "理工走廊機保養中", "severity": "info"},
     {"name": "學餐", "lat": 25.0365, "lng": 121.4335,
      "title": "學餐二樓人潮少", "severity": "info"},
+    {"name": "輔大醫院", "lat": 25.0312, "lng": 121.4247,
+     "title": "醫院門診候診人多", "severity": "info"},
+    {"name": "新莊體育場", "lat": 25.0295, "lng": 121.4330,
+     "title": "體育場有活動人潮聚集", "severity": "info"},
 ]
-JITTER = 0.0012  # 約 ±130 公尺的隨機偏移，讓事件散在校園各角落
+JITTER = 0.003  # 約 ±330 公尺的隨機偏移，涵蓋校園與周邊生活圈
 
 
 async def main() -> None:
