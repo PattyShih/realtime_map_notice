@@ -110,23 +110,20 @@
   <h1>⚡ Realtime Map Notice（即時地圖通知）— K8s 運維儀表板</h1>
   <span id="modeBadge" class="badge">偵測模式中…</span>
   <span id="loadBadge" class="badge">無壓測</span>
-  <span id="evtBadge" class="badge">事件模式關閉</span>
 </header>
 
 <div class="grid">
   <div class="panel">
-    <h2>流量模擬</h2>
-    <label>模擬湧入人數（100–3000）</label>
+    <h2>模擬器（流量＋事件流）</h2>
+    <label>模擬湧入人數（100–3000）：流量與 Pod 隨人數擴展，事件流每 50 人約 1 則/秒</label>
     <input id="users" type="number" value="500" min="100" max="3000" step="100">
-    <button id="btnStart" class="start">⚡ 開始壓測</button>
-    <button id="btnStop" class="stop" disabled>⏹ 停止壓測</button>
+    <button id="btnStart" class="start">⚡ 開始模擬</button>
+    <button id="btnStop" class="stop" disabled>⏹ 停止模擬</button>
     <div class="loadinfo" id="loadInfo">目前無模擬流量</div>
 
-    <h2 style="margin-top:16px">事件模擬</h2>
-    <label>持續發布輔大校園測試事件（會真實出現在地圖上，不打壓測流量）</label>
-    <button id="btnEvtStart" class="start" style="background:#34d399">📢 開始發布測試事件</button>
-    <button id="btnEvtStop" class="stop" disabled>⏹ 停止事件發布</button>
-    <div class="loadinfo" id="evtInfo">事件模式未啟動（啟動後每秒 10 則、60 秒時效，約 1/3 為緊急事件）</div>
+    <h2 style="margin-top:16px">重來</h2>
+    <button id="btnClear" class="stop">🧹 清空所有事件</button>
+    <div class="loadinfo">清空地圖上全部事件與反垃圾紀錄（demo 重新開始用）</div>
   </div>
 
   <div>
@@ -300,8 +297,9 @@ function renderLoad(status) {
   document.getElementById('btnStop').disabled = !running;
   // 「開始壓測」永遠可按：ops 端會先停掉舊壓測再以新的人數開新的
   const workers = status.load.workers ? ` · ${status.load.workers} 個模擬 worker` : '';
+  const evtRate = Math.min(10, Math.max(1, Math.round((status.load.users || 0) / 50)));
   document.getElementById('loadInfo').innerHTML = running
-    ? `模擬中：<b>${status.load.users || '…'} 人</b>${workers} 持續湧入（輸入新人數可直接覆蓋）`
+    ? `模擬中：<b>${status.load.users || '…'} 人</b>${workers} 持續湧入 · 事件流每秒約 ${evtRate} 則（輸入新人數可直接覆蓋）`
     : '目前無模擬流量';
   document.getElementById('loadBadge').textContent = running
     ? `壓測中：${status.load.users || '…'} 人` : '無壓測';
@@ -317,7 +315,6 @@ async function poll() {
     renderCards(status);
     renderPods(status);
     renderLoad(status);
-    renderEventGen(status);
     renderEvents(status.events || []);
 
     // 圖表只追蹤主角服務（location-service / HPA CPU%）＋ 擴展門檻虛線
@@ -348,19 +345,10 @@ document.getElementById('btnStart').onclick = async () => {
   });
 };
 document.getElementById('btnStop').onclick = () => fetch('/api/load/stop', { method: 'POST' });
-document.getElementById('btnEvtStart').onclick = () => fetch('/api/events/start', { method: 'POST' });
-document.getElementById('btnEvtStop').onclick = () => fetch('/api/events/stop', { method: 'POST' });
-
-function renderEventGen(status) {
-  const running = !!(status.eventGen && status.eventGen.running);
-  document.getElementById('btnEvtStop').disabled = !running;
-  document.getElementById('evtInfo').innerHTML = running
-    ? '📢 持續發布輔大校園測試事件中（每 0.25 秒一則 · 15 分鐘時效）'
-    : '事件模式未啟動';
-  const badge = document.getElementById('evtBadge');
-  badge.textContent = running ? '📢 事件發布中' : '事件模式關閉';
-  badge.className = `badge ${running ? 'evt-on' : ''}`;
-}
+document.getElementById('btnClear').onclick = async () => {
+  await fetch('/api/events/clear', { method: 'POST' });
+  document.getElementById('otherLine').textContent = '';
+};
 
 poll();
 setInterval(poll, 2000);

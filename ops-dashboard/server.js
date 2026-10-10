@@ -187,6 +187,19 @@ async function startLoadCompose(users) {
   logEvent(`⚡ 開始模擬：${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人）＋ 事件流每秒約 ${evtRate} 則`);
 }
 
+// 清空所有事件：刪除事件本體、GEO 索引與反垃圾紀錄（demo 重來用）
+async function clearEventsCompose() {
+  const script = [
+    "redis-cli --scan --pattern 'event:*' | xargs -r redis-cli del",
+    'redis-cli del event_locations',
+    "redis-cli --scan --pattern 'event_antispam:*' | xargs -r redis-cli del",
+    'echo cleared',
+  ].join(' && ');
+  const r = await sh('docker', ['exec', `${COMPOSE_PROJECT}-redis-1`, 'sh', '-c', script]);
+  logEvent(r.ok ? '🧹 已清空所有事件與反垃圾紀錄' : `⚠️ 清空失敗：${r.err}`);
+  return r;
+}
+
 // 事件流：只發布測試事件（不打流量），事件會真實出現在地圖上
 async function startEventGenCompose(rate = 10) {
   await stopEventGenCompose();
@@ -331,6 +344,18 @@ async function startLoadK8s(users) {
   state.load = { running: r.ok, users: r.ok ? users : 0 };
   await startEventGenK8s(); // 事件流跟著人數一起啟動
   logEvent(r.ok ? `⚡ K8s 模擬：Job load-generator 已建立（${users} 人）＋ 事件流` : `⚠️ Job 建立失敗：${r.err}`);
+}
+
+async function clearEventsK8s() {
+  const script = [
+    "redis-cli --scan --pattern 'event:*' | xargs -r redis-cli del",
+    'redis-cli del event_locations',
+    "redis-cli --scan --pattern 'event_antispam:*' | xargs -r redis-cli del",
+    'echo cleared',
+  ].join(' && ');
+  const r = await sh('kubectl', ['-n', K8S_NS, 'exec', 'deploy/redis', 'sh', '-c', script]);
+  logEvent(r.ok ? '🧹 已清空所有事件與反垃圾紀錄' : `⚠️ 清空失敗：${r.err}`);
+  return r;
 }
 
 async function startEventGenK8s() {
@@ -481,6 +506,12 @@ const server = http.createServer(async (req, res) => {
       if (state.mode === 'k8s') await startLoadK8s(users);
       else await startLoadCompose(users);
       return sendJson(res, 200, { ok: true, users });
+    }
+
+    if (url.pathname === '/api/events/clear' && req.method === 'POST') {
+      if (state.mode === 'k8s') await clearEventsK8s();
+      else await clearEventsCompose();
+      return sendJson(res, 200, { ok: true });
     }
 
     if (url.pathname === '/api/events/start' && req.method === 'POST') {
