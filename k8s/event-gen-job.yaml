@@ -19,7 +19,7 @@ spec:
           image: python:3.12-slim
           command: ["sh", "-c"]
           args:
-            - pip install -q httpx==0.28.1 && EVENT_INTERVAL=2 EVENT_DURATION_MINUTES=10 python /code/event_gen.py
+            - pip install -q httpx==0.28.1 && EVENT_RATE=10 EVENT_DURATION_MINUTES=1 python /code/event_gen.py
           resources:
             requests:
               cpu: 50m

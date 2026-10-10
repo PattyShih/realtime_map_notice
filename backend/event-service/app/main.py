@@ -123,7 +123,8 @@ async def healthz() -> dict[str, str]:
 async def get_events(
     latitude: float = Query(..., ge=-90, le=90),
     longitude: float = Query(..., ge=-180, le=180),
-    radius: int = Query(3000, ge=1, le=3000),
+    # 上限 500000（500 公里）涵蓋全台：地圖是佈告欄，所有發布都看得到
+    radius: int = Query(3000, ge=1, le=500000),
 ):
     try:
         event_ids = await redis.geosearch(

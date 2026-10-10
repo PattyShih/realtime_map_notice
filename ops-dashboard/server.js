@@ -191,7 +191,7 @@ async function startEventGenCompose() {
     '-v', `${EVENT_GEN_SCRIPT}:/code/event_gen.py:ro`,
     'python:3.12-slim',
     'sh', '-c',
-    'pip install -q httpx==0.28.1 && EVENT_INTERVAL=2 EVENT_DURATION_MINUTES=10 python /code/event_gen.py',
+    'pip install -q httpx==0.28.1 && EVENT_RATE=10 EVENT_DURATION_MINUTES=1 python /code/event_gen.py',
   ]);
   state.eventGen = { running: r.ok };
   logEvent(r.ok

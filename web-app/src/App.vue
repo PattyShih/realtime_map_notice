@@ -570,7 +570,8 @@ const fetchOnlineCount = async () => {
 }
 
 onMounted(() => {
-  map.value = L.map('map').setView([currentCoords.value.lat, currentCoords.value.lng], 16)
+  // preferCanvas：向量層用 canvas 繪製，大量事件時效能較佳
+  map.value = L.map('map', { preferCanvas: true }).setView([currentCoords.value.lat, currentCoords.value.lng], 16)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map.value)
 
   setupWebSocket()

@@ -16,12 +16,15 @@ EVENT_SERVICE = "http://event-service:8000"
 # 發布間隔（秒）與事件時效（分鐘）可用環境變數調整：
 # 獨立事件模式建議 2 秒一則（demo 幾分鐘地圖累積數十到百餘則）；
 # 跟著壓測跑時維持 0.25 秒（重點是服務流量而非地圖可讀性）。
-EVENT_INTERVAL = float(os.getenv("EVENT_INTERVAL", "0.25"))
+EVENT_RATE = float(os.getenv("EVENT_RATE", "4"))  # 每秒發布幾則
 EVENT_DURATION_MINUTES = float(os.getenv("EVENT_DURATION_MINUTES", "15"))
+EVENT_INTERVAL = 1 / EVENT_RATE if EVENT_RATE > 0 else 1
 # 每次啟動帶隨機標籤：容器重啟後編號歸零，若標題與 5 分鐘內發過的
 # 事件相同會被「重複內容偵測」整批 409，隨機標籤可避免碰撞
 RUN_TAG = os.getenv("EVENT_RUN_TAG") or str(random.randint(100, 999))
-USER_IDS = [f"u-{9000 + i}" for i in range(150)]
+# 帳號池必須夠大：10 則/秒 ÷ 反垃圾「每人每分鐘 3 則」→ 至少 200 帳號，
+# 取 450 帳號（每人約 45 秒一則，也滿足 30 秒最小間隔）
+USER_IDS = [f"u-{9000 + i}" for i in range(450)]
 # 輔大校園及周遭的真實地標：事件落在地標附近，地圖上看起來像真實校園通報
 SPOTS = [
     {"name": "輔大總圖", "lat": 25.0372, "lng": 121.4325,
@@ -31,7 +34,11 @@ SPOTS = [
     {"name": "風雨籃球場", "lat": 25.0347, "lng": 121.4341,
      "title": "風雨籃球場場地積水", "severity": "warning"},
     {"name": "捷運輔大站", "lat": 25.0333, "lng": 121.4340,
-     "title": "校門口車流回堵", "severity": "warning"},
+     "title": "校門口車流回堵", "severity": "urgent"},
+    {"name": "校園東側路口", "lat": 25.0352, "lng": 121.4352,
+     "title": "機車與行人事故", "severity": "urgent"},
+    {"name": "中美堂旁宿舍", "lat": 25.0356, "lng": 121.4318,
+     "title": "火警警鈴大作（演習）", "severity": "urgent"},
     {"name": "理工學院", "lat": 25.0349, "lng": 121.4305,
      "title": "理工走廊機保養中", "severity": "info"},
     {"name": "學餐", "lat": 25.0365, "lng": 121.4335,
