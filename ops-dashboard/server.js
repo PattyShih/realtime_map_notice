@@ -179,11 +179,16 @@ async function startLoadCompose(users) {
   }
   state.load = { running: true, users };
   state.peakUsers = Math.max(state.peakUsers, users);
-  logEvent(`⚡ 開始壓測：模擬 ${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人，經 ops 輪詢分流至 ${state.replicas} 副本）`);
+
+  // 事件流併入：人越多事件越多（每 50 人 1 則/秒，上限 10 則/秒）
+  const evtRate = Math.min(10, Math.max(1, Math.round(users / 50)));
+  await startEventGenCompose(evtRate);
+
+  logEvent(`⚡ 開始模擬：${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人）＋ 事件流每秒約 ${evtRate} 則`);
 }
 
-// 事件模式：只發布測試事件（不打流量），事件會真實出現在地圖上
-async function startEventGenCompose() {
+// 事件流：只發布測試事件（不打流量），事件會真實出現在地圖上
+async function startEventGenCompose(rate = 10) {
   await stopEventGenCompose();
   const r = await sh('docker', [
     'run', '-d', '--name', 'ops-event-gen',
@@ -191,12 +196,12 @@ async function startEventGenCompose() {
     '-v', `${EVENT_GEN_SCRIPT}:/code/event_gen.py:ro`,
     'python:3.12-slim',
     'sh', '-c',
-    'pip install -q httpx==0.28.1 && EVENT_RATE=10 EVENT_DURATION_MINUTES=1 python /code/event_gen.py',
+    `pip install -q httpx==0.28.1 && EVENT_RATE=${rate} EVENT_DURATION_MINUTES=60 python /code/event_gen.py`,
   ]);
   state.eventGen = { running: r.ok };
   logEvent(r.ok
-    ? '📢 事件模式啟動：持續發布輔大校園測試事件（每 0.25 秒一則、15 分鐘時效，地圖上即時可見）'
-    : `⚠️ 事件模式啟動失敗：${r.err}`);
+    ? `📢 事件流啟動：每秒約 ${rate} 則輔大校園測試事件（地圖上即時可見）`
+    : `⚠️ 事件流啟動失敗：${r.err}`);
 }
 
 async function stopEventGenCompose() {
@@ -207,11 +212,11 @@ async function stopEventGenCompose() {
 
 async function stopLoadCompose() {
   let had = false;
-  for (const name of [...loadWorkerNames(LOAD_WORKERS.at(-1).count), 'ops-load-generator']) {
+  for (const name of [...loadWorkerNames(LOAD_WORKERS.at(-1).count), 'ops-event-gen', 'ops-load-generator']) {
     const r = await sh('docker', ['rm', '-f', name]);
     if (r.ok) had = true;
   }
-  if (had && state.load.running) logEvent(`⏹ 停止壓測（${state.load.users} 人已撤）`);
+  if (had && state.load.running) logEvent(`⏹ 停止模擬（${state.load.users} 人與事件流已撤）`);
   state.load = { running: false, users: 0, workers: 0 };
   state.lowTicks = 0;
   state.upTicks = 0;
@@ -324,7 +329,8 @@ async function startLoadK8s(users) {
   const r = await sh('kubectl', ['apply', '-f', jobFile]);
   fs.unlinkSync(jobFile);
   state.load = { running: r.ok, users: r.ok ? users : 0 };
-  logEvent(r.ok ? `⚡ K8s 壓測：Job load-generator 已建立（${users} 人）` : `⚠️ Job 建立失敗：${r.err}`);
+  await startEventGenK8s(); // 事件流跟著人數一起啟動
+  logEvent(r.ok ? `⚡ K8s 模擬：Job load-generator 已建立（${users} 人）＋ 事件流` : `⚠️ Job 建立失敗：${r.err}`);
 }
 
 async function startEventGenK8s() {
@@ -349,8 +355,9 @@ async function stopEventGenK8s() {
 }
 
 async function stopLoadK8s() {
+  await stopEventGenK8s();
   const r = await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'load-generator', '--ignore-not-found']);
-  if (state.load.running) logEvent('⏹ K8s 壓測：Job 已刪除');
+  if (state.load.running) logEvent('⏹ K8s 模擬：Job 已刪除');
   state.load = { running: false, users: 0 };
   if (!r.ok) logEvent(`⚠️ Job 刪除失敗：${r.err}`);
 }
