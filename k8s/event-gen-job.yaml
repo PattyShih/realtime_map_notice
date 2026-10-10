@@ -1,0 +1,36 @@
+# 事件模式：持續發布輔大校園測試事件（不打壓測流量）。
+# 由 ops 儀表板（ops-dashboard/server.js）啟停，事件會真實出現在地圖上。
+# 事件產生腳本掛 ConfigMap：event-gen-code（由儀表板自動建立）。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: event-gen
+  namespace: realtime-map-notice
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: event-gen
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: event-gen
+          image: python:3.12-slim
+          command: ["sh", "-c"]
+          args:
+            - pip install -q httpx==0.28.1 && EVENT_INTERVAL=2 EVENT_DURATION_MINUTES=10 python /code/event_gen.py
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          volumeMounts:
+            - name: event-gen-code
+              mountPath: /code
+      volumes:
+        - name: event-gen-code
+          configMap:
+            name: event-gen-code

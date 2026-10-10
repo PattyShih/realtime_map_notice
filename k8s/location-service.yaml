@@ -72,4 +72,20 @@ spec:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: 60
+          # 門檻調低（原 60%）：較少模擬人數即可看到擴展，demo 更直觀
+          averageUtilization: 40
+  # 縮減穩定期從預設 300 秒降到 60 秒：demo 時負載下降約 1 分鐘後
+  # 就能看到副本縮回，不用漫長等待
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 30

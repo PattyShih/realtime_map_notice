@@ -23,6 +23,7 @@
     border: 1px solid var(--line); color: var(--muted);
   }
   .badge.k8s { color: var(--green); border-color: var(--green); }
+  .badge.evt-on { color: var(--green); border-color: var(--green); }
   .badge.compose { color: var(--amber); border-color: var(--amber); }
   .grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
   .panel {
@@ -109,6 +110,7 @@
   <h1>⚡ Realtime Map Notice（即時地圖通知）— K8s 運維儀表板</h1>
   <span id="modeBadge" class="badge">偵測模式中…</span>
   <span id="loadBadge" class="badge">無壓測</span>
+  <span id="evtBadge" class="badge">事件模式關閉</span>
 </header>
 
 <div class="grid">
@@ -119,16 +121,23 @@
     <button id="btnStart" class="start">⚡ 開始壓測</button>
     <button id="btnStop" class="stop" disabled>⏹ 停止壓測</button>
     <div class="loadinfo" id="loadInfo">目前無模擬流量</div>
+
+    <h2 style="margin-top:16px">事件模擬</h2>
+    <label>持續發布輔大校園測試事件（會真實出現在地圖上，不打壓測流量）</label>
+    <button id="btnEvtStart" class="start" style="background:#34d399">📢 開始發布測試事件</button>
+    <button id="btnEvtStop" class="stop" disabled>⏹ 停止事件發布</button>
+    <div class="loadinfo" id="evtInfo">事件模式未啟動（啟動後每 2 秒發布一則、10 分鐘時效）</div>
   </div>
 
   <div>
-    <div class="cards" id="cards"></div>
+    <!-- Pod 方塊面板放最上方：擴展／縮減一格一格看得最直觀 -->
     <div class="panel" style="margin-bottom:14px">
       <h2>容器擴展現場（location-service · 定位服務）</h2>
       <div id="banner" class="banner ok">等待資料…</div>
       <div id="podRow"></div>
       <div id="otherLine" class="other-line"></div>
     </div>
+    <div class="cards" id="cards" style="margin-bottom:14px"></div>
     <div class="panel">
       <h2>容器 CPU 使用率（%）</h2>
       <div class="chart-wrap"><canvas id="chart"></canvas></div>
@@ -308,6 +317,7 @@ async function poll() {
     renderCards(status);
     renderPods(status);
     renderLoad(status);
+    renderEventGen(status);
     renderEvents(status.events || []);
 
     // 圖表只追蹤主角服務（location-service / HPA CPU%）＋ 擴展門檻虛線
@@ -338,6 +348,19 @@ document.getElementById('btnStart').onclick = async () => {
   });
 };
 document.getElementById('btnStop').onclick = () => fetch('/api/load/stop', { method: 'POST' });
+document.getElementById('btnEvtStart').onclick = () => fetch('/api/events/start', { method: 'POST' });
+document.getElementById('btnEvtStop').onclick = () => fetch('/api/events/stop', { method: 'POST' });
+
+function renderEventGen(status) {
+  const running = !!(status.eventGen && status.eventGen.running);
+  document.getElementById('btnEvtStop').disabled = !running;
+  document.getElementById('evtInfo').innerHTML = running
+    ? '📢 持續發布輔大校園測試事件中（每 0.25 秒一則 · 15 分鐘時效）'
+    : '事件模式未啟動';
+  const badge = document.getElementById('evtBadge');
+  badge.textContent = running ? '📢 事件發布中' : '事件模式關閉';
+  badge.className = `badge ${running ? 'evt-on' : ''}`;
+}
 
 poll();
 setInterval(poll, 2000);
