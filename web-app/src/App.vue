@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
+import { AI_SERVICE_URL, EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
 import { PUSH_SUPPORTED, getPushState, enablePush, disablePush, isStandalone } from './push.js'
 
 // ==========================================
@@ -253,10 +253,65 @@ const publishFromMine = () => {
 const dangerEventCount = computed(() =>
   eventsList.value.filter(e => e.category === 'danger').length)
 
-// AI 事件分析：此區塊由組員負責開發中
-// 後端端點已就緒：POST {AI_SERVICE_URL}/analyze-event
-// 請求／回應格式見 backend/shared/schemas.py 的
-// EventAnalysisRequest 與 EventAnalysisResponse
+// ==========================
+// AI 事件分析與報案摘要
+// ==========================
+const selectedAnalysisEventId = ref('')
+const analysisLoading = ref(false)
+const analysisError = ref('')
+
+const selectedAnalysisEvent = computed(() => {
+  return eventsList.value.find(event => event.id === selectedAnalysisEventId.value) || null
+})
+
+const selectedAnalysis = computed(() => selectedAnalysisEvent.value?.analysis || null)
+
+const selectAnalysisEvent = (eventId) => {
+  selectedAnalysisEventId.value = eventId
+  analysisError.value = ''
+}
+
+const analyzeSelectedEvent = async () => {
+  const event = selectedAnalysisEvent.value
+  if (!event || analysisLoading.value) return
+
+  analysisLoading.value = true
+  analysisError.value = ''
+  try {
+    const response = await fetch(`${AI_SERVICE_URL}/analyze-event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: event.title,
+        message: event.description,
+        severity: event.category === 'danger' ? 'urgent' : event.category,
+        latitude: event.location.lat,
+        longitude: event.location.lng
+      })
+    })
+    const body = await response.json()
+    if (!response.ok) throw new Error(formatApiDetail(body.detail || 'AI 分析失敗'))
+
+    event.analysis = body
+    triggerToast('🤖 AI 分析完成')
+  } catch (error) {
+    analysisError.value = error?.message || 'AI 服務目前無法使用'
+  } finally {
+    analysisLoading.value = false
+  }
+}
+
+const copyReportSummary = async () => {
+  const summary = selectedAnalysis.value?.report_summary
+  if (!summary) return
+
+  try {
+    await navigator.clipboard.writeText(summary)
+    triggerToast('📋 事件摘要已複製')
+  } catch {
+    analysisError.value = '無法複製摘要，請確認瀏覽器權限'
+  }
+}
 
 // ==========================================
 // 座標上報 Location Service
@@ -521,7 +576,8 @@ const setupWebSocket = () => {
           distance: dist,
           walkTime: walkTime,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          expiresAt: expiresAt
+          expiresAt: expiresAt,
+          analysis: eventData.analysis || null
         }
 
         // 自己剛發布的事件會從 WS 廣播回來，不再跳「收到通報」
@@ -800,7 +856,8 @@ const handleSubmit = async () => {
         distance: dist,
         walkTime: walkTime,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        expiresAt: expiresAt
+        expiresAt: expiresAt,
+        analysis: body.analysis || null
       }
 
       addEventUnique(newEvent, { notify: false })
@@ -964,7 +1021,8 @@ const fetchNearbyEvents = async (lat, lng) => {
           distance: dist,
           walkTime: walkTime,
           timestamp: new Date(createdAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          expiresAt: expiresAt
+          expiresAt: expiresAt,
+          analysis: event.analysis || null
         }
 
         eventsList.value.push(newEvent)
@@ -1078,7 +1136,72 @@ window.openImageLightbox = openLightbox
 
           <div class="ops-ai-card">
             <div class="ops-ai-header">🤖 AI 事件分析</div>
-            <p class="ops-ai-hint">待開發</p>
+            <p class="ops-ai-hint">選擇事件後查看摘要、處理建議與聯絡方式。</p>
+
+            <select
+              v-if="eventsList.length"
+              class="input-light ops-select"
+              :value="selectedAnalysisEventId"
+              @change="selectAnalysisEvent($event.target.value)"
+            >
+              <option value="">選擇要分析的事件</option>
+              <option v-for="item in eventsList" :key="item.id" :value="item.id">
+                {{ item.title }}
+              </option>
+            </select>
+
+            <p v-else class="ops-ai-hint">目前沒有可分析的事件。</p>
+
+            <button
+              v-if="selectedAnalysisEvent"
+              type="button"
+              class="submit-btn ops-analyze-btn"
+              :disabled="analysisLoading"
+              @click="analyzeSelectedEvent"
+            >
+              {{ analysisLoading ? '分析中...' : (selectedAnalysis ? '重新分析' : '開始分析') }}
+            </button>
+
+            <div v-if="analysisError" class="ops-error">{{ analysisError }}</div>
+
+            <div v-if="selectedAnalysis" class="ops-result">
+              <div class="ops-result-summary">{{ selectedAnalysis.summary }}</div>
+
+              <div class="ops-result-meta">
+                類型：{{ selectedAnalysis.category }} · 建議程度：{{ selectedAnalysis.suggested_severity }}
+              </div>
+
+              <div v-if="selectedAnalysis.incident_facts?.length" class="ops-result-block">
+                <div class="ops-result-title">事件經過</div>
+                <ul class="ops-result-list">
+                  <li v-for="fact in selectedAnalysis.incident_facts" :key="fact">{{ fact }}</li>
+                </ul>
+              </div>
+
+              <div v-if="selectedAnalysis.advice?.length" class="ops-result-block">
+                <div class="ops-result-title">建議處理方式</div>
+                <ul class="ops-result-list">
+                  <li v-for="advice in selectedAnalysis.advice" :key="advice">{{ advice }}</li>
+                </ul>
+              </div>
+
+              <div v-if="selectedAnalysis.emergency_contacts?.length" class="ops-result-block">
+                <div class="ops-result-title">建議聯絡</div>
+                <div class="ops-contacts">
+                  <span v-for="contact in selectedAnalysis.emergency_contacts" :key="contact" class="ops-contact-chip">
+                    {{ contact }}
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="selectedAnalysis.report_summary" class="ops-result-report">
+                <div class="ops-result-title">事件摘要</div>
+                <p>{{ selectedAnalysis.report_summary }}</p>
+                <button type="button" class="copy-summary-btn" @click="copyReportSummary">
+                  📋 複製事件摘要
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 

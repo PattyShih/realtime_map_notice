@@ -702,6 +702,18 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 }
 .ops-result-report p { margin: 0; font-size: 0.85rem; color: #444; white-space: pre-wrap; }
 .ops-result-meta { font-size: 0.72rem; color: #aaa; }
+.copy-summary-btn {
+  margin-top: 10px;
+  border: 1px solid #1b6b7a;
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: #ffffff;
+  color: #1b6b7a;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.copy-summary-btn:hover { background: #eef4f5; }
 
 /* ========================================== */
 /* 8. 我的發布頁                               */

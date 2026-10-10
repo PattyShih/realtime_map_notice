@@ -44,6 +44,11 @@ MODERATION_BLOCKED_KEYWORDS = [
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+AI_PROVIDER = os.getenv("AI_PROVIDER") or "openai"
+#GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or ""
+GEMINI_API_KEY ="AIzaSyAx6-n0vvvYShvHAbpGn4GS7xbzprgE-u8"
+GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "8"))
 ANALYSIS_PROVIDER = os.getenv("ANALYSIS_PROVIDER") or "keyword"
 
@@ -100,6 +105,53 @@ def _extract_json(text: str) -> dict:
     return json.loads(cleaned[start : end + 1])
 
 
+async def _request_llm_json(system_prompt: str, user_content: str) -> dict:
+    """呼叫 OpenAI 相容 API 或 Gemini，並統一回傳 JSON 物件。"""
+    if AI_PROVIDER == "gemini":
+        if not GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY 未設定")
+
+        url = f"{GEMINI_BASE_URL}/models/{GEMINI_MODEL}:generateContent"
+        request = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_content}]}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0,
+            },
+        }
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                url,
+                headers={"x-goog-api-key": GEMINI_API_KEY},
+                json=request,
+            )
+            response.raise_for_status()
+            content = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return _extract_json(content)
+
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY 未設定")
+
+    async with httpx.AsyncClient(timeout=LLM_TIMEOUT_SECONDS) as client:
+        response = await client.post(
+            f"{OPENAI_BASE_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+            json={
+                "model": OPENAI_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0,
+            },
+        )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+    return _extract_json(content)
+
+
 def _keyword_analyze(payload: EventAnalysisRequest) -> EventAnalysisResponse:
     text = f"{payload.title}\n{payload.message}".lower()
     if any(word in text for word in ("跟蹤", "尾隨", "一直跟著", "stalking")):
@@ -142,7 +194,11 @@ def _keyword_analyze(payload: EventAnalysisRequest) -> EventAnalysisResponse:
 
 
 async def _llm_analyze(payload: EventAnalysisRequest) -> EventAnalysisResponse:
-    if not OPENAI_API_KEY:
+    if AI_PROVIDER == "openai" and not OPENAI_API_KEY:
+        return _keyword_analyze(payload).model_copy(
+            update={"provider": "keyword-fallback"}
+        )
+    if AI_PROVIDER == "gemini" and not GEMINI_API_KEY:
         return _keyword_analyze(payload).model_copy(
             update={"provider": "keyword-fallback"}
         )
@@ -156,23 +212,10 @@ async def _llm_analyze(payload: EventAnalysisRequest) -> EventAnalysisResponse:
         context.append(f"使用者提供的發生時間：{payload.occurred_at.isoformat()}")
 
     try:
-        async with httpx.AsyncClient(timeout=LLM_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                f"{OPENAI_BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-                json={
-                    "model": OPENAI_MODEL,
-                    "messages": [
-                        {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
-                        {"role": "user", "content": "\n".join(context)},
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0,
-                },
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-        result = _extract_json(content)
+        result = await _request_llm_json(
+            ANALYSIS_SYSTEM_PROMPT,
+            "\n".join(context),
+        )
         return EventAnalysisResponse.model_validate({**result, "provider": "llm"})
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as e:
         logger.warning("LLM event analysis failed (keyword fallback): %s", e)
@@ -182,34 +225,21 @@ async def _llm_analyze(payload: EventAnalysisRequest) -> EventAnalysisResponse:
 
 
 async def _llm_moderate(payload: ModerationRequest) -> ModerationResponse:
-    if not OPENAI_API_KEY:
+    if AI_PROVIDER == "openai" and not OPENAI_API_KEY:
         # 沒設定金鑰時視同停用，不讓每次發布都白等一輪錯誤
         return ModerationResponse(
             verdict="ok", score=0.0, provider="llm", reason="OPENAI_API_KEY 未設定，審核停用"
         )
+    if AI_PROVIDER == "gemini" and not GEMINI_API_KEY:
+        return ModerationResponse(
+            verdict="ok", score=0.0, provider="llm", reason="GEMINI_API_KEY 未設定，審核停用"
+        )
 
     try:
-        async with httpx.AsyncClient(timeout=LLM_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                f"{OPENAI_BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-                json={
-                    "model": OPENAI_MODEL,
-                    "messages": [
-                        {"role": "system", "content": MODERATION_SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": f"標題：{payload.title}\n內容：{payload.message}",
-                        },
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0,
-                },
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-
-        result = _extract_json(content)
+        result = await _request_llm_json(
+            MODERATION_SYSTEM_PROMPT,
+            f"標題：{payload.title}\n內容：{payload.message}",
+        )
         return ModerationResponse(
             verdict="spam" if result.get("spam") else "ok",
             score=float(result.get("score", 0.0)),
