@@ -570,7 +570,8 @@ const fetchOnlineCount = async () => {
 }
 
 onMounted(() => {
-  map.value = L.map('map').setView([currentCoords.value.lat, currentCoords.value.lng], 16)
+  // preferCanvas：向量層用 canvas 繪製，大量事件時效能較佳
+  map.value = L.map('map', { preferCanvas: true }).setView([currentCoords.value.lat, currentCoords.value.lng], 16)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map.value)
 
   setupWebSocket()
@@ -921,7 +922,8 @@ const deleteEvent = async (item) => {
 // 取得周遭事件 (GET API)
 const fetchNearbyEvents = async (lat, lng) => {
   try {
-    const response = await fetch(`${EVENT_SERVICE_URL}/events?latitude=${lat}&longitude=${lng}&radius=3000`)
+    // 地圖是全台的佈告欄：所有事件都看得到；500 公尺只影響「誰收到推播」
+    const response = await fetch(`${EVENT_SERVICE_URL}/events?latitude=${lat}&longitude=${lng}&radius=500000`)
     if (response.ok) {
       const data = await response.json()
       console.log('GET /events 回傳資料：', data)
@@ -1202,7 +1204,7 @@ window.openImageLightbox = openLightbox
       <div class="modal-card list-card-container">
         <header class="modal-header">
           <button class="close-btn" @click="showListModal = false">⊗</button>
-          <h3>附近事件清單 (由近到遠)</h3>
+          <h3>事件清單 (由近到遠)</h3>
           <div style="width: 24px;"></div>
         </header>
 
@@ -1219,7 +1221,7 @@ window.openImageLightbox = openLightbox
         </div>
 
         <div v-if="filteredSortedEvents.length === 0" class="empty-state">
-          目前勾選的類別中，附近暫無發布的事件。
+          目前勾選的類別中，暫無發布的事件。
         </div>
 
         <div v-else class="event-list">

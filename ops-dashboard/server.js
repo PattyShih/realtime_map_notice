@@ -29,9 +29,9 @@ const REPLICA_PORTS = [18001, 18002]; // 額外副本發布到主機的埠（r2�
 const MAX_REPLICAS = 1 + REPLICA_PORTS.length;
 const SCALE_UP_CPU = Number(process.env.OPS_SCALE_UP_CPU || 25); // 平均 CPU 高於此值 → 擴展
 const SCALE_DOWN_CPU = Number(process.env.OPS_SCALE_DOWN_CPU || 8); // 平均 CPU 低於此值連續 N 次 → 縮回
-const SCALE_DOWN_TICKS = 3;
-const SCALE_UP_TICKS = 2; // 連續 N 次超過門檻才擴展，避免單點尖峰誤觸發
-const CHECK_MS = 3000;
+const SCALE_DOWN_TICKS = 2;
+const SCALE_UP_TICKS = 1; // 一次達標即擴展：demo 節奏優先（人數指標本身可控，不會誤觸發）
+const CHECK_MS = 1000;
 // 單一模擬程序約 800 人後自身飽和（見 k8s/README.md），人數多時拆多個 worker 容器
 const LOAD_WORKERS = [
   { max: 800, count: 1 },
@@ -48,6 +48,8 @@ const state = {
   upTicks: 0,
   scaling: false,
   events: [], // { t: 'HH:MM:SS', msg }
+  eventGen: { running: false },
+  peakUsers: 0, // 本次壓測以來的最大人數：讓遞增過程副本只增不減
 };
 
 function logEvent(msg) {
@@ -175,16 +177,50 @@ async function startLoadCompose(users) {
       `pip install -q httpx==0.28.1 && python /code/simulate_users.py --users ${perWorker} --target ${target} --interval 0.5`,
     ]);
   }
-  // 低量事件流：讓 event / notification / ai 服務在壓測期間也有可見流量
-  await sh('docker', [
+  state.load = { running: true, users };
+  state.peakUsers = Math.max(state.peakUsers, users);
+
+  // 事件流併入：人越多事件越多（每 50 人 1 則/秒，上限 10 則/秒）
+  const evtRate = Math.min(10, Math.max(1, Math.round(users / 50)));
+  await startEventGenCompose(evtRate);
+
+  logEvent(`⚡ 開始模擬：${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人）＋ 事件流每秒約 ${evtRate} 則`);
+}
+
+// 清空所有事件：刪除事件本體、GEO 索引與反垃圾紀錄（demo 重來用）
+async function clearEventsCompose() {
+  const script = [
+    "redis-cli --scan --pattern 'event:*' | xargs -r redis-cli del",
+    'redis-cli del event_locations',
+    "redis-cli --scan --pattern 'event_antispam:*' | xargs -r redis-cli del",
+    'echo cleared',
+  ].join(' && ');
+  const r = await sh('docker', ['exec', `${COMPOSE_PROJECT}-redis-1`, 'sh', '-c', script]);
+  logEvent(r.ok ? '🧹 已清空所有事件與反垃圾紀錄' : `⚠️ 清空失敗：${r.err}`);
+  return r;
+}
+
+// 事件流：只發布測試事件（不打流量），事件會真實出現在地圖上
+async function startEventGenCompose(rate = 10) {
+  await stopEventGenCompose();
+  const r = await sh('docker', [
     'run', '-d', '--name', 'ops-event-gen',
     '--network', COMPOSE_NET,
     '-v', `${EVENT_GEN_SCRIPT}:/code/event_gen.py:ro`,
     'python:3.12-slim',
-    'sh', '-c', 'pip install -q httpx==0.28.1 && python /code/event_gen.py',
+    'sh', '-c',
+    `pip install -q httpx==0.28.1 && EVENT_RATE=${rate} EVENT_DURATION_MINUTES=60 python /code/event_gen.py`,
   ]);
-  state.load = { running: true, users };
-  logEvent(`⚡ 開始壓測：模擬 ${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人 + 事件產生器，經 ops 輪詢分流至 ${state.replicas} 副本）`);
+  state.eventGen = { running: r.ok };
+  logEvent(r.ok
+    ? `📢 事件流啟動：每秒約 ${rate} 則輔大校園測試事件（地圖上即時可見）`
+    : `⚠️ 事件流啟動失敗：${r.err}`);
+}
+
+async function stopEventGenCompose() {
+  const r = await sh('docker', ['rm', '-f', 'ops-event-gen']);
+  if (r.ok && state.eventGen.running) logEvent('⏹ 事件模式：已停止發布');
+  state.eventGen = { running: false };
 }
 
 async function stopLoadCompose() {
@@ -193,13 +229,17 @@ async function stopLoadCompose() {
     const r = await sh('docker', ['rm', '-f', name]);
     if (r.ok) had = true;
   }
-  if (had && state.load.running) logEvent(`⏹ 停止壓測（${state.load.users} 人已撤）`);
+  if (had && state.load.running) logEvent(`⏹ 停止模擬（${state.load.users} 人與事件流已撤）`);
   state.load = { running: false, users: 0, workers: 0 };
   state.lowTicks = 0;
   state.upTicks = 0;
+  state.peakUsers = 0; // 峰值歸零：下一次壓測從 1 副本重新開始
   if (had) {
     const purged = await purgeSimUsers();
     if (purged.ok) logEvent('🧹 已清除模擬使用者在線紀錄（在線人數即時回落）');
+    // 停止模擬＝地圖清空：撤流量後順手清除所有事件與反垃圾紀錄
+    await clearEventsCompose();
+    logEvent('🗺️ 地圖已清空（所有事件與數據歸零）');
   }
 }
 
@@ -210,6 +250,8 @@ async function composeStatus() {
   const workers = stats.filter((s) => /^ops-load-gen-\d+$/.test(s.name));
   if (workers.length && !state.load.running) state.load.running = true;
   if (!workers.length) state.load = { running: false, users: 0, workers: 0 };
+  const eventGenRunning = stats.some((s) => s.name === 'ops-event-gen');
+  state.eventGen = { running: eventGenRunning };
   const avgCpu = locContainers.length
     ? Math.round(locContainers.reduce((s, c) => s + (c.cpu || 0), 0) / locContainers.length)
     : null;
@@ -252,35 +294,38 @@ async function composeStatus() {
     },
     services,
     load: { ...state.load, workers: workers.length },
+    eventGen: state.eventGen,
     events: state.events.slice(0, 30),
   };
 }
 
-// compose 模式的模擬 HPA：依 location-service 平均 CPU 決定副本數
+// compose 模式的模擬 HPA：以「本次壓測峰值人數」為唯一指標（棘輪設計）。
+// 人數從 0 慢慢遞增到 500 的過程中，副本只會增加不會減少——
+// CPU 噪音不再參與判斷（之前 avg 在門檻上下來回，造成副本忽多忽少）。
+// 按下停止壓測後峰值歸零，副本才會縮回 1 個。
 async function autoscalerTick() {
   if (state.scaling) return;
   const stats = await composeStats();
   const loc = stats.filter((s) => s.location);
   if (!loc.length) return;
-  const avg = loc.reduce((s, c) => s + (c.cpu || 0), 0) / loc.length;
   const replicas = Math.max(1, loc.length);
   state.replicas = replicas;
-  if (avg >= SCALE_UP_CPU && replicas < MAX_REPLICAS) {
-    state.lowTicks = 0;
-    state.upTicks += 1;
-    if (state.upTicks >= SCALE_UP_TICKS) {
-      state.upTicks = 0;
-      await scaleTo(replicas + 1);
-    }
-  } else if (avg <= SCALE_DOWN_CPU && replicas > 1) {
-    state.lowTicks += 1;
-    if (state.lowTicks >= SCALE_DOWN_TICKS) {
-      state.lowTicks = 0;
-      await scaleTo(replicas - 1);
-    }
-  } else {
-    state.lowTicks = 0;
-    state.upTicks = 0;
+
+  const users = state.load.running ? state.load.users : 0;
+  if (users > state.peakUsers) state.peakUsers = users;
+
+  let desired = 1;
+  if (state.peakUsers >= 400) desired = MAX_REPLICAS;
+  else if (state.peakUsers >= 100) desired = 2;
+
+  if (desired > replicas) {
+    // 階梯式擴展：每次只長一個 Pod，方塊依序彈出（demo 視覺）
+    await scaleTo(replicas + 1);
+    logEvent(`📈 擴展：${replicas} → ${replicas + 1} 副本（峰值人數 ${state.peakUsers}）`);
+  } else if (desired < replicas && !state.load.running) {
+    // 只有停止壓測（峰值歸零）才縮減，demo 遞增過程中不縮
+    await scaleTo(desired);
+    logEvent(`📉 壓測已停止，縮回 ${desired} 副本`);
   }
 }
 
@@ -301,14 +346,51 @@ async function startLoadK8s(users) {
   const r = await sh('kubectl', ['apply', '-f', jobFile]);
   fs.unlinkSync(jobFile);
   state.load = { running: r.ok, users: r.ok ? users : 0 };
-  logEvent(r.ok ? `⚡ K8s 壓測：Job load-generator 已建立（${users} 人）` : `⚠️ Job 建立失敗：${r.err}`);
+  await startEventGenK8s(); // 事件流跟著人數一起啟動
+  logEvent(r.ok ? `⚡ K8s 模擬：Job load-generator 已建立（${users} 人）＋ 事件流` : `⚠️ Job 建立失敗：${r.err}`);
+}
+
+async function clearEventsK8s() {
+  const script = [
+    "redis-cli --scan --pattern 'event:*' | xargs -r redis-cli del",
+    'redis-cli del event_locations',
+    "redis-cli --scan --pattern 'event_antispam:*' | xargs -r redis-cli del",
+    'echo cleared',
+  ].join(' && ');
+  const r = await sh('kubectl', ['-n', K8S_NS, 'exec', 'deploy/redis', 'sh', '-c', script]);
+  logEvent(r.ok ? '🧹 已清空所有事件與反垃圾紀錄' : `⚠️ 清空失敗：${r.err}`);
+  return r;
+}
+
+async function startEventGenK8s() {
+  const cmFile = tmp('event-gen-cm');
+  const cm = await sh('kubectl', ['-n', K8S_NS, 'create', 'configmap', 'event-gen-code',
+    '--from-file', `event_gen.py=${EVENT_GEN_SCRIPT}`, '--dry-run=client', '-o', 'yaml']);
+  if (!cm.ok) { logEvent(`⚠️ ConfigMap 建立失敗：${cm.err}`); return; }
+  fs.writeFileSync(cmFile, cm.out);
+  await sh('kubectl', ['apply', '-f', cmFile]);
+  fs.unlinkSync(cmFile);
+  await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'event-gen', '--ignore-not-found']);
+  const r = await sh('kubectl', ['apply', '-f', path.join(__dirname, '..', 'k8s', 'event-gen-job.yaml')]);
+  state.eventGen = { running: r.ok };
+  logEvent(r.ok ? '📢 K8s 事件模式：Job event-gen 已建立（持續發布輔大校園事件）' : `⚠️ Job 建立失敗：${r.err}`);
+}
+
+async function stopEventGenK8s() {
+  const r = await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'event-gen', '--ignore-not-found']);
+  if (state.eventGen.running) logEvent('⏹ K8s 事件模式：Job 已刪除');
+  state.eventGen = { running: false };
+  if (!r.ok) logEvent(`⚠️ Job 刪除失敗：${r.err}`);
 }
 
 async function stopLoadK8s() {
+  await stopEventGenK8s();
   const r = await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'load-generator', '--ignore-not-found']);
-  if (state.load.running) logEvent('⏹ K8s 壓測：Job 已刪除');
+  if (state.load.running) logEvent('⏹ K8s 模擬：Job 已刪除');
   state.load = { running: false, users: 0 };
   if (!r.ok) logEvent(`⚠️ Job 刪除失敗：${r.err}`);
+  await clearEventsK8s();
+  logEvent('🗺️ 地圖已清空（所有事件與數據歸零）');
 }
 
 async function k8sStatus() {
@@ -316,6 +398,7 @@ async function k8sStatus() {
   const top = await sh('kubectl', ['-n', K8S_NS, 'top', 'pods', '--no-headers']);
   const hpa = await sh('kubectl', ['-n', K8S_NS, 'get', 'hpa', '-o', 'json']);
   const job = await sh('kubectl', ['-n', K8S_NS, 'get', 'job', 'load-generator', '-o', 'json']);
+  const evtJob = await sh('kubectl', ['-n', K8S_NS, 'get', 'job', 'event-gen', '-o', 'json']);
 
   const cpuByPod = {};
   for (const line of top.out.trim().split('\n').filter(Boolean)) {
@@ -355,9 +438,15 @@ async function k8sStatus() {
     const j = JSON.parse(job.out);
     load = { running: (j.status.active || 0) > 0, users: state.load.users };
   }
+  let eventGen = { running: false };
+  if (evtJob.ok) {
+    const j = JSON.parse(evtJob.out);
+    eventGen = { running: (j.status.active || 0) > 0 };
+  }
   return {
     mode: 'k8s',
     autoscaler: hpaInfo,
+    eventGen,
     pool: [],
     pods: services
       .filter((s) => s.short === 'location-service')
@@ -423,6 +512,24 @@ const server = http.createServer(async (req, res) => {
       if (state.mode === 'k8s') await startLoadK8s(users);
       else await startLoadCompose(users);
       return sendJson(res, 200, { ok: true, users });
+    }
+
+    if (url.pathname === '/api/events/clear' && req.method === 'POST') {
+      if (state.mode === 'k8s') await clearEventsK8s();
+      else await clearEventsCompose();
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (url.pathname === '/api/events/start' && req.method === 'POST') {
+      if (state.mode === 'k8s') await startEventGenK8s();
+      else await startEventGenCompose();
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (url.pathname === '/api/events/stop' && req.method === 'POST') {
+      if (state.mode === 'k8s') await stopEventGenK8s();
+      else await stopEventGenCompose();
+      return sendJson(res, 200, { ok: true });
     }
 
     if (url.pathname === '/api/load/stop' && req.method === 'POST') {

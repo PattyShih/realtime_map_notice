@@ -23,6 +23,7 @@
     border: 1px solid var(--line); color: var(--muted);
   }
   .badge.k8s { color: var(--green); border-color: var(--green); }
+  .badge.evt-on { color: var(--green); border-color: var(--green); }
   .badge.compose { color: var(--amber); border-color: var(--amber); }
   .grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
   .panel {
@@ -113,22 +114,25 @@
 
 <div class="grid">
   <div class="panel">
-    <h2>流量模擬</h2>
-    <label>模擬湧入人數（100–3000）</label>
+    <h2>模擬器（流量＋事件流）</h2>
+    <label>模擬湧入人數（100–3000）：流量與 Pod 隨人數擴展，事件流每 50 人約 1 則/秒</label>
     <input id="users" type="number" value="500" min="100" max="3000" step="100">
-    <button id="btnStart" class="start">⚡ 開始壓測</button>
-    <button id="btnStop" class="stop" disabled>⏹ 停止壓測</button>
+    <button id="btnStart" class="start">⚡ 開始模擬</button>
+    <button id="btnStop" class="stop" disabled>⏹ 停止並清空</button>
     <div class="loadinfo" id="loadInfo">目前無模擬流量</div>
+
+    <div class="loadinfo" style="margin-top:10px">⏹ 停止模擬會同時清空地圖上所有事件</div>
   </div>
 
   <div>
-    <div class="cards" id="cards"></div>
+    <!-- Pod 方塊面板放最上方：擴展／縮減一格一格看得最直觀 -->
     <div class="panel" style="margin-bottom:14px">
       <h2>容器擴展現場（location-service · 定位服務）</h2>
       <div id="banner" class="banner ok">等待資料…</div>
       <div id="podRow"></div>
       <div id="otherLine" class="other-line"></div>
     </div>
+    <div class="cards" id="cards" style="margin-bottom:14px"></div>
     <div class="panel">
       <h2>容器 CPU 使用率（%）</h2>
       <div class="chart-wrap"><canvas id="chart"></canvas></div>
@@ -291,8 +295,9 @@ function renderLoad(status) {
   document.getElementById('btnStop').disabled = !running;
   // 「開始壓測」永遠可按：ops 端會先停掉舊壓測再以新的人數開新的
   const workers = status.load.workers ? ` · ${status.load.workers} 個模擬 worker` : '';
+  const evtRate = Math.min(10, Math.max(1, Math.round((status.load.users || 0) / 50)));
   document.getElementById('loadInfo').innerHTML = running
-    ? `模擬中：<b>${status.load.users || '…'} 人</b>${workers} 持續湧入（輸入新人數可直接覆蓋）`
+    ? `模擬中：<b>${status.load.users || '…'} 人</b>${workers} 持續湧入 · 事件流每秒約 ${evtRate} 則（輸入新人數可直接覆蓋）`
     : '目前無模擬流量';
   document.getElementById('loadBadge').textContent = running
     ? `壓測中：${status.load.users || '…'} 人` : '無壓測';
@@ -338,6 +343,7 @@ document.getElementById('btnStart').onclick = async () => {
   });
 };
 document.getElementById('btnStop').onclick = () => fetch('/api/load/stop', { method: 'POST' });
+
 
 poll();
 setInterval(poll, 2000);
