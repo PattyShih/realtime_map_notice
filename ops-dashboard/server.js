@@ -49,6 +49,7 @@ const state = {
   scaling: false,
   events: [], // { t: 'HH:MM:SS', msg }
   eventGen: { running: false },
+  peakUsers: 0, // 本次壓測以來的最大人數：讓遞增過程副本只增不減
 };
 
 function logEvent(msg) {
@@ -177,6 +178,7 @@ async function startLoadCompose(users) {
     ]);
   }
   state.load = { running: true, users };
+  state.peakUsers = Math.max(state.peakUsers, users);
   logEvent(`⚡ 開始壓測：模擬 ${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人，經 ops 輪詢分流至 ${state.replicas} 副本）`);
 }
 
@@ -213,6 +215,7 @@ async function stopLoadCompose() {
   state.load = { running: false, users: 0, workers: 0 };
   state.lowTicks = 0;
   state.upTicks = 0;
+  state.peakUsers = 0; // 峰值歸零：下一次壓測從 1 副本重新開始
   if (had) {
     const purged = await purgeSimUsers();
     if (purged.ok) logEvent('🧹 已清除模擬使用者在線紀錄（在線人數即時回落）');
@@ -275,38 +278,32 @@ async function composeStatus() {
   };
 }
 
-// compose 模式的模擬 HPA：以「模擬人數」為主指標（demo 直觀可控：
-// 100 人 → 2 副本、400 人 → 3 副本），平均 CPU 門檻為輔，取較多副本數
+// compose 模式的模擬 HPA：以「本次壓測峰值人數」為唯一指標（棘輪設計）。
+// 人數從 0 慢慢遞增到 500 的過程中，副本只會增加不會減少——
+// CPU 噪音不再參與判斷（之前 avg 在門檻上下來回，造成副本忽多忽少）。
+// 按下停止壓測後峰值歸零，副本才會縮回 1 個。
 async function autoscalerTick() {
   if (state.scaling) return;
   const stats = await composeStats();
   const loc = stats.filter((s) => s.location);
   if (!loc.length) return;
-  const avg = loc.reduce((s, c) => s + (c.cpu || 0), 0) / loc.length;
   const replicas = Math.max(1, loc.length);
   state.replicas = replicas;
 
   const users = state.load.running ? state.load.users : 0;
+  if (users > state.peakUsers) state.peakUsers = users;
+
   let desired = 1;
-  if (users >= 400 || avg >= SCALE_UP_CPU) desired = MAX_REPLICAS;
-  else if (users >= 100 || avg >= SCALE_UP_CPU * 0.6) desired = 2;
+  if (state.peakUsers >= 400) desired = MAX_REPLICAS;
+  else if (state.peakUsers >= 100) desired = 2;
 
   if (desired > replicas) {
-    state.lowTicks = 0;
-    state.upTicks += 1;
-    if (state.upTicks >= SCALE_UP_TICKS) {
-      state.upTicks = 0;
-      await scaleTo(desired);
-    }
-  } else if (desired < replicas) {
-    state.lowTicks += 1;
-    if (state.lowTicks >= SCALE_DOWN_TICKS) {
-      state.lowTicks = 0;
-      await scaleTo(replicas - 1);
-    }
-  } else {
-    state.lowTicks = 0;
-    state.upTicks = 0;
+    await scaleTo(desired);
+    logEvent(`📈 擴展：${replicas} → ${desired} 副本（峰值人數 ${state.peakUsers}）`);
+  } else if (desired < replicas && !state.load.running) {
+    // 只有停止壓測（峰值歸零）才縮減，demo 遞增過程中不縮
+    await scaleTo(desired);
+    logEvent(`📉 壓測已停止，縮回 ${desired} 副本`);
   }
 }
 
