@@ -25,6 +25,15 @@ class FakeLLMResponse:
         return {"choices": [{"message": {"content": self.content}}]}
 
 
+class FakeGeminiResponse(FakeLLMResponse):
+    def json(self) -> dict:
+        return {
+            "candidates": [
+                {"content": {"parts": [{"text": self.content}]}}
+            ]
+        }
+
+
 class FakeAsyncClient:
     def __init__(
         self,
@@ -201,6 +210,74 @@ async def test_llm_provider_without_api_key_is_disabled(monkeypatch) -> None:
     body = response.json()
     assert body["verdict"] == "ok"
     assert "未設定" in body["reason"]
+
+
+@pytest.mark.asyncio
+async def test_gemini_provider_moderates_json(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "MODERATION_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "fake-gemini-key")
+    fake_client = FakeAsyncClient(timeout=8.0, content=json.dumps(
+        {"spam": False, "score": 0.05, "reason": "正常事件"}, ensure_ascii=False
+    ))
+    fake_client_response = FakeGeminiResponse(fake_client.content)
+
+    class GeminiClient(FakeAsyncClient):
+        async def post(self, url: str, json: dict, headers: dict | None = None):
+            self.posts.append((url, json))
+            return fake_client_response
+
+    gemini_client = GeminiClient(timeout=8.0, content=fake_client.content)
+    monkeypatch.setattr(ai_service.httpx, "AsyncClient", lambda timeout=8.0: gemini_client)
+
+    response = await post_moderate(make_moderate_payload())
+
+    assert response.status_code == 200
+    assert response.json()["verdict"] == "ok"
+    assert gemini_client.posts[0][0].endswith(":generateContent")
+    assert gemini_client.posts[0][1]["generationConfig"]["responseMimeType"] == "application/json"
+
+
+@pytest.mark.asyncio
+async def test_gemini_provider_analyzes_event(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "ANALYSIS_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "fake-gemini-key")
+    analysis = {
+        "category": "suspected_stalking",
+        "suggested_severity": "urgent",
+        "summary": "疑似跟蹤",
+        "incident_facts": ["陌生人持續尾隨"],
+        "advice": ["前往人多的地方"],
+        "emergency_contacts": ["110"],
+        "report_summary": "事件類型：疑似跟蹤",
+        "confidence": 0.9,
+    }
+    gemini_client = FakeAsyncClient(timeout=8.0, content=json.dumps(analysis, ensure_ascii=False))
+    monkeypatch.setattr(
+        ai_service.httpx,
+        "AsyncClient",
+        lambda timeout=8.0: _GeminiTestClient(gemini_client),
+    )
+
+    response = await post_analyze(make_moderate_payload())
+
+    assert response.status_code == 200
+    assert response.json()["category"] == "suspected_stalking"
+
+
+class _GeminiTestClient:
+    def __init__(self, delegate: FakeAsyncClient) -> None:
+        self.delegate = delegate
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    async def post(self, url: str, json: dict, headers: dict | None = None):
+        return FakeGeminiResponse(self.delegate.content)
 
 
 def test_extract_json_handles_fences() -> None:

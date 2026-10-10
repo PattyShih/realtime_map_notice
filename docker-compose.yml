@@ -37,11 +37,17 @@ services:
       context: .
       dockerfile: backend/ai-service/Dockerfile
     environment:
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
       MODERATION_PROVIDER: ${MODERATION_PROVIDER:-keyword}
+      ANALYSIS_PROVIDER: ${ANALYSIS_PROVIDER:-keyword}
       MODERATION_BLOCKED_KEYWORDS: ${MODERATION_BLOCKED_KEYWORDS:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-8}
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
     ports:
       - "8004:8000"
