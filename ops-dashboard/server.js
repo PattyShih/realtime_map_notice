@@ -316,8 +316,9 @@ async function autoscalerTick() {
   else if (state.peakUsers >= 100) desired = 2;
 
   if (desired > replicas) {
-    await scaleTo(desired);
-    logEvent(`📈 擴展：${replicas} → ${desired} 副本（峰值人數 ${state.peakUsers}）`);
+    // 階梯式擴展：每次只長一個 Pod，方塊依序彈出（demo 視覺）
+    await scaleTo(replicas + 1);
+    logEvent(`📈 擴展：${replicas} → ${replicas + 1} 副本（峰值人數 ${state.peakUsers}）`);
   } else if (desired < replicas && !state.load.running) {
     // 只有停止壓測（峰值歸零）才縮減，demo 遞增過程中不縮
     await scaleTo(desired);
