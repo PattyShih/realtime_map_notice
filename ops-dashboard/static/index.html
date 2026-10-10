@@ -118,12 +118,10 @@
     <label>模擬湧入人數（100–3000）：流量與 Pod 隨人數擴展，事件流每 50 人約 1 則/秒</label>
     <input id="users" type="number" value="500" min="100" max="3000" step="100">
     <button id="btnStart" class="start">⚡ 開始模擬</button>
-    <button id="btnStop" class="stop" disabled>⏹ 停止模擬</button>
+    <button id="btnStop" class="stop" disabled>⏹ 停止並清空</button>
     <div class="loadinfo" id="loadInfo">目前無模擬流量</div>
 
-    <h2 style="margin-top:16px">重來</h2>
-    <button id="btnClear" class="stop">🧹 清空所有事件</button>
-    <div class="loadinfo">清空地圖上全部事件與反垃圾紀錄（demo 重新開始用）</div>
+    <div class="loadinfo" style="margin-top:10px">⏹ 停止模擬會同時清空地圖上所有事件</div>
   </div>
 
   <div>
@@ -345,10 +343,7 @@ document.getElementById('btnStart').onclick = async () => {
   });
 };
 document.getElementById('btnStop').onclick = () => fetch('/api/load/stop', { method: 'POST' });
-document.getElementById('btnClear').onclick = async () => {
-  await fetch('/api/events/clear', { method: 'POST' });
-  document.getElementById('otherLine').textContent = '';
-};
+
 
 poll();
 setInterval(poll, 2000);

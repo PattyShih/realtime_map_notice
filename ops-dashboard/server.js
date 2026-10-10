@@ -237,6 +237,9 @@ async function stopLoadCompose() {
   if (had) {
     const purged = await purgeSimUsers();
     if (purged.ok) logEvent('🧹 已清除模擬使用者在線紀錄（在線人數即時回落）');
+    // 停止模擬＝地圖清空：撤流量後順手清除所有事件與反垃圾紀錄
+    await clearEventsCompose();
+    logEvent('🗺️ 地圖已清空（所有事件與數據歸零）');
   }
 }
 
@@ -386,6 +389,8 @@ async function stopLoadK8s() {
   if (state.load.running) logEvent('⏹ K8s 模擬：Job 已刪除');
   state.load = { running: false, users: 0 };
   if (!r.ok) logEvent(`⚠️ Job 刪除失敗：${r.err}`);
+  await clearEventsK8s();
+  logEvent('🗺️ 地圖已清空（所有事件與數據歸零）');
 }
 
 async function k8sStatus() {
