@@ -217,6 +217,40 @@ async def test_healthz_returns_503_when_redis_is_unavailable(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+async def test_analysis_waits_longer_than_default_llm_timeout(monkeypatch) -> None:
+    analysis = {
+        "category": "other",
+        "suggested_severity": "info",
+        "summary": "Library seats",
+        "incident_facts": ["3F has seats near windows"],
+        "advice": [],
+        "emergency_contacts": [],
+        "report_summary": "事件類型：other",
+        "confidence": 0.2,
+        "provider": "keyword-fallback",
+    }
+    timeouts: list[float] = []
+    fake_client = FakeAsyncClient(timeout=0.0, response_payload=analysis)
+    monkeypatch.setattr(
+        event_service.httpx,
+        "AsyncClient",
+        lambda timeout: (timeouts.append(timeout), fake_client)[1],
+    )
+
+    result = await event_service.analyze_event_content(
+        "Library seats",
+        "3F has seats near windows",
+        "info",
+        25.0173,
+        121.5397,
+    )
+
+    assert result == analysis
+    assert timeouts == [event_service.AI_ANALYSIS_TIMEOUT_SECONDS]
+    assert timeouts[0] > 30
+
+
+@pytest.mark.asyncio
 async def test_create_event_with_nearby_users(monkeypatch) -> None:
     fake_redis = install_fake_redis(monkeypatch)
 

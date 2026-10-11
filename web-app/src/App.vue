@@ -313,16 +313,9 @@ const analyzeSelectedEvent = async () => {
   analysisLoading.value = true
   analysisError.value = ''
   try {
-    const response = await fetch(`${AI_SERVICE_URL}/analyze-event`, {
+    const response = await fetch(`${EVENT_SERVICE_URL}/events/${event.id}/analysis`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: event.title,
-        message: event.description,
-        severity: event.category === 'danger' ? 'urgent' : event.category,
-        latitude: event.location.lat,
-        longitude: event.location.lng
-      })
+      headers: { ...authHeaders() }
     })
     const body = await response.json()
     if (!response.ok) throw new Error(formatApiDetail(body.detail || 'AI 分析失敗'))
@@ -497,7 +490,15 @@ const checkAndCleanExpiredEvents = () => {
 // v-for 渲染錯亂，連帶造成左下角列表按鈕等畫面元素異常消失。
 // ==========================
 const addEventUnique = (newEvent, { notify = true } = {}) => {
-  if (!newEvent.id || markerMap.value.has(newEvent.id)) return false
+  if (!newEvent.id) return false
+
+  const existingEvent = eventsList.value.find(event => event.id === newEvent.id)
+  if (existingEvent) {
+    if (newEvent.analysis) existingEvent.analysis = newEvent.analysis
+    return false
+  }
+
+  if (markerMap.value.has(newEvent.id)) return false
 
   // 內容層級防禦：ID 不同但標題與描述完全相同者視為同一則
   const isContentDuplicate = eventsList.value.some(

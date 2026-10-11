@@ -30,6 +30,11 @@ AI_SERVICE_URL = os.getenv(
     "AI_SERVICE_URL",
     "http://localhost:8004",
 )
+# Must exceed the AI service's default 30-second LLM timeout so a slow model
+# can still return its keyword fallback instead of being dropped here.
+AI_ANALYSIS_TIMEOUT_SECONDS = float(
+    os.getenv("AI_ANALYSIS_TIMEOUT_SECONDS", "35")
+)
 # Google 登入：後端必須用同一個 Client ID 驗證 ID token 的 audience
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 # 內部服務金鑰：ops 儀表板的事件模擬器等機器端不經 Google 登入，
@@ -76,7 +81,7 @@ async def analyze_event_content(
 ) -> dict | None:
     """取得事件分析；AI 故障時回傳空值，不阻擋事件發布。"""
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
+        async with httpx.AsyncClient(timeout=AI_ANALYSIS_TIMEOUT_SECONDS) as client:
             response = await client.post(
                 f"{AI_SERVICE_URL}/analyze-event",
                 json={
@@ -340,6 +345,40 @@ async def _load_owned_event(event_id: str, user_id: str) -> dict:
     return event
 
 
+@app.post("/events/{event_id}/analysis", response_model=EventAnalysisResponse)
+async def analyze_existing_event(
+    event_id: str,
+    actor: Actor = Depends(require_actor),
+) -> EventAnalysisResponse:
+    """分析並保存既有事件，避免結果只存在前端暫存狀態。"""
+    if actor.via != "jwt":
+        raise HTTPException(status_code=401, detail="請使用登入帳號分析事件")
+
+    event = await _load_owned_event(event_id, actor.user_id)
+    analysis = await analyze_event_content(
+        event["title"],
+        event["message"],
+        event["severity"],
+        event["latitude"],
+        event["longitude"],
+    )
+    if analysis is None:
+        raise HTTPException(status_code=503, detail="AI 分析目前無法使用")
+
+    event["analysis"] = analysis
+    event_key = f"event:{event_id}"
+    try:
+        ttl = await redis.ttl(event_key)
+        if ttl <= 0:
+            raise HTTPException(status_code=404, detail="事件不存在或已過期")
+        await redis.set(event_key, json.dumps(event), ex=ttl)
+    except RedisError as e:
+        logger.error("Event analysis update failed: %s", e)
+        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
+
+    return EventAnalysisResponse.model_validate(analysis)
+
+
 @app.put("/events/{event_id}")
 async def update_event(
     event_id: str,
@@ -490,6 +529,7 @@ async def create_event(
 
     return {
         "event_id": event_id,
+        "analysis": analysis,
         "nearby_user_count": broadcast_stats.get("total_nearby_users", 0),
         "active_user_count": broadcast_stats.get("active_user_count", 0),
         "delivered_count": broadcast_stats.get("delivered_count", 0),
