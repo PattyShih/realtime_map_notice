@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { AI_SERVICE_URL, EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
+import { GOOGLE_CLIENT_ID, getSavedAuth, clearAuth, authHeaders, loginWithGoogle } from './auth.js'
 import { PUSH_SUPPORTED, getPushState, enablePush, disablePush, isStandalone } from './push.js'
 
 // ==========================================
@@ -100,17 +101,44 @@ const createColoredPin = (category) => {
   })
 }
 
-const getOrCreateUserId = () => {
-  let userId = localStorage.getItem('app_user_id')
-  if (!userId) {
-    userId = 'user_' + Math.random().toString(36).substring(2, 9)
-    localStorage.setItem('app_user_id', userId)
+// ==========================================
+// 登入狀態（Google 登入 → 系統 JWT）
+// ==========================================
+// auth = { token: <JWT>, user: { id, name, email, picture } }，存在 localStorage
+const auth = ref(getSavedAuth())
+const myUser = computed(() => auth.value?.user || null)
+// 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕（一律以 token 內的 id 為準）
+const myUserId = computed(() => auth.value?.user?.id || '')
+
+// 登入畫面：Google 官方按鈕掛載與回呼
+const googleBtnRef = ref(null)
+const loginError = ref('')
+const renderGoogleButton = () => {
+  // GSI 腳本為 async 載入：還沒就緒就稍後重試
+  if (!window.google?.accounts?.id) {
+    setTimeout(renderGoogleButton, 300)
+    return
   }
-  return userId
+  window.google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: async (response) => {
+      try {
+        auth.value = await loginWithGoogle(response.credential)
+      } catch (err) {
+        loginError.value = err?.message || '登入失敗，請再試一次'
+      }
+    }
+  })
+  window.google.accounts.id.renderButton(googleBtnRef.value, {
+    theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill', locale: 'zh-TW'
+  })
 }
 
-// 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕
-const myUserId = getOrCreateUserId()
+const logout = () => {
+  if (!confirm('確定要登出嗎？下次需重新登入才能發布事件')) return
+  clearAuth()
+  location.reload()
+}
 
 // ==========================
 // 手機推播（Web Push）
@@ -131,7 +159,7 @@ if (PUSH_SUPPORTED && isStandalone() && !localStorage.getItem('push_prompt_dismi
 
 const onEnablePush = async () => {
   try {
-    await enablePush(myUserId)
+    await enablePush(myUserId.value)
     await refreshPushState()
     showPushPrompt.value = false
     localStorage.setItem('push_prompt_dismissed', 'enabled')
@@ -142,7 +170,7 @@ const onEnablePush = async () => {
 }
 const onDisablePush = async () => {
   try {
-    await disablePush(myUserId)
+    await disablePush(myUserId.value)
     await refreshPushState()
     triggerToast('🔕 手機推播已關閉')
   } catch (err) {
@@ -218,7 +246,7 @@ const formatCountdown = (expiresAt) => {
 }
 
 const myEvents = computed(() => eventsList.value
-  .filter(e => e.userId === myUserId)
+  .filter(e => e.userId === myUserId.value)
   .sort((a, b) => (b.createdAt || b.expiresAt) - (a.createdAt || a.expiresAt)))
 
 // 相對時間顯示：剛剛 / N 分鐘前 / N 小時前
@@ -322,7 +350,7 @@ const reportLocation = async (lat, lng) => {
     await fetch(`${LOCATION_SERVICE_URL}/locations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: getOrCreateUserId(), latitude: lat, longitude: lng })
+      body: JSON.stringify({ user_id: myUserId.value, latitude: lat, longitude: lng })
     })
   } catch (err) {
     console.log('座標上報失敗:', err)
@@ -527,7 +555,7 @@ const setupWebSocket = () => {
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
   if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
 
-  const userId = getOrCreateUserId()
+  const userId = myUserId.value
   ws = new WebSocket(`${NOTIFICATION_WS_URL}/ws/${userId}`)
 
   ws.onopen = () => {
@@ -625,7 +653,9 @@ const fetchOnlineCount = async () => {
   }
 }
 
-onMounted(() => {
+// App 初始化：地圖、WebSocket、定位與所有輪詢——登入後才執行（DOM 需先渲染）
+const appStarted = ref(false)
+const initApp = () => {
   // preferCanvas：向量層用 canvas 繪製，大量事件時效能較佳
   map.value = L.map('map', { preferCanvas: true }).setView([currentCoords.value.lat, currentCoords.value.lng], 16)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map.value)
@@ -649,6 +679,25 @@ onMounted(() => {
   // 前景恢復／網路恢復時立刻重連 WebSocket
   document.addEventListener('visibilitychange', handleVisibilityResume)
   window.addEventListener('online', handleNetworkOnline)
+}
+
+// 登入成功（auth 由 null → 有值）時啟動 App；等 nextTick 讓地圖 DOM 先渲染
+watch(auth, async (val) => {
+  if (!val || appStarted.value) return
+  appStarted.value = true
+  await nextTick()
+  initApp()
+  triggerToast(`👋 歡迎，${val.user?.name || '使用者'}！`)
+})
+
+onMounted(() => {
+  // 已有有效登入狀態：直接進 App；否則顯示 Google 登入頁
+  if (auth.value) {
+    appStarted.value = true
+    initApp()
+  } else {
+    renderGoogleButton()
+  }
 })
 
 onUnmounted(() => {
@@ -828,13 +877,13 @@ const handleSubmit = async () => {
     radius_meters: 500,
     duration_minutes: durationMinutes,
     image_url: formData.value.imagePreview || '',
-    user_id: getOrCreateUserId() // 補上後端要求的發布者身份驗證
+    user_id: myUserId.value // 後端會再以 JWT 內的 user_id 覆蓋，此欄位僅供舊版相容
   }
 
   try {
     const response = await fetch(`${EVENT_SERVICE_URL}/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(apiPayload)
     })
 
@@ -847,7 +896,7 @@ const handleSubmit = async () => {
 
       const newEvent = {
         id: body.event_id || Date.now(),
-        userId: myUserId,
+        userId: myUserId.value,
         createdAt: Date.now(),
         title: finalTitle,
         category: formData.value.category,
@@ -911,9 +960,9 @@ const submitEdit = async () => {
   try {
     const response = await fetch(`${EVENT_SERVICE_URL}/events/${editingEventId.value}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
-        user_id: myUserId,
+        user_id: myUserId.value, // 後端會再以 JWT 內的 user_id 覆蓋
         title: editForm.value.title,
         message: editForm.value.description || '無詳細描述',
         severity
@@ -950,8 +999,8 @@ const deleteEvent = async (item) => {
   deletingId.value = item.id
   try {
     const response = await fetch(
-      `${EVENT_SERVICE_URL}/events/${item.id}?user_id=${encodeURIComponent(myUserId)}`,
-      { method: 'DELETE' }
+      `${EVENT_SERVICE_URL}/events/${item.id}?user_id=${encodeURIComponent(myUserId.value)}`,
+      { method: 'DELETE', headers: authHeaders() }
     )
 
     if (response.ok) {
@@ -1089,7 +1138,7 @@ window.openImageLightbox = openLightbox
 </script>
 
 <template>
-  <div class="app-container">
+  <div v-if="auth" class="app-container">
     <!-- 連線狀態指示膠囊 -->
   <div v-show="activeTab !== 'mine'" class="connection-pill" :class="wsStatus">
     <span class="status-indicator-dot"></span>
@@ -1217,6 +1266,17 @@ window.openImageLightbox = openLightbox
           <div class="mine-header">
             <span class="mine-header-title">📋 我的發布</span>
             <span v-if="myEvents.length" class="mine-count">{{ myEvents.length }} 則進行中</span>
+          </div>
+
+          <!-- 登入帳號資料卡（Google 帳號） -->
+          <div v-if="myUser" class="mine-profile-card">
+            <img v-if="myUser.picture" :src="myUser.picture" alt="頭像" referrerpolicy="no-referrer" class="mine-avatar" />
+            <div v-else class="mine-avatar mine-avatar-placeholder">👤</div>
+            <div class="mine-profile-info">
+              <div class="mine-profile-name">{{ myUser.name || '已登入使用者' }}</div>
+              <div class="mine-profile-email">{{ myUser.email }}</div>
+            </div>
+            <button type="button" class="mine-logout-btn" @click="logout">登出</button>
           </div>
 
           <div v-if="pushState.supported" class="mine-push-card">
@@ -1500,6 +1560,20 @@ window.openImageLightbox = openLightbox
           <button type="submit" class="submit-btn">儲存變更</button>
         </form>
       </div>
+    </div>
+  </div>
+  <!-- Google 登入頁：未登入時的唯一畫面 -->
+  <div v-else class="login-screen">
+    <div class="login-card">
+      <div class="login-logo">📍</div>
+      <h1 class="login-title">即時地圖通知</h1>
+      <p class="login-subtitle">Realtime Map Notice</p>
+      <p class="login-desc">登入後即可發布與接收<br />校園周遭的即時事件通知</p>
+      <div ref="googleBtnRef" class="google-btn-wrap"></div>
+      <div v-if="!GOOGLE_CLIENT_ID" class="login-hint">
+        ⚠️ 尚未設定 VITE_GOOGLE_CLIENT_ID（見 web-app/.env.example）
+      </div>
+      <div v-if="loginError" class="login-error">{{ loginError }}</div>
     </div>
   </div>
   <!-- 加入主畫面後的推播詢問 -->

@@ -65,7 +65,7 @@ repo 根目錄的 `render.yaml` 已定義四個服務 + Redis。
 2. 設定：
    - **Root Directory**：`web-app`
    - Framework Preset：**Vite**（Build Command `npm run build`、Output Directory `dist` 會自動帶出）
-3. **Environment Variables**（Build 時期變數，四個都要）：
+3. **Environment Variables**（Build 時期變數）：
 
    | Name | Value |
    |---|---|
@@ -74,6 +74,7 @@ repo 根目錄的 `render.yaml` 已定義四個服務 + Redis。
    | `VITE_AI_SERVICE_URL` | `https://rmn-ai.onrender.com` |
    | `VITE_NOTIFICATION_WS_URL` | `wss://rmn-notification.onrender.com` |
    | `VITE_NOTIFICATION_SERVICE_URL`* | `https://rmn-notification.onrender.com` |
+   | `VITE_GOOGLE_CLIENT_ID` | Google OAuth 用戶端 ID（見下方「Google 登入設定」） |
 
    \* 若之後做 Web Push 前端訂閱才需要。
 4. **Deploy** → 完成後得到 `https://xxx.vercel.app`。
@@ -84,6 +85,30 @@ repo 根目錄的 `render.yaml` 已定義四個服務 + Redis。
 前端網址確定後，到 Render 每個服務 → **Environment** → 把 `CORS_ALLOW_ORIGINS`
 改成 `https://xxx.vercel.app`（不含結尾斜線）→ Save，會自動重新部署。
 不做這步：瀏覽器會擋掉跨源請求（地圖出得來但事件/推播全掛）。
+
+## 步驟三點五：Google 登入設定（發布/編輯/刪除事件需要）
+
+事件的發布、編輯、刪除一律需要登入（Google 帳號），流程是「Google 證明你是誰 → 後端換發系統 JWT」。
+
+1. **申請 OAuth 用戶端 ID**（免費，約 10 分鐘）：
+   1. 開 <https://console.cloud.google.com/>，用 Google 帳號登入。
+   2. 頂部專案選擇器 → **新增專案**（名稱任意，例如 `realtime-map-notice`）。
+   3. 左側選單 → **API 和服務** → **OAuth 同意畫面**：
+      - 應用程式名稱 `即時地圖通知`、User Type 選 **External（外部）**，其餘照填（聯絡信箱填自己的）。
+      - 完成後停留在 **測試（Testing）** 狀態即可；到「測試使用者」把**組員與 demo 帳號的 email 加進去**（測試狀態只有名單內的帳號能登入）。
+   4. **API 和服務** → **憑證** → **+ 建立憑證** → **OAuth 用戶端 ID**：
+      - 應用程式類型：**Web 應用程式**
+      - **已授權的 JavaScript 來源**（每行一個，不需要 redirect URI）：
+        - `http://localhost:5173`（本機開發）
+        - `https://你的前端網址.vercel.app`（線上版，Vercel 的 preview 網址若要測也要加）
+      - 建立後複製 **用戶端 ID**（長得像 `123456789-xxxx.apps.googleusercontent.com`）。
+2. **前端**：Vercel 專案 → Settings → Environment Variables → 新增 `VITE_GOOGLE_CLIENT_ID` = 用戶端 ID → **Redeploy**。本機開發則在 `web-app/.env.local` 填同一個值（見 `web-app/.env.example`）。
+3. **後端**：Render 的 `rmn-event` 服務 → Environment → 新增 `GOOGLE_CLIENT_ID` = **同一個**用戶端 ID（後端驗證 Google token 的 audience 用，前後端必須一致）→ Save 重新部署。
+   - `JWT_SECRET`（系統 JWT 簽章）：Blueprint 部署會自動產生；手動部署可執行 `openssl rand -hex 32` 填入。
+4. **驗證**：開前端網址 → 出現登入頁 → 點「使用 Google 帳戶登入」→ 選帳號 → 進入地圖，「我的」分頁頂部顯示帳號資料卡。
+
+> 安全設計：前端送來的 `user_id` 一律被後端以 JWT 內容覆蓋，無法冒用他人身分發布；
+> ops 儀表板的事件模擬器不走 Google 登入，改以 `INTERNAL_API_KEY` 內部金鑰直通（docker-compose 已預設 `dev-internal-key`）。
 
 ## 步驟四：手機安裝（PWA）
 
