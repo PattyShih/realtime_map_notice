@@ -203,10 +203,13 @@ async function clearEventsCompose() {
 // 事件流：只發布測試事件（不打流量），事件會真實出現在地圖上
 async function startEventGenCompose(rate = 10) {
   await stopEventGenCompose();
+  // 與 docker-compose 的 INTERNAL_API_KEY 預設值保持一致（.env 可覆寫）
+  const internalKey = process.env.INTERNAL_API_KEY || 'dev-internal-key';
   const r = await sh('docker', [
     'run', '-d', '--name', 'ops-event-gen',
     '--network', COMPOSE_NET,
     '-v', `${EVENT_GEN_SCRIPT}:/code/event_gen.py:ro`,
+    '-e', `INTERNAL_API_KEY=${internalKey}`,
     'python:3.12-slim',
     'sh', '-c',
     `pip install -q httpx==0.28.1 && EVENT_RATE=${rate} EVENT_DURATION_MINUTES=60 python /code/event_gen.py`,

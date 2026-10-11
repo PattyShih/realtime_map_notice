@@ -1,15 +1,19 @@
 import json
 import logging
 import os
+import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from pydantic import BaseModel
 from redis.exceptions import RedisError
 
 from backend.shared.antispam import EventAntiSpam
 from backend.shared.cors import configure_cors
+from backend.shared.jwt_auth import create_token, verify_token
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import (
     EventAnalysisResponse,
@@ -26,6 +30,11 @@ AI_SERVICE_URL = os.getenv(
     "AI_SERVICE_URL",
     "http://localhost:8004",
 )
+# Google 登入：後端必須用同一個 Client ID 驗證 ID token 的 audience
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+# 內部服務金鑰：ops 儀表板的事件模擬器等機器端不經 Google 登入，
+# 改帶 X-Internal-Key 直通行（未設定金鑰時此通道關閉，一律走 JWT）
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
 EVENT_LOCATION_KEY = "event_locations"
 
@@ -108,6 +117,115 @@ app = FastAPI(title="realtime_map_notice Event Service", version="0.1.0")
 configure_cors(app)
 redis = create_redis()
 antispam = EventAntiSpam(redis)
+
+
+# ==========================================
+# 登入與身分驗證（Google OAuth 2.0 + 自行核發 JWT）
+# ==========================================
+class GoogleAuthRequest(BaseModel):
+    """前端 Google Identity Services 按鈕回傳的 ID token（credential）"""
+    credential: str
+
+
+def _verify_google_credential(credential: str) -> dict:
+    """用 Google 公開金鑰驗證 ID token，成功回傳使用者資訊（sub/email/name/picture）。
+
+    google-auth 套件採延遲載入：未安裝或未設定 Client ID 時回 503，
+    不影響其他不需要登入的功能（地圖瀏覽、健康檢查）。
+    """
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token as google_id_token
+
+    return google_id_token.verify_oauth2_token(
+        credential,
+        google_requests.Request(),
+        GOOGLE_CLIENT_ID,
+    )
+
+
+@dataclass
+class Actor:
+    """通過身分驗證的呼叫者：人類走 JWT，機器（事件模擬器）走內部金鑰"""
+    user_id: str = ""  # 內部金鑰通道為空字串：user_id 由各端點自行從 body/query 取
+    name: str = ""
+    email: str = ""
+    via: str = "jwt"  # "jwt" | "internal"
+
+
+def require_actor(
+    authorization: str | None = Header(default=None),
+    x_internal_key: str | None = Header(default=None),
+) -> Actor:
+    """寫入/編輯/刪除事件的統一身分檢查：
+
+    - ``Authorization: Bearer <jwt>``：一般使用者，user_id 一律以 token 內容為準
+      （前端送什麼 user_id 都會被覆蓋，無法冒用別人發布）
+    - ``X-Internal-Key``：ops 儀表板的事件模擬器，金鑰相符即放行
+    - 兩者皆無或無效：401，前端會顯示「請先登入」
+    """
+    if x_internal_key:
+        if INTERNAL_API_KEY and secrets.compare_digest(x_internal_key, INTERNAL_API_KEY):
+            return Actor(via="internal")
+        raise HTTPException(status_code=401, detail="內部金鑰不正確")
+
+    if authorization and authorization.startswith("Bearer "):
+        payload = verify_token(authorization[len("Bearer "):])
+        if payload is None:
+            raise HTTPException(status_code=401, detail="登入憑證無效或已過期，請重新登入")
+        return Actor(
+            user_id=payload["sub"],
+            name=payload.get("name", ""),
+            email=payload.get("email", ""),
+            via="jwt",
+        )
+
+    raise HTTPException(status_code=401, detail="請先登入後再發布或編輯事件")
+
+
+@app.post("/auth/google")
+async def google_login(payload: GoogleAuthRequest) -> dict[str, object]:
+    """驗證 Google ID token → 建立/更新使用者資料 → 核發系統 JWT。"""
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="伺服器尚未設定 GOOGLE_CLIENT_ID，請管理員設定")
+
+    try:
+        info = _verify_google_credential(payload.credential)
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail="伺服器未安裝 google-auth 套件") from e
+    except ValueError as e:
+        logger.warning("Google token verification failed: %s", e)
+        raise HTTPException(status_code=401, detail="Google 登入驗證失敗，請重新登入") from e
+
+    # Google 帳號的 sub 是終身唯一識別碼；加前綴避免與舊的隨機 user_id 撞名
+    user_id = f"g_{info['sub']}"
+    profile = {
+        "name": info.get("name", ""),
+        "email": info.get("email", ""),
+        "picture": info.get("picture", ""),
+    }
+
+    # 使用者資料寫入 Redis 方便日後查詢；寫入失敗不擋登入（token 已可獨立驗證）
+    try:
+        await redis.hset(
+            f"user:{user_id}",
+            mapping={**profile, "last_login": datetime.now(timezone.utc).isoformat()},
+        )
+    except RedisError as e:
+        logger.warning("User profile write failed (login continues): %s", e)
+
+    token = create_token(user_id, **profile)
+    return {"token": token, "user": {"id": user_id, **profile}}
+
+
+@app.get("/auth/me")
+async def auth_me(actor: Actor = Depends(require_actor)) -> dict[str, object]:
+    """回傳目前登入者資訊；前端用它確認本地 token 仍然有效。"""
+    return {
+        "user_id": actor.user_id,
+        "name": actor.name,
+        "email": actor.email,
+        "via": actor.via,
+    }
 
 
 @app.get("/healthz")
@@ -223,7 +341,14 @@ async def _load_owned_event(event_id: str, user_id: str) -> dict:
 
 
 @app.put("/events/{event_id}")
-async def update_event(event_id: str, payload: EventUpdate) -> dict[str, object]:
+async def update_event(
+    event_id: str,
+    payload: EventUpdate,
+    actor: Actor = Depends(require_actor),
+) -> dict[str, object]:
+    # JWT 登入者的 user_id 一律以 token 為準，body 送誰都不算數（防冒用）
+    if actor.via == "jwt":
+        payload.user_id = actor.user_id
     event = await _load_owned_event(event_id, payload.user_id)
 
     # 編輯後的內容同樣要過 AI 審核（antispam 計數不重跑：
@@ -268,8 +393,11 @@ async def update_event(event_id: str, payload: EventUpdate) -> dict[str, object]
 async def delete_event(
     event_id: str,
     user_id: str = Query(..., min_length=1, max_length=64),
+    actor: Actor = Depends(require_actor),
 ) -> dict[str, object]:
-    await _load_owned_event(event_id, user_id)
+    # JWT 登入者的 user_id 一律以 token 為準，query 參數送誰都不算數（防冒用）
+    effective_user_id = actor.user_id or user_id
+    await _load_owned_event(event_id, effective_user_id)
 
     try:
         await redis.delete(f"event:{event_id}")
@@ -282,7 +410,15 @@ async def delete_event(
 
 
 @app.post("/events")
-async def create_event(payload: EventCreate) -> dict[str, object]:
+async def create_event(
+    payload: EventCreate,
+    actor: Actor = Depends(require_actor),
+) -> dict[str, object]:
+    # JWT 登入者的 user_id 一律以 token 為準，body 送誰都不算數（防冒用）；
+    # 內部金鑰通道（事件模擬器）沿用 body 的 user_id
+    if actor.via == "jwt":
+        payload.user_id = actor.user_id
+
     event_id = str(uuid4())
 
     # 反垃圾訊息：頻率限制、重複偵測；未通過會直接 raise 429/409

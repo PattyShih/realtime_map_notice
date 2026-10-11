@@ -33,6 +33,10 @@ services:
         value: https://rmn-notification.onrender.com
       - key: AI_SERVICE_URL
         value: https://rmn-ai.onrender.com
+      - key: GOOGLE_CLIENT_ID   # Google 登入：與前端 VITE_GOOGLE_CLIENT_ID 同一個（見 DEPLOY.md）
+        sync: false
+      - key: JWT_SECRET   # 系統 JWT 簽章金鑰：openssl rand -hex 32 產生隨機長字串
+        generateValue: true   # 自動產生隨機值
       - key: CORS_ALLOW_ORIGINS
         sync: false
 
