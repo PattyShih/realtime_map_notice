@@ -103,7 +103,7 @@ Four independent FastAPI services share `backend/shared/` (schemas, config, redi
 | `ANALYSIS_PROVIDER` | `keyword`（keyword/llm） | ai-service only |
 | `MODERATION_BLOCKED_KEYWORDS` | 內建清單（逗號分隔） | ai-service only |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` | 空 / openai / gpt-4o-mini | ai-service only |
-| `GEMINI_API_KEY` / `GEMINI_BASE_URL` / `GEMINI_MODEL` | 空 / Google AI Studio URL / gemini-flash-latest | ai-service only |
+| `GEMINI_API_KEY` / `GEMINI_API_KEYS` / `GEMINI_BASE_URL` / `GEMINI_MODEL` | 單一 key / 逗號分隔多 key / Google AI Studio URL / gemini-flash-latest | ai-service only |
 | `LLM_TIMEOUT_SECONDS` | `30` | ai-service only |
 
 ## Gotchas

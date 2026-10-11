@@ -347,7 +347,7 @@ AI provider 由環境變數 `AI_PROVIDER` 切換：
 | Provider | 說明 |
 |----------|------|
 | `openai` | OpenAI 相容 API，使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` |
-| `gemini` | Google Gemini API，使用 `GEMINI_API_KEY`、`GEMINI_BASE_URL`、`GEMINI_MODEL` |
+| `gemini` | Google Gemini API，使用 `GEMINI_API_KEY` 或逗號分隔的 `GEMINI_API_KEYS`、`GEMINI_BASE_URL`、`GEMINI_MODEL` |
 
 內容審核 provider 由環境變數 `MODERATION_PROVIDER` 切換：
 
@@ -365,6 +365,7 @@ AI provider 由環境變數 `AI_PROVIDER` 切換：
 - LLM 輸出要求嚴格 JSON（`response_format: json_object`），並對 markdown code fence 做容錯解析。
 - 事件分析另外由 `ANALYSIS_PROVIDER` 控制，可使用關鍵字分析或 LLM 分析；LLM 無法使用時會回落到關鍵字分析。
 - Gemini 預設模型為 `gemini-flash-latest`，LLM 呼叫逾時預設為 30 秒（`LLM_TIMEOUT_SECONDS`）。
+- 可在 `GEMINI_API_KEYS` 放置多把以逗號分隔的 key；遇到 403/429 配額類錯誤時會自動換下一把重試，所有 key 都失敗才回落到關鍵字分析。
 
 ## Kubernetes 展示點
 

@@ -26,11 +26,11 @@ spec:
               value: "llm"
             - name: MODERATION_PROVIDER
               value: "keyword"
-            - name: GEMINI_API_KEY
+            - name: GEMINI_API_KEYS
               valueFrom:
                 secretKeyRef:
                   name: gemini-key
-                  key: key
+                  key: keys
             - name: GEMINI_BASE_URL
               value: "https://generativelanguage.googleapis.com/v1beta"
             - name: GEMINI_MODEL

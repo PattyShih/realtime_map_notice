@@ -265,6 +265,13 @@ const selectedAnalysisEvent = computed(() => {
 })
 
 const selectedAnalysis = computed(() => selectedAnalysisEvent.value?.analysis || null)
+const analysisProviderLabel = computed(() => {
+  if (!selectedAnalysis.value) return '尚未分析'
+  if (selectedAnalysis.value.provider === 'llm') return 'AI 分析（LLM）'
+  if (selectedAnalysis.value.provider === 'keyword-fallback') return '非 AI 分析（關鍵字 fallback）'
+  if (selectedAnalysis.value.provider === 'keyword') return '非 AI 分析（關鍵字）'
+  return `分析方式：${selectedAnalysis.value.provider}`
+})
 
 const selectAnalysisEvent = (eventId) => {
   selectedAnalysisEventId.value = eventId
@@ -293,7 +300,7 @@ const analyzeSelectedEvent = async () => {
     if (!response.ok) throw new Error(formatApiDetail(body.detail || 'AI 分析失敗'))
 
     event.analysis = body
-    triggerToast('🤖 AI 分析完成')
+    triggerToast(`${analysisProviderLabel.value}完成`)
   } catch (error) {
     analysisError.value = error?.message || 'AI 服務目前無法使用'
   } finally {
@@ -1135,7 +1142,9 @@ window.openImageLightbox = openLightbox
           </div>
 
           <div class="ops-ai-card">
-            <div class="ops-ai-header">🤖 AI 事件分析</div>
+            <div class="ops-ai-header">
+              {{ analysisProviderLabel === '尚未分析' ? '🧭 事件分析' : analysisProviderLabel }}
+            </div>
             <p class="ops-ai-hint">選擇事件後查看摘要、處理建議與聯絡方式。</p>
 
             <select
@@ -1169,6 +1178,9 @@ window.openImageLightbox = openLightbox
 
               <div class="ops-result-meta">
                 類型：{{ selectedAnalysis.category }} · 建議程度：{{ selectedAnalysis.suggested_severity }}
+              </div>
+              <div class="ops-result-meta">
+                分析方式：{{ analysisProviderLabel }}
               </div>
 
               <div v-if="selectedAnalysis.incident_facts?.length" class="ops-result-block">

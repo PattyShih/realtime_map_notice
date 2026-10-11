@@ -72,6 +72,8 @@ services:
         value: keyword
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_API_KEYS
+        sync: false
       - key: GEMINI_MODEL
         value: gemini-flash-latest
       - key: LLM_TIMEOUT_SECONDS
