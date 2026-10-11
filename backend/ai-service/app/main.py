@@ -50,15 +50,21 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 AI_PROVIDER = os.getenv("AI_PROVIDER") or "openai"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or ""
+GEMINI_API_KEYS = [
+    key.strip()
+    for key in (os.getenv("GEMINI_API_KEYS") or "").split(",")
+    if key.strip()
+]
 GEMINI_BASE_URL = (
     os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
 ).rstrip("/")
-# Gemini 模型預設使用官方最新別名
-GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-latest"
+# Gemini 模型集中由 GEMINI_MODEL 控制
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash-lite"
 
 # 生成逾時時間，避免較慢的模型回應被過早切斷
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 ANALYSIS_PROVIDER = os.getenv("ANALYSIS_PROVIDER") or "keyword"
+_gemini_key_index = 0
 
 MODERATION_SYSTEM_PROMPT = (
     "你是校園地圖公告板的內容審核員。判斷使用者發布的事件是否為垃圾訊息："
@@ -96,7 +102,7 @@ async def healthz() -> dict[str, object]:
 @app.get("/healthz/llm")
 async def llm_healthz() -> dict[str, object]:
     """實際測試目前設定的 LLM provider 是否可呼叫。"""
-    if AI_PROVIDER == "gemini" and not GEMINI_API_KEY:
+    if AI_PROVIDER == "gemini" and not _gemini_keys():
         return {"status": "not_configured", "provider": "gemini"}
     if AI_PROVIDER != "gemini" and not OPENAI_API_KEY:
         return {"status": "not_configured", "provider": AI_PROVIDER}
@@ -144,12 +150,24 @@ def _extract_json(text: str) -> dict:
     return json.loads(cleaned[start : end + 1])
 
 
+def _gemini_keys() -> list[str]:
+    """Return configured keys, keeping GEMINI_API_KEY as a compatibility fallback."""
+    return GEMINI_API_KEYS or ([GEMINI_API_KEY] if GEMINI_API_KEY else [])
+
+
+def _next_gemini_key() -> str:
+    global _gemini_key_index
+    keys = _gemini_keys()
+    if not keys:
+        raise ValueError("GEMINI_API_KEY 或 GEMINI_API_KEYS 未設定")
+    key = keys[_gemini_key_index % len(keys)]
+    _gemini_key_index += 1
+    return key
+
+
 async def _request_llm_json(system_prompt: str, user_content: str) -> dict:
     """呼叫 OpenAI 相容 API 或 Gemini，並統一回傳 JSON 物件。"""
     if AI_PROVIDER == "gemini":
-        if not GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY 未設定")
-
         url = f"{GEMINI_BASE_URL.rstrip('/')}/models/{GEMINI_MODEL}:generateContent"
         request = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
@@ -159,15 +177,35 @@ async def _request_llm_json(system_prompt: str, user_content: str) -> dict:
                 "temperature": 0,
             },
         }
+        keys = _gemini_keys()
+        if not keys:
+            raise ValueError("GEMINI_API_KEY 或 GEMINI_API_KEYS 未設定")
+
+        last_error: httpx.HTTPStatusError | None = None
         async with httpx.AsyncClient(timeout=LLM_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                url,
-                headers={"x-goog-api-key": GEMINI_API_KEY},
-                json=request,
-            )
-            response.raise_for_status()
-            content = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return _extract_json(content)
+            for attempt in range(len(keys)):
+                key = _next_gemini_key()
+                response = await client.post(
+                    url,
+                    headers={"x-goog-api-key": key},
+                    json=request,
+                )
+                if response.status_code in (403, 429) and attempt < len(keys) - 1:
+                    logger.warning(
+                        "Gemini key rejected with status %s; trying another configured key",
+                        response.status_code,
+                    )
+                    continue
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as error:
+                    last_error = error
+                    break
+                content = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                return _extract_json(content)
+        if last_error is not None:
+            raise last_error
+        raise ValueError("Gemini request failed")
 
     if not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY 未設定")
@@ -237,7 +275,7 @@ async def _llm_analyze(payload: EventAnalysisRequest) -> EventAnalysisResponse:
         return _keyword_analyze(payload).model_copy(
             update={"provider": "keyword-fallback"}
         )
-    if AI_PROVIDER == "gemini" and not GEMINI_API_KEY:
+    if AI_PROVIDER == "gemini" and not _gemini_keys():
         return _keyword_analyze(payload).model_copy(
             update={"provider": "keyword-fallback"}
         )
@@ -269,9 +307,12 @@ async def _llm_moderate(payload: ModerationRequest) -> ModerationResponse:
         return ModerationResponse(
             verdict="ok", score=0.0, provider="llm", reason="OPENAI_API_KEY 未設定，審核停用"
         )
-    if AI_PROVIDER == "gemini" and not GEMINI_API_KEY:
+    if AI_PROVIDER == "gemini" and not _gemini_keys():
         return ModerationResponse(
-            verdict="ok", score=0.0, provider="llm", reason="GEMINI_API_KEY 未設定，審核停用"
+            verdict="ok",
+            score=0.0,
+            provider="llm",
+            reason="GEMINI_API_KEY 或 GEMINI_API_KEYS 未設定，審核停用",
         )
 
     try:
