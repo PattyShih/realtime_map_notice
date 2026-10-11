@@ -118,7 +118,7 @@ async def test_gemini_url_does_not_duplicate_path_separator(monkeypatch) -> None
     assert result == {"ping": "ok"}
     assert client.posts[0][0] == (
         "https://generativelanguage.googleapis.com/v1beta/"
-        "models/gemini-2.0-flash:generateContent"
+        f"models/{ai_service.GEMINI_MODEL}:generateContent"
     )
 
 
