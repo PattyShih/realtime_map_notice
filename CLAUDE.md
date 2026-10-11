@@ -98,9 +98,13 @@ Four independent FastAPI services share `backend/shared/` (schemas, config, redi
 | `EVENT_MIN_INTERVAL_SECONDS` | `30`（0 停用） | shared/antispam.py |
 | `EVENT_DUPLICATE_WINDOW_SECONDS` | `300`（0 停用） | shared/antispam.py |
 | `EVENT_MAX_ACTIVE_PER_USER` | `5`（0 停用） | shared/antispam.py |
+| `AI_PROVIDER` | `openai`（openai/gemini） | ai-service only |
 | `MODERATION_PROVIDER` | `keyword`（off/keyword/llm） | ai-service only |
+| `ANALYSIS_PROVIDER` | `keyword`（keyword/llm） | ai-service only |
 | `MODERATION_BLOCKED_KEYWORDS` | 內建清單（逗號分隔） | ai-service only |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` | 空 / openai / gpt-4o-mini | ai-service only |
+| `GEMINI_API_KEY` / `GEMINI_API_KEYS` / `GEMINI_BASE_URL` / `GEMINI_MODEL` | 單一 key / 逗號分隔多 key / Google AI Studio URL / gemini-3.5-flash-lite | ai-service only |
+| `LLM_TIMEOUT_SECONDS` | `30` | ai-service only |
 
 ## Gotchas
 

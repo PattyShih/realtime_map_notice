@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
+import { AI_SERVICE_URL, EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
+import { GOOGLE_CLIENT_ID, getSavedAuth, clearAuth, authHeaders, loginWithGoogle } from './auth.js'
 import { PUSH_SUPPORTED, getPushState, enablePush, disablePush, isStandalone } from './push.js'
 
 // ==========================================
@@ -100,17 +101,44 @@ const createColoredPin = (category) => {
   })
 }
 
-const getOrCreateUserId = () => {
-  let userId = localStorage.getItem('app_user_id')
-  if (!userId) {
-    userId = 'user_' + Math.random().toString(36).substring(2, 9)
-    localStorage.setItem('app_user_id', userId)
+// ==========================================
+// 登入狀態（Google 登入 → 系統 JWT）
+// ==========================================
+// auth = { token: <JWT>, user: { id, name, email, picture } }，存在 localStorage
+const auth = ref(getSavedAuth())
+const myUser = computed(() => auth.value?.user || null)
+// 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕（一律以 token 內的 id 為準）
+const myUserId = computed(() => auth.value?.user?.id || '')
+
+// 登入畫面：Google 官方按鈕掛載與回呼
+const googleBtnRef = ref(null)
+const loginError = ref('')
+const renderGoogleButton = () => {
+  // GSI 腳本為 async 載入：還沒就緒就稍後重試
+  if (!window.google?.accounts?.id) {
+    setTimeout(renderGoogleButton, 300)
+    return
   }
-  return userId
+  window.google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: async (response) => {
+      try {
+        auth.value = await loginWithGoogle(response.credential)
+      } catch (err) {
+        loginError.value = err?.message || '登入失敗，請再試一次'
+      }
+    }
+  })
+  window.google.accounts.id.renderButton(googleBtnRef.value, {
+    theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill', locale: 'zh-TW'
+  })
 }
 
-// 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕
-const myUserId = getOrCreateUserId()
+const logout = () => {
+  if (!confirm('確定要登出嗎？下次需重新登入才能發布事件')) return
+  clearAuth()
+  location.reload()
+}
 
 // ==========================
 // 手機推播（Web Push）
@@ -131,7 +159,7 @@ if (PUSH_SUPPORTED && isStandalone() && !localStorage.getItem('push_prompt_dismi
 
 const onEnablePush = async () => {
   try {
-    await enablePush(myUserId)
+    await enablePush(myUserId.value)
     await refreshPushState()
     showPushPrompt.value = false
     localStorage.setItem('push_prompt_dismissed', 'enabled')
@@ -142,7 +170,7 @@ const onEnablePush = async () => {
 }
 const onDisablePush = async () => {
   try {
-    await disablePush(myUserId)
+    await disablePush(myUserId.value)
     await refreshPushState()
     triggerToast('🔕 手機推播已關閉')
   } catch (err) {
@@ -218,7 +246,7 @@ const formatCountdown = (expiresAt) => {
 }
 
 const myEvents = computed(() => eventsList.value
-  .filter(e => e.userId === myUserId)
+  .filter(e => e.userId === myUserId.value)
   .sort((a, b) => (b.createdAt || b.expiresAt) - (a.createdAt || a.expiresAt)))
 
 // 相對時間顯示：剛剛 / N 分鐘前 / N 小時前
@@ -253,10 +281,72 @@ const publishFromMine = () => {
 const dangerEventCount = computed(() =>
   eventsList.value.filter(e => e.category === 'danger').length)
 
-// AI 事件分析：此區塊由組員負責開發中
-// 後端端點已就緒：POST {AI_SERVICE_URL}/analyze-event
-// 請求／回應格式見 backend/shared/schemas.py 的
-// EventAnalysisRequest 與 EventAnalysisResponse
+// ==========================
+// AI 事件分析與報案摘要
+// ==========================
+const selectedAnalysisEventId = ref('')
+const analysisLoading = ref(false)
+const analysisError = ref('')
+
+const selectedAnalysisEvent = computed(() => {
+  return eventsList.value.find(event => event.id === selectedAnalysisEventId.value) || null
+})
+
+const selectedAnalysis = computed(() => selectedAnalysisEvent.value?.analysis || null)
+const analysisProviderLabel = computed(() => {
+  if (!selectedAnalysis.value) return '尚未分析'
+  if (selectedAnalysis.value.provider === 'llm') return 'AI 分析（LLM）'
+  if (selectedAnalysis.value.provider === 'keyword-fallback') return '非 AI 分析（關鍵字 fallback）'
+  if (selectedAnalysis.value.provider === 'keyword') return '非 AI 分析（關鍵字）'
+  return `分析方式：${selectedAnalysis.value.provider}`
+})
+
+const selectAnalysisEvent = (eventId) => {
+  selectedAnalysisEventId.value = eventId
+  analysisError.value = ''
+}
+
+const analyzeSelectedEvent = async () => {
+  const event = selectedAnalysisEvent.value
+  if (!event || analysisLoading.value) return
+
+  analysisLoading.value = true
+  analysisError.value = ''
+  try {
+    const response = await fetch(`${AI_SERVICE_URL}/analyze-event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: event.title,
+        message: event.description,
+        severity: event.category === 'danger' ? 'urgent' : event.category,
+        latitude: event.location.lat,
+        longitude: event.location.lng
+      })
+    })
+    const body = await response.json()
+    if (!response.ok) throw new Error(formatApiDetail(body.detail || 'AI 分析失敗'))
+
+    event.analysis = body
+    triggerToast(`${analysisProviderLabel.value}完成`)
+  } catch (error) {
+    analysisError.value = error?.message || 'AI 服務目前無法使用'
+  } finally {
+    analysisLoading.value = false
+  }
+}
+
+const copyReportSummary = async () => {
+  const summary = selectedAnalysis.value?.report_summary
+  if (!summary) return
+
+  try {
+    await navigator.clipboard.writeText(summary)
+    triggerToast('📋 事件摘要已複製')
+  } catch {
+    analysisError.value = '無法複製摘要，請確認瀏覽器權限'
+  }
+}
 
 // ==========================================
 // 座標上報 Location Service
@@ -267,7 +357,7 @@ const reportLocation = async (lat, lng) => {
     await fetch(`${LOCATION_SERVICE_URL}/locations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: getOrCreateUserId(), latitude: lat, longitude: lng })
+      body: JSON.stringify({ user_id: myUserId.value, latitude: lat, longitude: lng })
     })
   } catch (err) {
     console.log('座標上報失敗:', err)
@@ -472,7 +562,7 @@ const setupWebSocket = () => {
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
   if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
 
-  const userId = getOrCreateUserId()
+  const userId = myUserId.value
   ws = new WebSocket(`${NOTIFICATION_WS_URL}/ws/${userId}`)
 
   ws.onopen = () => {
@@ -521,7 +611,8 @@ const setupWebSocket = () => {
           distance: dist,
           walkTime: walkTime,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          expiresAt: expiresAt
+          expiresAt: expiresAt,
+          analysis: eventData.analysis || null
         }
 
         // 自己剛發布的事件會從 WS 廣播回來，不再跳「收到通報」
@@ -569,7 +660,9 @@ const fetchOnlineCount = async () => {
   }
 }
 
-onMounted(() => {
+// App 初始化：地圖、WebSocket、定位與所有輪詢——登入後才執行（DOM 需先渲染）
+const appStarted = ref(false)
+const initApp = () => {
   // preferCanvas：向量層用 canvas 繪製，大量事件時效能較佳
   map.value = L.map('map', { preferCanvas: true }).setView([currentCoords.value.lat, currentCoords.value.lng], 16)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map.value)
@@ -593,6 +686,25 @@ onMounted(() => {
   // 前景恢復／網路恢復時立刻重連 WebSocket
   document.addEventListener('visibilitychange', handleVisibilityResume)
   window.addEventListener('online', handleNetworkOnline)
+}
+
+// 登入成功（auth 由 null → 有值）時啟動 App；等 nextTick 讓地圖 DOM 先渲染
+watch(auth, async (val) => {
+  if (!val || appStarted.value) return
+  appStarted.value = true
+  await nextTick()
+  initApp()
+  triggerToast(`👋 歡迎，${val.user?.name || '使用者'}！`)
+})
+
+onMounted(() => {
+  // 已有有效登入狀態：直接進 App；否則顯示 Google 登入頁
+  if (auth.value) {
+    appStarted.value = true
+    initApp()
+  } else {
+    renderGoogleButton()
+  }
 })
 
 onUnmounted(() => {
@@ -772,13 +884,13 @@ const handleSubmit = async () => {
     radius_meters: 500,
     duration_minutes: durationMinutes,
     image_url: formData.value.imagePreview || '',
-    user_id: getOrCreateUserId() // 補上後端要求的發布者身份驗證
+    user_id: myUserId.value // 後端會再以 JWT 內的 user_id 覆蓋，此欄位僅供舊版相容
   }
 
   try {
     const response = await fetch(`${EVENT_SERVICE_URL}/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(apiPayload)
     })
 
@@ -791,7 +903,7 @@ const handleSubmit = async () => {
 
       const newEvent = {
         id: body.event_id || Date.now(),
-        userId: myUserId,
+        userId: myUserId.value,
         createdAt: Date.now(),
         title: finalTitle,
         category: formData.value.category,
@@ -801,7 +913,8 @@ const handleSubmit = async () => {
         distance: dist,
         walkTime: walkTime,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        expiresAt: expiresAt
+        expiresAt: expiresAt,
+        analysis: body.analysis || null
       }
 
       addEventUnique(newEvent, { notify: false })
@@ -854,9 +967,9 @@ const submitEdit = async () => {
   try {
     const response = await fetch(`${EVENT_SERVICE_URL}/events/${editingEventId.value}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
-        user_id: myUserId,
+        user_id: myUserId.value, // 後端會再以 JWT 內的 user_id 覆蓋
         title: editForm.value.title,
         message: editForm.value.description || '無詳細描述',
         severity
@@ -893,8 +1006,8 @@ const deleteEvent = async (item) => {
   deletingId.value = item.id
   try {
     const response = await fetch(
-      `${EVENT_SERVICE_URL}/events/${item.id}?user_id=${encodeURIComponent(myUserId)}`,
-      { method: 'DELETE' }
+      `${EVENT_SERVICE_URL}/events/${item.id}?user_id=${encodeURIComponent(myUserId.value)}`,
+      { method: 'DELETE', headers: authHeaders() }
     )
 
     if (response.ok) {
@@ -966,7 +1079,8 @@ const fetchNearbyEvents = async (lat, lng) => {
           distance: dist,
           walkTime: walkTime,
           timestamp: new Date(createdAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          expiresAt: expiresAt
+          expiresAt: expiresAt,
+          analysis: event.analysis || null
         }
 
         eventsList.value.push(newEvent)
@@ -1031,7 +1145,7 @@ window.openImageLightbox = openLightbox
 </script>
 
 <template>
-  <div class="app-container">
+  <div v-if="auth" class="app-container">
     <!-- 連線狀態指示膠囊 -->
   <div v-show="activeTab !== 'mine'" class="connection-pill" :class="wsStatus">
     <span class="status-indicator-dot"></span>
@@ -1079,8 +1193,78 @@ window.openImageLightbox = openLightbox
           </div>
 
           <div class="ops-ai-card">
-            <div class="ops-ai-header">🤖 AI 事件分析</div>
-            <p class="ops-ai-hint">待開發</p>
+            <div class="ops-ai-header">
+              {{ analysisProviderLabel === '尚未分析' ? '🧭 事件分析' : analysisProviderLabel }}
+            </div>
+            <p class="ops-ai-hint">選擇事件後查看摘要、處理建議與聯絡方式。</p>
+
+            <select
+              v-if="eventsList.length"
+              class="input-light ops-select"
+              :value="selectedAnalysisEventId"
+              @change="selectAnalysisEvent($event.target.value)"
+            >
+              <option value="">選擇要分析的事件</option>
+              <option v-for="item in eventsList" :key="item.id" :value="item.id">
+                {{ item.title }}
+              </option>
+            </select>
+
+            <p v-else class="ops-ai-hint">目前沒有可分析的事件。</p>
+
+            <button
+              v-if="selectedAnalysisEvent"
+              type="button"
+              class="submit-btn ops-analyze-btn"
+              :disabled="analysisLoading"
+              @click="analyzeSelectedEvent"
+            >
+              {{ analysisLoading ? '分析中...' : (selectedAnalysis ? '重新分析' : '開始分析') }}
+            </button>
+
+            <div v-if="analysisError" class="ops-error">{{ analysisError }}</div>
+
+            <div v-if="selectedAnalysis" class="ops-result">
+              <div class="ops-result-summary">{{ selectedAnalysis.summary }}</div>
+
+              <div class="ops-result-meta">
+                類型：{{ selectedAnalysis.category }} · 建議程度：{{ selectedAnalysis.suggested_severity }}
+              </div>
+              <div class="ops-result-meta">
+                分析方式：{{ analysisProviderLabel }}
+              </div>
+
+              <div v-if="selectedAnalysis.incident_facts?.length" class="ops-result-block">
+                <div class="ops-result-title">事件經過</div>
+                <ul class="ops-result-list">
+                  <li v-for="fact in selectedAnalysis.incident_facts" :key="fact">{{ fact }}</li>
+                </ul>
+              </div>
+
+              <div v-if="selectedAnalysis.advice?.length" class="ops-result-block">
+                <div class="ops-result-title">建議處理方式</div>
+                <ul class="ops-result-list">
+                  <li v-for="advice in selectedAnalysis.advice" :key="advice">{{ advice }}</li>
+                </ul>
+              </div>
+
+              <div v-if="selectedAnalysis.emergency_contacts?.length" class="ops-result-block">
+                <div class="ops-result-title">建議聯絡</div>
+                <div class="ops-contacts">
+                  <span v-for="contact in selectedAnalysis.emergency_contacts" :key="contact" class="ops-contact-chip">
+                    {{ contact }}
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="selectedAnalysis.report_summary" class="ops-result-report">
+                <div class="ops-result-title">事件摘要</div>
+                <p>{{ selectedAnalysis.report_summary }}</p>
+                <button type="button" class="copy-summary-btn" @click="copyReportSummary">
+                  📋 複製事件摘要
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1094,6 +1278,17 @@ window.openImageLightbox = openLightbox
           <div class="mine-header">
             <span class="mine-header-title">📋 我的發布</span>
             <span v-if="myEvents.length" class="mine-count">{{ myEvents.length }} 則進行中</span>
+          </div>
+
+          <!-- 登入帳號資料卡（Google 帳號） -->
+          <div v-if="myUser" class="mine-profile-card">
+            <img v-if="myUser.picture" :src="myUser.picture" alt="頭像" referrerpolicy="no-referrer" class="mine-avatar" />
+            <div v-else class="mine-avatar mine-avatar-placeholder">👤</div>
+            <div class="mine-profile-info">
+              <div class="mine-profile-name">{{ myUser.name || '已登入使用者' }}</div>
+              <div class="mine-profile-email">{{ myUser.email }}</div>
+            </div>
+            <button type="button" class="mine-logout-btn" @click="logout">登出</button>
           </div>
 
           <div v-if="pushState.supported" class="mine-push-card">
@@ -1377,6 +1572,20 @@ window.openImageLightbox = openLightbox
           <button type="submit" class="submit-btn">儲存變更</button>
         </form>
       </div>
+    </div>
+  </div>
+  <!-- Google 登入頁：未登入時的唯一畫面 -->
+  <div v-else class="login-screen">
+    <div class="login-card">
+      <div class="login-logo">📍</div>
+      <h1 class="login-title">即時地圖通知</h1>
+      <p class="login-subtitle">Realtime Map Notice</p>
+      <p class="login-desc">登入後即可發布與接收<br />校園周遭的即時事件通知</p>
+      <div ref="googleBtnRef" class="google-btn-wrap"></div>
+      <div v-if="!GOOGLE_CLIENT_ID" class="login-hint">
+        ⚠️ 尚未設定 VITE_GOOGLE_CLIENT_ID（見 web-app/.env.example）
+      </div>
+      <div v-if="loginError" class="login-error">{{ loginError }}</div>
     </div>
   </div>
   <!-- 加入主畫面後的推播詢問 -->

@@ -25,6 +25,12 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:8000
       AI_SERVICE_URL: http://ai-service:8000
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
+      # Google 登入：與前端相同的 Client ID（後端驗證 ID token 的 audience 用）
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # 系統 JWT 簽章金鑰：正式環境務必換成隨機長字串
+      JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
+      # 內部服務金鑰：事件模擬器直通發布端點用；ops-event-gen 容器會帶同一把
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key}
     ports:
       - "8002:8000"
     depends_on:
@@ -37,11 +43,18 @@ services:
       context: .
       dockerfile: backend/ai-service/Dockerfile
     environment:
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
       MODERATION_PROVIDER: ${MODERATION_PROVIDER:-keyword}
+      ANALYSIS_PROVIDER: ${ANALYSIS_PROVIDER:-keyword}
       MODERATION_BLOCKED_KEYWORDS: ${MODERATION_BLOCKED_KEYWORDS:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
     ports:
       - "8004:8000"
