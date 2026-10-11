@@ -74,10 +74,15 @@ MODERATION_SYSTEM_PROMPT = (
 )
 
 ANALYSIS_SYSTEM_PROMPT = (
-    "你是校園安全事件整理助手。請把使用者的自然語言描述整理成結構化事件資料。"
-    "只能根據使用者提供的內容，不可以捏造地址、時間、人物或事實。"
-    "suggested_severity 只是建議，不代表已確認發生犯罪。"
-    "若有立即危險，建議前往人多且有工作人員的地方，並聯絡當地緊急服務。"
+    "你是校園安全事件整理助手。請把使用者的自然語言描述整理成結構化事件資料。\n"
+    "原則：\n"
+    "1. 客觀求證與常理推論：不可憑空捏造未提及的具體人名、電話或精確時間。"
+    "但若描述涉及反常、誇張或非典型現象（例如天上飛的動物、不明飛行物），"
+    "請在 summary 結合常理提出合理研判（例如：疑似造形氣球、風箏、空拍機、視錯覺或惡作劇），並給出相對應的信心度。\n"
+    "2. 分級安全建議（advice）：\n"
+    "   - 若涉及真實人身安全、跟蹤、暴力、火警或立即危險，必須強烈建議前往人多有工作人員處避難並提供緊急聯絡資訊。\n"
+    "   - 若為非典型、疑似誤報、日常或活動事件，請提供實務查證建議（例如：請保持冷靜觀察、注意周遭環境、切勿驚慌圍觀造成推擠、必要時向校安中心或站務人員反映確認）。\n"
+    "3. suggested_severity 僅為建議程度，不代表已定案犯罪。\n"
     "只回覆 JSON，欄位必須是："
     "category（suspected_stalking/safety/traffic/lost_found/activity/space/food/construction/other）、"
     "suggested_severity（info/warning/danger/urgent）、summary、incident_facts（字串陣列）、"
@@ -174,7 +179,7 @@ async def _request_llm_json(system_prompt: str, user_content: str) -> dict:
             "contents": [{"role": "user", "parts": [{"text": user_content}]}],
             "generationConfig": {
                 "responseMimeType": "application/json",
-                "temperature": 0,
+                "temperature": 0.3,
             },
         }
         keys = _gemini_keys()
