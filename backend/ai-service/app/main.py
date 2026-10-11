@@ -5,10 +5,14 @@ Event Service 在建立事件前會呼叫 POST /moderate，判斷內容是否為
 - antispam 擋「行為」（洗頻、重複貼文）
 - ai-service 擋「內容」（廣告、詐騙、辱罵等每則內容都不同的垃圾）
 
+AI provider 用環境變數 AI_PROVIDER 切換：
+- openai：呼叫 OpenAI 相容 API
+- gemini：呼叫 Google Gemini API
+
 審核 provider 用環境變數 MODERATION_PROVIDER 切換：
 - off：停用，一律放行
 - keyword：本機關鍵字比對（不需 API key，Demo/離線用）
-- llm：呼叫 OpenAI 相容 API 的 chat completion 做語意判斷
+- llm：使用 AI_PROVIDER 指定的 LLM 做語意判斷
 
 任何內部錯誤都回覆 verdict=ok（fail-open），審核服務故障不應拖垮發布功能。
 """
@@ -40,7 +44,7 @@ MODERATION_BLOCKED_KEYWORDS = [
     for word in (os.getenv("MODERATION_BLOCKED_KEYWORDS") or DEFAULT_BLOCKED_KEYWORDS).split(",")
     if word.strip()
 ]
-# llm provider 設定（OpenAI 相容 API）；空字串一律回落預設值
+# LLM provider 設定；空字串一律回落預設值
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
@@ -49,10 +53,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or ""
 GEMINI_BASE_URL = (
     os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
 ).rstrip("/")
-# 模型預設使用官方最新別名
+# Gemini 模型預設使用官方最新別名
 GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-latest"
 
-# 逾時時間改為 30 秒（避免生成時被切斷）
+# 生成逾時時間，避免較慢的模型回應被過早切斷
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 ANALYSIS_PROVIDER = os.getenv("ANALYSIS_PROVIDER") or "keyword"
 
@@ -79,8 +83,14 @@ configure_cors(app)
 
 
 @app.get("/healthz")
-async def healthz() -> dict[str, str]:
-    return {"status": "ok", "provider": MODERATION_PROVIDER}
+async def healthz() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "provider": MODERATION_PROVIDER,
+        "ai_provider": AI_PROVIDER,
+        "analysis_provider": ANALYSIS_PROVIDER,
+        "model": GEMINI_MODEL if AI_PROVIDER == "gemini" else OPENAI_MODEL,
+    }
 
 
 @app.get("/healthz/llm")

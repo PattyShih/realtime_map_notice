@@ -68,7 +68,7 @@ services:
     plan: free
     healthCheckPath: /healthz
     envVars:
-      - key: AI_PROVIDER   # keyword=離線關鍵字（免費 demo）；有 OpenAI 相容 API key 可改 llm
+      - key: AI_PROVIDER   # openai 或 gemini
         value: gemini
       - key: ANALYSIS_PROVIDER
         value: llm
@@ -77,9 +77,9 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-2.0-flash
+        value: gemini-flash-latest
       - key: LLM_TIMEOUT_SECONDS
-        value: "8"
+        value: "30"
       - key: CORS_ALLOW_ORIGINS
         sync: false
 

@@ -342,13 +342,20 @@ Event Service -> Notification Service -> Redis Pub/Sub -> WebSocket -> Web App
 
 獨立的第四個微服務（`backend/ai-service/`，port 8004），Event Service 在寫入事件前呼叫 `POST /moderate` 判斷內容是否為垃圾訊息；判定為垃圾時以 422 拒絕發布。
 
-三種審核 provider（環境變數 `MODERATION_PROVIDER` 切換）：
+AI provider 由環境變數 `AI_PROVIDER` 切換：
+
+| Provider | 說明 |
+|----------|------|
+| `openai` | OpenAI 相容 API，使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` |
+| `gemini` | Google Gemini API，使用 `GEMINI_API_KEY`、`GEMINI_BASE_URL`、`GEMINI_MODEL` |
+
+內容審核 provider 由環境變數 `MODERATION_PROVIDER` 切換：
 
 | Provider | 說明 | 適用場景 |
 |----------|------|---------|
 | `off` | 一律放行 | 停用審核 |
 | `keyword`（預設） | 本機關鍵字比對，不需要 API key | Demo、離線環境 |
-| `llm` | 呼叫 OpenAI 相容 API 做語意判斷（`OPENAI_API_KEY`、`OPENAI_MODEL`） | 正式語意審核 |
+| `llm` | 使用 `AI_PROVIDER` 指定的模型做語意判斷 | 正式語意審核 |
 
 設計重點：
 
@@ -356,6 +363,8 @@ Event Service -> Notification Service -> Redis Pub/Sub -> WebSocket -> Web App
 - fail-open：AI 服務不可用或 LLM 回覆異常時放行並記 log，審核不阻擋正常發布。
 - 審核發生在 antispam 之後、寫入 Redis 之前，被拒絕的事件不留任何儲存痕跡。
 - LLM 輸出要求嚴格 JSON（`response_format: json_object`），並對 markdown code fence 做容錯解析。
+- 事件分析另外由 `ANALYSIS_PROVIDER` 控制，可使用關鍵字分析或 LLM 分析；LLM 無法使用時會回落到關鍵字分析。
+- Gemini 預設模型為 `gemini-flash-latest`，LLM 呼叫逾時預設為 30 秒（`LLM_TIMEOUT_SECONDS`）。
 
 ## Kubernetes 展示點
 
