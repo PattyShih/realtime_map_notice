@@ -49,8 +49,11 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or ""
 GEMINI_BASE_URL = (
     os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
 ).rstrip("/")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
-LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "8"))
+# 模型預設使用官方最新別名
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-latest"
+
+# 逾時時間改為 30 秒（避免生成時被切斷）
+LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 ANALYSIS_PROVIDER = os.getenv("ANALYSIS_PROVIDER") or "keyword"
 
 MODERATION_SYSTEM_PROMPT = (
