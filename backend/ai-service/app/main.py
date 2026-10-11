@@ -45,8 +45,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 AI_PROVIDER = os.getenv("AI_PROVIDER") or "openai"
-#GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or ""
-GEMINI_API_KEY ="AIzaSyAx6-n0vvvYShvHAbpGn4GS7xbzprgE-u8"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or ""
 GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "8"))
@@ -77,6 +76,31 @@ configure_cors(app)
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok", "provider": MODERATION_PROVIDER}
+
+
+@app.get("/healthz/llm")
+async def llm_healthz() -> dict[str, object]:
+    """實際測試目前設定的 LLM provider 是否可呼叫。"""
+    if AI_PROVIDER == "gemini" and not GEMINI_API_KEY:
+        return {"status": "not_configured", "provider": "gemini"}
+    if AI_PROVIDER != "gemini" and not OPENAI_API_KEY:
+        return {"status": "not_configured", "provider": AI_PROVIDER}
+
+    try:
+        await _request_llm_json(
+            "你是連線測試助手，只回覆 JSON。",
+            '{"ping":"ok"}',
+        )
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
+        logger.warning("LLM health check failed: %s", error)
+        return {
+            "status": "unavailable",
+            "provider": AI_PROVIDER,
+            "message": "LLM 連線或回應格式檢查失敗",
+        }
+
+    model = GEMINI_MODEL if AI_PROVIDER == "gemini" else OPENAI_MODEL
+    return {"status": "connected", "provider": AI_PROVIDER, "model": model}
 
 
 def _keyword_moderate(payload: ModerationRequest) -> ModerationResponse:
