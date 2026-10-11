@@ -40,10 +40,12 @@ class FakeAsyncClient:
         timeout: float,
         content: str = "{}",
         raise_error: Exception | None = None,
+        gemini: bool = False,
     ) -> None:
         self.timeout = timeout
         self.content = content
         self.raise_error = raise_error
+        self.gemini = gemini
         self.posts: list[tuple[str, dict]] = []
 
     async def __aenter__(self) -> "FakeAsyncClient":
@@ -56,7 +58,8 @@ class FakeAsyncClient:
         if self.raise_error is not None:
             raise self.raise_error
         self.posts.append((url, json))
-        return FakeLLMResponse(self.content)
+        response_class = FakeGeminiResponse if self.gemini else FakeLLMResponse
+        return response_class(self.content)
 
 
 def make_moderate_payload() -> dict:
@@ -83,6 +86,40 @@ async def test_healthz() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_llm_healthz_reports_not_configured(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "")
+
+    transport = ASGITransport(app=ai_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/healthz/llm")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "not_configured", "provider": "gemini"}
+
+
+@pytest.mark.asyncio
+async def test_gemini_url_does_not_duplicate_path_separator(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        ai_service,
+        "GEMINI_BASE_URL",
+        "https://generativelanguage.googleapis.com/v1beta/",
+    )
+    client = FakeAsyncClient(timeout=8.0, content='{"ping":"ok"}', gemini=True)
+    monkeypatch.setattr(ai_service.httpx, "AsyncClient", lambda timeout: client)
+
+    result = await ai_service._request_llm_json("system", "user")
+
+    assert result == {"ping": "ok"}
+    assert client.posts[0][0] == (
+        "https://generativelanguage.googleapis.com/v1beta/"
+        "models/gemini-2.0-flash:generateContent"
+    )
 
 
 @pytest.mark.asyncio
