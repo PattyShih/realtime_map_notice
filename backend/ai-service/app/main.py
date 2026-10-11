@@ -59,7 +59,7 @@ GEMINI_BASE_URL = (
     os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
 ).rstrip("/")
 # Gemini 模型集中由 GEMINI_MODEL 控制
-GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash-lite"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-3.5-flash-lite"
 
 # 生成逾時時間，避免較慢的模型回應被過早切斷
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
