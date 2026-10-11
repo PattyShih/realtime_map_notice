@@ -46,7 +46,9 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 AI_PROVIDER = os.getenv("AI_PROVIDER") or "openai"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or ""
-GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_BASE_URL = (
+    os.getenv("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
+).rstrip("/")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "8"))
 ANALYSIS_PROVIDER = os.getenv("ANALYSIS_PROVIDER") or "keyword"
@@ -135,7 +137,7 @@ async def _request_llm_json(system_prompt: str, user_content: str) -> dict:
         if not GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY 未設定")
 
-        url = f"{GEMINI_BASE_URL}/models/{GEMINI_MODEL}:generateContent"
+        url = f"{GEMINI_BASE_URL.rstrip('/')}/models/{GEMINI_MODEL}:generateContent"
         request = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": user_content}]}],
