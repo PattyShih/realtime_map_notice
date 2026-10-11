@@ -86,19 +86,6 @@ async def test_healthz() -> None:
 
 
 @pytest.mark.asyncio
-async def test_llm_healthz_reports_not_configured(monkeypatch) -> None:
-    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
-    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "")
-
-    transport = ASGITransport(app=ai_service.app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/healthz/llm")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "not_configured", "provider": "gemini"}
-
-
-@pytest.mark.asyncio
 async def test_analyze_event_detects_suspected_stalking() -> None:
     response = await post_analyze(
         {

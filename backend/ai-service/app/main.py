@@ -78,31 +78,6 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok", "provider": MODERATION_PROVIDER}
 
 
-@app.get("/healthz/llm")
-async def llm_healthz() -> dict[str, object]:
-    """實際測試目前設定的 LLM provider 是否可呼叫。"""
-    if AI_PROVIDER == "gemini" and not GEMINI_API_KEY:
-        return {"status": "not_configured", "provider": "gemini"}
-    if AI_PROVIDER != "gemini" and not OPENAI_API_KEY:
-        return {"status": "not_configured", "provider": AI_PROVIDER}
-
-    try:
-        await _request_llm_json(
-            "你是連線測試助手，只回覆 JSON。",
-            '{"ping":"ok"}',
-        )
-    except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
-        logger.warning("LLM health check failed: %s", error)
-        return {
-            "status": "unavailable",
-            "provider": AI_PROVIDER,
-            "message": "LLM 連線或回應格式檢查失敗",
-        }
-
-    model = GEMINI_MODEL if AI_PROVIDER == "gemini" else OPENAI_MODEL
-    return {"status": "connected", "provider": AI_PROVIDER, "model": model}
-
-
 def _keyword_moderate(payload: ModerationRequest) -> ModerationResponse:
     text = f"{payload.title}\n{payload.message}".lower()
     for keyword in MODERATION_BLOCKED_KEYWORDS:

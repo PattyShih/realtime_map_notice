@@ -71,7 +71,6 @@ repo 根目錄的 `render.yaml` 已定義四個服務 + Redis。
    |---|---|
    | `VITE_LOCATION_SERVICE_URL` | `https://rmn-location.onrender.com` |
    | `VITE_EVENT_SERVICE_URL` | `https://rmn-event.onrender.com` |
-   | `VITE_AI_SERVICE_URL` | `https://rmn-ai.onrender.com` |
    | `VITE_NOTIFICATION_WS_URL` | `wss://rmn-notification.onrender.com` |
    | `VITE_NOTIFICATION_SERVICE_URL`* | `https://rmn-notification.onrender.com` |
 
