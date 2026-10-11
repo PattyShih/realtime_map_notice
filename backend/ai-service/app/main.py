@@ -74,19 +74,15 @@ MODERATION_SYSTEM_PROMPT = (
 )
 
 ANALYSIS_SYSTEM_PROMPT = (
-    "你是校園安全事件整理助手。請把使用者的自然語言描述整理成結構化事件資料。\n"
-    "原則：\n"
-    "1. 客觀求證與常理推論：不可憑空捏造未提及的具體人名、電話或精確時間。"
-    "但若描述涉及反常、誇張或非典型現象（例如天上飛的動物、不明飛行物），"
-    "請在 summary 結合常理提出合理研判（例如：疑似造形氣球、風箏、空拍機、視錯覺或惡作劇），並給出相對應的信心度。\n"
-    "2. 分級安全建議（advice）：\n"
-    "   - 若涉及真實人身安全、跟蹤、暴力、火警或立即危險，必須強烈建議前往人多有工作人員處避難並提供緊急聯絡資訊。\n"
-    "   - 若為非典型、疑似誤報、日常或活動事件，請提供實務查證建議（例如：請保持冷靜觀察、注意周遭環境、切勿驚慌圍觀造成推擠、必要時向校安中心或站務人員反映確認）。\n"
-    "3. suggested_severity 僅為建議程度，不代表已定案犯罪。\n"
-    "只回覆 JSON，欄位必須是："
-    "category（suspected_stalking/safety/traffic/lost_found/activity/space/food/construction/other）、"
-    "suggested_severity（info/warning/danger/urgent）、summary、incident_facts（字串陣列）、"
-    "advice（字串陣列）、emergency_contacts（字串陣列）、report_summary、confidence（0 到 1）。"
+    "你是校園安全事件整理助手。請把使用者的自然語言描述整理成結構化事件資料。\n\n"
+    "處理原則：\n"
+    "1. 客觀求證與常理推論：不可捏造具體人名或時間。若描述涉及反常現象（如天上飛的動物），請在 summary 與 incident_facts 結合常理研判（如疑似氣球、風箏或視錯覺）。\n"
+    "2. 安全與查證建議：若涉及危險請建議避難與報警；若為日常或異常現象，請建議冷靜觀察、注意周遭或向站務/校安人員反映。\n"
+    "3. 所有 JSON 欄位皆為必填，若無緊急聯絡人請填空陣列 []。\n\n"
+    "輸出規定：只能輸出合法 JSON，欄位必須包含：\n"
+    '{"category": "activity", "suggested_severity": "info", "summary": "...", "incident_facts": ["..."], "advice": ["..."], "emergency_contacts": [], "report_summary": "...", "confidence": 0.8}\n'
+    "category 僅能為：suspected_stalking / safety / traffic / lost_found / activity / space / food / construction / other\n"
+    "suggested_severity 僅能為：info / warning / danger / urgent"
 )
 
 app = FastAPI(title="realtime_map_notice AI Service", version="0.1.0")
