@@ -46,8 +46,8 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
-      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-8}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
     ports:
       - "8004:8000"
