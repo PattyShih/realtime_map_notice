@@ -1,8 +1,0 @@
-.git
-.venv
-**/node_modules
-.env
-.env.*
-**/.env
-**/.env.*
-.vercel

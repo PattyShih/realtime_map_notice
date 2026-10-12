@@ -33,10 +33,6 @@ services:
         value: https://rmn-notification.onrender.com
       - key: AI_SERVICE_URL
         value: https://rmn-ai.onrender.com
-      - key: GOOGLE_CLIENT_ID   # Google 登入：與前端 VITE_GOOGLE_CLIENT_ID 同一個（見 DEPLOY.md）
-        sync: false
-      - key: JWT_SECRET   # 系統 JWT 簽章金鑰：openssl rand -hex 32 產生隨機長字串
-        generateValue: true   # 自動產生隨機值
       - key: CORS_ALLOW_ORIGINS
         sync: false
 
@@ -68,20 +64,8 @@ services:
     plan: free
     healthCheckPath: /healthz
     envVars:
-      - key: AI_PROVIDER   # openai 或 gemini
-        value: gemini
-      - key: ANALYSIS_PROVIDER
-        value: llm
-      - key: MODERATION_PROVIDER
+      - key: AI_PROVIDER   # keyword=離線關鍵字（免費 demo）；有 OpenAI 相容 API key 可改 llm
         value: keyword
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: GEMINI_API_KEYS
-        sync: false
-      - key: GEMINI_MODEL
-        value: gemini-3.5-flash-lite
-      - key: LLM_TIMEOUT_SECONDS
-        value: "30"
       - key: CORS_ALLOW_ORIGINS
         sync: false
 

@@ -20,23 +20,14 @@ spec:
           ports:
             - containerPort: 8000
           env:
-            - name: AI_PROVIDER
-              value: "gemini"
-            - name: ANALYSIS_PROVIDER
-              value: "llm"
             - name: MODERATION_PROVIDER
               value: "keyword"
-            - name: GEMINI_API_KEYS
-              valueFrom:
-                secretKeyRef:
-                  name: gemini-key
-                  key: keys
-            - name: GEMINI_BASE_URL
-              value: "https://generativelanguage.googleapis.com/v1beta"
-            - name: GEMINI_MODEL
-              value: "gemini-3.5-flash-lite"
-            - name: LLM_TIMEOUT_SECONDS
-              value: "30"
+            # 使用 LLM 審核時改成 "llm"，金鑰建議改用 Secret 掛載：
+            # kubectl create secret generic openai-key --from-literal=key=sk-xxx
+            - name: OPENAI_API_KEY
+              value: ""
+            - name: OPENAI_MODEL
+              value: "gpt-4o-mini"
           resources:
             requests:
               cpu: 50m

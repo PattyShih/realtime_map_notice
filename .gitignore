@@ -11,5 +11,3 @@ dist/
 build/
 node_modules/
 simulator/venv/
-.vercel
-.env*

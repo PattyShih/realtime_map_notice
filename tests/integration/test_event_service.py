@@ -16,9 +16,6 @@ event_service = load_module("event_service_main", "backend/event-service/app/mai
 
 from backend.shared import antispam as antispam_module
 
-# 模擬器（與部分測試）走內部金鑰通道：與 install_fake_redis 設定的值一致
-AUTH = {"X-Internal-Key": "test-internal"}
-
 
 def install_fake_redis(monkeypatch) -> FakeRedis:
     """同時替換事件儲存與反垃圾過濾器持有的 redis 連線。"""
@@ -27,7 +24,6 @@ def install_fake_redis(monkeypatch) -> FakeRedis:
     monkeypatch.setattr(
         event_service, "antispam", event_service.EventAntiSpam(fake_redis)
     )
-    monkeypatch.setattr(event_service, "INTERNAL_API_KEY", "test-internal")
     return fake_redis
 
 
@@ -61,8 +57,6 @@ class FakeRedis:
         # 反垃圾過濾用的通用 key-value 儲存（含 NX 與 sorted set）
         self.store: dict[str, str] = {}
         self.zsets: dict[str, dict[str, float]] = {}
-        # 使用者資料（Google 登入寫入的 hash）
-        self.hashes: dict[str, dict[str, str]] = {}
         self.fake_time = 1_000_000.0
 
     async def ping(self) -> bool:
@@ -107,10 +101,6 @@ class FakeRedis:
 
     async def time(self) -> tuple[float, float]:
         return (self.fake_time, 0.0)
-
-    async def hset(self, key, mapping=None) -> int:
-        self.hashes.setdefault(key, {}).update(mapping or {})
-        return len(mapping or {})
 
     async def zadd(self, key, mapping: dict[str, float]) -> int:
         self.zsets.setdefault(key, {}).update(mapping)
@@ -237,7 +227,6 @@ async def test_create_event_with_nearby_users(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/events",
-            headers=AUTH,
             json={
                 "user_id": "u-0001",
                 "title": "Library seats",
@@ -294,7 +283,6 @@ async def test_create_event_no_nearby_users(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/events",
-            headers=AUTH,
             json={
                 "user_id": "u-0001",
                 "title": "Library seats",
@@ -493,7 +481,6 @@ async def test_create_event_broadcast_failure_still_creates_event(monkeypatch) -
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/events",
-            headers=AUTH,
             json={
                 "user_id": "u-0001",
                 "title": "Library seats",
@@ -541,7 +528,6 @@ async def test_create_event_rejects_missing_user_id(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/events",
-            headers=AUTH,
             json={
                 "title": "No owner",
                 "message": "user_id is required",
@@ -561,7 +547,6 @@ async def test_create_event_rejects_overlong_fields(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/events",
-            headers=AUTH,
             json={
                 "user_id": "u-0001",
                 "title": "T" * 101,
@@ -589,8 +574,8 @@ async def test_create_event_rejects_duplicate_content(monkeypatch) -> None:
             "latitude": 25.0173,
             "longitude": 121.5397,
         }
-        first = await client.post("/events", json=payload, headers=AUTH)
-        second = await client.post("/events", json=payload, headers=AUTH)
+        first = await client.post("/events", json=payload)
+        second = await client.post("/events", json=payload)
 
     assert first.status_code == 200
     assert second.status_code == 409
@@ -605,9 +590,9 @@ async def test_create_event_rejects_frequent_posting(monkeypatch) -> None:
 
     transport = ASGITransport(app=event_service.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        first = await client.post("/events", json=make_event_payload(1), headers=AUTH)
+        first = await client.post("/events", json=make_event_payload(1))
         # 內容不同，但間隔不足：應被最小間隔檢查擋下
-        second = await client.post("/events", json=make_event_payload(2), headers=AUTH)
+        second = await client.post("/events", json=make_event_payload(2))
 
     assert first.status_code == 200
     assert second.status_code == 429
@@ -625,7 +610,7 @@ async def test_create_event_rejects_rate_limit(monkeypatch) -> None:
     transport = ASGITransport(app=event_service.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         responses = [
-            await client.post("/events", json=make_event_payload(i), headers=AUTH) for i in range(3)
+            await client.post("/events", json=make_event_payload(i)) for i in range(3)
         ]
 
     assert [r.status_code for r in responses] == [200, 200, 429]
@@ -644,7 +629,7 @@ async def test_create_event_rejects_too_many_active_events(monkeypatch) -> None:
     transport = ASGITransport(app=event_service.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         responses = [
-            await client.post("/events", json=make_event_payload(i), headers=AUTH) for i in range(3)
+            await client.post("/events", json=make_event_payload(i)) for i in range(3)
         ]
 
     assert [r.status_code for r in responses] == [200, 200, 429]
@@ -663,7 +648,7 @@ async def test_create_event_rejected_by_moderation(monkeypatch) -> None:
 
     transport = ASGITransport(app=event_service.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/events", json=make_event_payload(1), headers=AUTH)
+        response = await client.post("/events", json=make_event_payload(1))
 
     assert response.status_code == 422
     assert "審核" in response.json()["detail"]
@@ -684,7 +669,7 @@ async def test_create_event_moderation_fail_open(monkeypatch) -> None:
 
     transport = ASGITransport(app=event_service.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/events", json=make_event_payload(1), headers=AUTH)
+        response = await client.post("/events", json=make_event_payload(1))
 
     assert response.status_code == 200
     assert len(fake_redis.set_calls) == 1
@@ -700,7 +685,6 @@ async def create_event_for_test(monkeypatch, user_id: str = "u-owner", title: st
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/events",
-            headers=AUTH,
             json={
                 "user_id": user_id,
                 "title": title,
@@ -723,7 +707,6 @@ async def test_update_event_by_owner(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.put(
             f"/events/{body['event_id']}",
-            headers=AUTH,
             json={
                 "user_id": "u-owner",
                 "title": "Updated title",
@@ -750,7 +733,6 @@ async def test_update_event_by_non_owner_forbidden(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.put(
             f"/events/{body['event_id']}",
-            headers=AUTH,
             json={
                 "user_id": "u-attacker",
                 "title": "hijacked",
@@ -773,7 +755,6 @@ async def test_update_missing_event_returns_404(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.put(
             "/events/no-such-event",
-            headers=AUTH,
             json={
                 "user_id": "u-owner",
                 "title": "t",
@@ -794,7 +775,6 @@ async def test_update_invalid_stored_event_returns_503(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.put(
             "/events/corrupt-event",
-            headers=AUTH,
             json={
                 "user_id": "u-owner",
                 "title": "updated",
@@ -820,7 +800,6 @@ async def test_update_event_rejected_by_moderation(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.put(
             f"/events/{body['event_id']}",
-            headers=AUTH,
             json={
                 "user_id": "u-owner",
                 "title": "spam edit",
@@ -841,7 +820,7 @@ async def test_delete_event_by_owner(monkeypatch) -> None:
     transport = ASGITransport(app=event_service.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.delete(
-            f"/events/{body['event_id']}", params={"user_id": "u-owner"}, headers=AUTH
+            f"/events/{body['event_id']}", params={"user_id": "u-owner"}
         )
 
     assert response.status_code == 200
@@ -860,7 +839,7 @@ async def test_delete_event_by_non_owner_forbidden(monkeypatch) -> None:
     transport = ASGITransport(app=event_service.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.delete(
-            f"/events/{body['event_id']}", params={"user_id": "u-attacker"}, headers=AUTH
+            f"/events/{body['event_id']}", params={"user_id": "u-attacker"}
         )
 
     assert response.status_code == 403

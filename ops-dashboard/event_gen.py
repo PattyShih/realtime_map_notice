@@ -13,8 +13,6 @@ import random
 import httpx
 
 EVENT_SERVICE = "http://event-service:8000"
-# 發布端點需要身分：模擬器不走 Google 登入，改帶內部金鑰
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 # 發布間隔（秒）與事件時效（分鐘）可用環境變數調整：
 # 獨立事件模式建議 2 秒一則（demo 幾分鐘地圖累積數十到百餘則）；
 # 跟著壓測跑時維持 0.25 秒（重點是服務流量而非地圖可讀性）。
@@ -54,8 +52,7 @@ JITTER = 0.003  # 約 ±330 公尺的隨機偏移，涵蓋校園與周邊生活�
 
 
 async def main() -> None:
-    headers = {"X-Internal-Key": INTERNAL_API_KEY} if INTERNAL_API_KEY else {}
-    async with httpx.AsyncClient(timeout=5.0, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=5.0) as client:
         i = 0
         ok = 0
         while True:

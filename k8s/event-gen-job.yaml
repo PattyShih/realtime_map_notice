@@ -20,10 +20,6 @@ spec:
           command: ["sh", "-c"]
           args:
             - pip install -q httpx==0.28.1 && EVENT_RATE=10 EVENT_DURATION_MINUTES=1 python /code/event_gen.py
-          env:
-            # 與 event-service 的 INTERNAL_API_KEY 一致：模擬器發布事件的身分憑證
-            - name: INTERNAL_API_KEY
-              value: dev-internal-key
           resources:
             requests:
               cpu: 50m
