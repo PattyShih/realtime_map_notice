@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: event-service
-          image: realtime-map-notice/event-service:latest
+          image: realtime-map-notice/event-service:v3
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
