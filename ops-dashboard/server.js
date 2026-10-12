@@ -397,11 +397,13 @@ async function stopLoadK8s() {
 }
 
 async function k8sStatus() {
-  const pods = await sh('kubectl', ['-n', K8S_NS, 'get', 'pods', '-o', 'json']);
-  const top = await sh('kubectl', ['-n', K8S_NS, 'top', 'pods', '--no-headers']);
-  const hpa = await sh('kubectl', ['-n', K8S_NS, 'get', 'hpa', '-o', 'json']);
-  const job = await sh('kubectl', ['-n', K8S_NS, 'get', 'job', 'load-generator', '-o', 'json']);
-  const evtJob = await sh('kubectl', ['-n', K8S_NS, 'get', 'job', 'event-gen', '-o', 'json']);
+  const [pods, top, hpa, job, evtJob] = await Promise.all([
+    sh('kubectl', ['-n', K8S_NS, 'get', 'pods', '-o', 'json']),
+    sh('kubectl', ['-n', K8S_NS, 'top', 'pods', '--no-headers']),
+    sh('kubectl', ['-n', K8S_NS, 'get', 'hpa', '-o', 'json']),
+    sh('kubectl', ['-n', K8S_NS, 'get', 'job', 'load-generator', '-o', 'json']),
+    sh('kubectl', ['-n', K8S_NS, 'get', 'job', 'event-gen', '-o', 'json']),
+  ]);
 
   const cpuByPod = {};
   for (const line of top.out.trim().split('\n').filter(Boolean)) {
