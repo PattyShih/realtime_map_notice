@@ -15,6 +15,8 @@ from httpx import ASGITransport, AsyncClient
 from tests.integration import test_event_service as ev
 from tests.integration.test_event_service import AUTH, FakeAsyncClient, install_fake_redis
 
+from backend.shared import antispam as antispam_module
+
 # 重要：沿用 test_event_service 載入的同一個模組實例——load_module 不會快取，
 # 各自再載一次會拿到兩個獨立實例，monkeypatch 就會打錯目標。
 event_service = ev.event_service
@@ -257,3 +259,41 @@ async def test_internal_key_still_allows_simulator(monkeypatch) -> None:
     assert response.status_code == 200
     stored = json.loads(fake_redis.set_calls[0]["value"])
     assert stored["user_id"] == "u-9001"
+
+
+@pytest.mark.asyncio
+async def test_rejected_event_leaves_no_duplicate_fingerprint(monkeypatch) -> None:
+    """被 429「間隔太短」擋下的內容不得留下指紋：
+    30 秒後重發同一內容應該成功，而不是被誤判 409 重複。"""
+    fake_redis = install_fake_redis(monkeypatch)
+    monkeypatch.setattr(antispam_module, "MIN_INTERVAL_SECONDS", 30)
+    fake_client = FakeAsyncClient(timeout=5.0)
+    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
+
+    payload = {
+        "user_id": "u-0001",
+        "title": "Same content",
+        "message": "identical body",
+        "latitude": 25.0173,
+        "longitude": 121.5397,
+    }
+    # 先發一則別的內容建立「間隔」狀態
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/events", headers=AUTH, json=payload)
+        assert first.status_code == 200
+
+        too_soon = dict(payload, title="Different title")
+        rejected = await client.post("/events", headers=AUTH, json=too_soon)
+        assert rejected.status_code == 429
+        assert "間隔" in rejected.json()["detail"]
+
+        # 被拒的內容重發（內容完全相同）：指紋不存在，不應被誤判重複
+        # （FakeRedis 的時間不會前進，但 interval key 在 30 秒後本該過期；
+        #   這裡直接清掉 interval key 模擬時間流逝）
+        fake_redis.store = {
+            k: v for k, v in fake_redis.store.items() if ":interval:" not in k
+        }
+        retry = await client.post("/events", headers=AUTH, json=too_soon)
+
+    assert retry.status_code == 200, retry.json()
