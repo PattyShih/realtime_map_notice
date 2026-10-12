@@ -163,6 +163,13 @@
 <script>
 const MAX_POINTS = 60;
 
+// kubectl top 回傳毫核心（如 104m）原樣顯示；純數字才補 %
+function fmtCpu(v) {
+  if (v == null) return '?';
+  const s = String(v);
+  return /[%m]$/.test(s) ? s : s + '%';
+}
+
 // Chart.js 載入失敗（無網路）時仍保留數據面板功能，只是不畫圖
 const chart = window.Chart
   ? new Chart(document.getElementById('chart'), {
@@ -219,12 +226,12 @@ function renderCards(status) {
     const mem = s.mem ? ` · ${s.mem.replace(/[^0-9.]*MiB.*/, '').trim()}MiB` : '';
     return `<div class="svc">
       <div class="name">${s.short}${zh}${replicaTag}</div>
-      <div class="cpu" style="color:${cpu > 50 ? '#fbbf24' : '#34d399'}">${cpu}%</div>
+      <div class="cpu" style="color:${cpu > 50 ? '#fbbf24' : '#34d399'}">${fmtCpu(s.cpu)}</div>
       <div class="meta">${s.phase || 'running'}${mem}</div>
     </div>`;
   }).join('');
   document.getElementById('otherLine').textContent = others.length
-    ? `其他容器：${others.map((o) => `${o.short} ${o.cpu == null ? '?' : o.cpu}%`).join(' · ')}`
+    ? `其他容器：${others.map((o) => `${o.short} ${fmtCpu(o.cpu)}`).join(' · ')}`
     : '';
 }
 
@@ -278,7 +285,7 @@ function renderPods(status) {
         ${i === 0 ? `<span class="flow-src">${users}</span><span class="flowline"></span>` : `<span style="flex:0 0 56px"></span><span style="flex:0 0 10px"></span>`}
         <div class="pod ${isNew ? 'new' : ''} ${hot ? 'hot' : ''}">
           <div class="pname">Pod ${i + 1} · ${p.label}</div>
-          <div class="pcpu">${p.cpu == null ? '?' : p.cpu}%</div>
+          <div class="pcpu">${fmtCpu(p.cpu)}</div>
         </div>
       </div>`;
     } else {
