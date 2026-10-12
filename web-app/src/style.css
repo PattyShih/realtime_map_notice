@@ -139,7 +139,7 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 .modal-overlay {
   position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
   background-color: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; align-items: flex-end;
-  padding-bottom: 20px; z-index: 2000; transition: all 0.3s ease;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); z-index: 2000; transition: all 0.3s ease;
 }
 .modal-card {
   background: #ffffff; width: 92%; max-width: 400px; max-height: 85vh;
@@ -150,7 +150,8 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 .modal-header h3 { font-size: 1.15rem; font-weight: 600; color: #222; }
 .close-btn { background: none; border: none; font-size: 1.6rem; color: #666; cursor: pointer; padding: 0; line-height: 1; }
 
-.list-card-container { max-height: 75vh; }
+/* 事件清單：手機上以底部抽屜呈現，給足高度讓它明顯抬升、不要貼著螢幕下緣 */
+.list-card-container { max-height: 75vh; min-height: 60vh; }
 .empty-state { text-align: center; padding: 40px 10px; color: #888; font-size: 0.95rem; }
 .event-list { display: flex; flex-direction: column; gap: 10px; }
 .event-list-item {
