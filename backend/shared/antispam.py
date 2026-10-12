@@ -50,58 +50,53 @@ class EventAntiSpam:
         event_id: str,
         duration_minutes: int,
     ) -> None:
-        """執行全部檢查；全部通過時登記這次發布的頻率與活躍事件紀錄。
+        """先做全部的唯讀檢查，全部通過才登記這次發布的紀錄。
 
-        檢查失敗會直接 raise HTTPException（429/409），
-        呼叫端不需要再做後續處理。
+        關鍵：被擋下的請求（429/409）不能留下任何痕跡——否則「間隔太短」
+        被拒的內容會被指紋記住，30 秒後重發同一內容反而被誤判 409 重複。
+        檢查失敗會直接 raise HTTPException，呼叫端不需要再做後續處理。
         """
         try:
-            await self._check_duplicate(user_id, title, message)
-            await self._check_interval(user_id)
-            await self._check_rate_limit(user_id)
+            dup_key = f"{KEY_PREFIX}:dup:{_content_hash(title, message)}"
+            interval_key = f"{KEY_PREFIX}:interval:{user_id}"
+            rate_key = f"{KEY_PREFIX}:rate:{user_id}"
+            await self._check_duplicate(dup_key)
+            await self._check_interval(interval_key)
+            await self._check_rate_limit(rate_key)
             await self._check_active_events(user_id)
-            await self._register(user_id, title, message, event_id, duration_minutes)
+            await self._register(
+                user_id, dup_key, interval_key, rate_key, event_id, duration_minutes
+            )
         except HTTPException:
             raise
         except RedisError as e:
             # fail-open：過濾器故障時不阻擋正常使用者
             logger.warning("antispam check failed (fail-open): %s", e)
 
-    async def _check_duplicate(self, user_id: str, title: str, message: str) -> None:
+    async def _check_duplicate(self, dup_key: str) -> None:
         if DUPLICATE_WINDOW_SECONDS <= 0:
             return  # 設定為 0 表示停用重複內容偵測
-        dup_key = f"{KEY_PREFIX}:dup:{_content_hash(title, message)}"
-        # SET NX：key 已存在表示時間窗內有相同內容
-        is_new = await self.redis.set(
-            dup_key, user_id, ex=DUPLICATE_WINDOW_SECONDS, nx=True
-        )
-        if not is_new:
+        # 唯讀檢查：EXISTS 而非 SET NX——檢查階段不得寫入指紋
+        if await self.redis.exists(dup_key):
             raise HTTPException(
                 status_code=409,
                 detail="重複內容：相同的事件內容短時間內已發布過，請稍後再試或修改內容",
             )
 
-    async def _check_interval(self, user_id: str) -> None:
+    async def _check_interval(self, interval_key: str) -> None:
         if MIN_INTERVAL_SECONDS <= 0:
             return  # 設定為 0 表示停用最小間隔檢查
-        interval_key = f"{KEY_PREFIX}:interval:{user_id}"
-        is_new = await self.redis.set(
-            interval_key, "1", ex=MIN_INTERVAL_SECONDS, nx=True
-        )
-        if not is_new:
+        if await self.redis.exists(interval_key):
             raise HTTPException(
                 status_code=429,
                 detail=f"發布太快：兩則事件之間請至少間隔 {MIN_INTERVAL_SECONDS} 秒",
             )
 
-    async def _check_rate_limit(self, user_id: str) -> None:
+    async def _check_rate_limit(self, rate_key: str) -> None:
         if RATE_LIMIT_PER_MINUTE <= 0:
             return  # 設定為 0 表示停用每分鐘頻率上限
-        rate_key = f"{KEY_PREFIX}:rate:{user_id}"
-        count = await self.redis.incr(rate_key)
-        if count == 1:
-            await self.redis.expire(rate_key, 60)
-        if count > RATE_LIMIT_PER_MINUTE:
+        count = int(await self.redis.get(rate_key) or 0)
+        if count >= RATE_LIMIT_PER_MINUTE:
             raise HTTPException(
                 status_code=429,
                 detail=f"發布頻率超過上限：每分鐘最多 {RATE_LIMIT_PER_MINUTE} 則事件",
@@ -125,11 +120,40 @@ class EventAntiSpam:
     async def _register(
         self,
         user_id: str,
-        title: str,
-        message: str,
+        dup_key: str,
+        interval_key: str,
+        rate_key: str,
         event_id: str,
         duration_minutes: int,
     ) -> None:
+        """檢查全數通過後的登記階段；此處才開始寫入。
+
+        SET NX 保有原子性：兩個併發的相同內容請求都通過唯讀檢查時，
+        只有先寲入指紋的那個會成功，後到的視為重複拒絕。
+        """
+        if DUPLICATE_WINDOW_SECONDS > 0:
+            is_new = await self.redis.set(
+                dup_key, user_id, ex=DUPLICATE_WINDOW_SECONDS, nx=True
+            )
+            if not is_new:
+                raise HTTPException(
+                    status_code=409,
+                    detail="重複內容：相同的事件內容短時間內已發布過，請稍後再試或修改內容",
+                )
+        if MIN_INTERVAL_SECONDS > 0:
+            is_new = await self.redis.set(
+                interval_key, "1", ex=MIN_INTERVAL_SECONDS, nx=True
+            )
+            if not is_new:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"發布太快：兩則事件之間請至少間隔 {MIN_INTERVAL_SECONDS} 秒",
+                )
+        if RATE_LIMIT_PER_MINUTE > 0:
+            count = await self.redis.incr(rate_key)
+            if count == 1:
+                await self.redis.expire(rate_key, 60)
+
         active_key = f"{KEY_PREFIX}:active:{user_id}"
         now_ts = int((await self.redis.time())[0])
         expires_at = now_ts + duration_minutes * 60

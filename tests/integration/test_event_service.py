@@ -71,6 +71,9 @@ class FakeRedis:
     async def get(self, key):
         return self.store.get(key)
 
+    async def exists(self, *keys) -> int:
+        return sum(1 for k in keys if k in self.store or k in self.zsets)
+
     async def ttl(self, key) -> int:
         return 3600 if key in self.store else -2
 
