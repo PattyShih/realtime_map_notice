@@ -163,7 +163,7 @@ const onEnablePush = async () => {
     await refreshPushState()
     showPushPrompt.value = false
     localStorage.setItem('push_prompt_dismissed', 'enabled')
-    triggerToast('🔔 手機推播已啟用')
+    triggerToast('🔔 通知推播已啟用')
   } catch (err) {
     triggerToast(err?.message || '推播啟用失敗')
   }
@@ -172,7 +172,7 @@ const onDisablePush = async () => {
   try {
     await disablePush(myUserId.value)
     await refreshPushState()
-    triggerToast('🔕 手機推播已關閉')
+    triggerToast('🔕 通知推播已關閉')
   } catch (err) {
     triggerToast(err?.message || '推播關閉失敗')
   }
