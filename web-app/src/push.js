@@ -52,13 +52,27 @@ export async function enablePush(userId) {
       applicationServerKey: urlBase64ToUint8Array(public_key),
     })
   }
+  await saveSubscription(userId, sub)
+  return true
+}
 
+// 把既有的瀏覽器訂閱重新送給後端：身分規則改版（帳號→帳號+裝置）或
+// 後端資料遺失時，App 啟動時自動補登記，使用者不必關閉再重開推播
+export async function syncPushSubscription(userId) {
+  if (!PUSH_SUPPORTED || !userId) return false
+  const reg = await navigator.serviceWorker.getRegistration()
+  const sub = await reg?.pushManager.getSubscription()
+  if (!sub) return false
+  await saveSubscription(userId, sub)
+  return true
+}
+
+async function saveSubscription(userId, sub) {
   const save = await fetch(
     `${NOTIFICATION_SERVICE_URL}/push-subscriptions/${encodeURIComponent(userId)}`,
     { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(sub.toJSON()) }
   )
   if (!save.ok) throw new Error('訂閱儲存失敗，請稍後再試')
-  return true
 }
 
 // 取消訂閱：刪除後端紀錄並解除瀏覽器推播訂閱
