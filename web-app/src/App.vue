@@ -4,7 +4,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { AI_SERVICE_URL, EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
 import { GOOGLE_CLIENT_ID, getSavedAuth, clearAuth, authHeaders, loginWithGoogle } from './auth.js'
-import { PUSH_SUPPORTED, getPushState, enablePush, disablePush, isStandalone } from './push.js'
+import { PUSH_SUPPORTED, getPushState, enablePush, disablePush, syncPushSubscription, isStandalone } from './push.js'
 
 // ==========================================
 // 地圖核心與狀態
@@ -107,8 +107,23 @@ const createColoredPin = (category) => {
 // auth = { token: <JWT>, user: { id, name, email, picture } }，存在 localStorage
 const auth = ref(getSavedAuth())
 const myUser = computed(() => auth.value?.user || null)
-// 本機使用者的身份：列表中 userId 相同的事件顯示編輯/刪除按鈕（一律以 token 內的 id 為準）
+// 帳號身份：發布/編輯/刪除與「我的發布」的歸屬（一律以 token 內的 id 為準）
 const myUserId = computed(() => auth.value?.user?.id || '')
+
+// 裝置身份：同一帳號可能同時在手機／平板／電腦登入，定位、WebSocket 與
+// 推播訂閱若只用帳號當鑰匙，裝置之間會互相覆蓋（手機的定位被平板蓋掉，
+// 推播距離算成 0 公尺）。因此「我在哪裡／訂閱在誰身上」以帳號+裝置區分。
+const getOrCreateDeviceId = () => {
+  let deviceId = localStorage.getItem('rmn_device_id')
+  if (!deviceId) {
+    deviceId = Math.random().toString(36).slice(2, 10)
+    localStorage.setItem('rmn_device_id', deviceId)
+  }
+  return deviceId
+}
+const myDeviceUid = computed(() =>
+  myUserId.value ? `${myUserId.value}#${getOrCreateDeviceId()}` : ''
+)
 
 // 登入畫面：Google 官方按鈕掛載與回呼
 const googleBtnRef = ref(null)
@@ -159,7 +174,7 @@ if (PUSH_SUPPORTED && isStandalone() && !localStorage.getItem('push_prompt_dismi
 
 const onEnablePush = async () => {
   try {
-    await enablePush(myUserId.value)
+    await enablePush(myDeviceUid.value)
     await refreshPushState()
     showPushPrompt.value = false
     localStorage.setItem('push_prompt_dismissed', 'enabled')
@@ -170,7 +185,7 @@ const onEnablePush = async () => {
 }
 const onDisablePush = async () => {
   try {
-    await disablePush(myUserId.value)
+    await disablePush(myDeviceUid.value)
     await refreshPushState()
     triggerToast('🔕 通知推播已關閉')
   } catch (err) {
@@ -350,7 +365,7 @@ const reportLocation = async (lat, lng) => {
     await fetch(`${LOCATION_SERVICE_URL}/locations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: myUserId.value, latitude: lat, longitude: lng })
+      body: JSON.stringify({ user_id: myDeviceUid.value, latitude: lat, longitude: lng })
     })
   } catch (err) {
     console.log('座標上報失敗:', err)
@@ -563,7 +578,7 @@ const setupWebSocket = () => {
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
   if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
 
-  const userId = myUserId.value
+  const userId = encodeURIComponent(myDeviceUid.value)
   ws = new WebSocket(`${NOTIFICATION_WS_URL}/ws/${userId}`)
 
   ws.onopen = () => {
@@ -670,6 +685,11 @@ const initApp = () => {
 
   setupWebSocket()
   requestUserLocation() // 統一由此函式初始化定位與單一標記
+
+  // 已訂閱過推播的裝置：把訂閱補登記到「帳號+裝置」的名下（身分規則改版自癒）
+  if (pushState.value.subscribed) {
+    syncPushSubscription(myDeviceUid.value).catch(() => {})
+  }
 
   fetchOnlineCount()
   onlinePollTimer = setInterval(fetchOnlineCount, 3000)
