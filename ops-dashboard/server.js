@@ -431,10 +431,10 @@ async function k8sStatus() {
       hpaInfo = {
         min: item.spec.minReplicas,
         max: item.spec.maxReplicas,
-        targetCpu: item.spec.targetCPUUtilizationPercentage,
+        targetCpu: item.spec.targetCPUUtilizationPercentage ?? item.spec.metrics?.find((m) => m.resource?.name === 'cpu')?.resource?.target?.averageUtilization,
         current: item.status.currentReplicas,
         desired: item.status.desiredReplicas,
-        cpu: item.status.currentCPUUtilizationPercentage,
+        cpu: item.status.currentCPUUtilizationPercentage ?? item.status.currentMetrics?.find((m) => m.resource?.name === 'cpu')?.resource?.current?.averageUtilization,
       };
     }
   }

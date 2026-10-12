@@ -43,6 +43,7 @@
   }
   button.start { background: var(--accent); }
   button.stop { background: var(--red); color: #2a0505; }
+  button.start.active { background: var(--green); }
   button:disabled { opacity: .45; cursor: not-allowed; }
   .loadinfo { font-size: 13px; color: var(--muted); margin-top: 6px; }
   .loadinfo b { color: var(--text); }
@@ -154,6 +155,22 @@
 
 <script>
 const MAX_POINTS = 60;
+let starting = false;
+
+// kubectl top 回傳毫核心（如 104m）原樣顯示；純數字才補 %
+function fmtCpu(v) {
+  if (v == null) return '?';
+  const s = String(v);
+  return /[%m]$/.test(s) ? s : s + '%';
+}
+
+function setStartBtn(running) {
+  const b = document.getElementById('btnStart');
+  b.disabled = starting;
+  b.classList.toggle('active', running || starting);
+  b.textContent = starting ? '⏳ 啟動中…'
+    : running ? '✅ 模擬進行中（改人數再按可覆蓋）' : '⚡ 開始模擬';
+}
 
 // Chart.js 載入失敗（無網路）時仍保留數據面板功能，只是不畫圖
 const chart = window.Chart
@@ -211,12 +228,12 @@ function renderCards(status) {
     const mem = s.mem ? ` · ${s.mem.replace(/[^0-9.]*MiB.*/, '').trim()}MiB` : '';
     return `<div class="svc">
       <div class="name">${s.short}${zh}${replicaTag}</div>
-      <div class="cpu" style="color:${cpu > 50 ? '#fbbf24' : '#34d399'}">${cpu}%</div>
+      <div class="cpu" style="color:${cpu > 50 ? '#fbbf24' : '#34d399'}">${fmtCpu(s.cpu)}</div>
       <div class="meta">${s.phase || 'running'}${mem}</div>
     </div>`;
   }).join('');
   document.getElementById('otherLine').textContent = others.length
-    ? `其他容器：${others.map((o) => `${o.short} ${o.cpu == null ? '?' : o.cpu}%`).join(' · ')}`
+    ? `其他容器：${others.map((o) => `${o.short} ${fmtCpu(o.cpu)}`).join(' · ')}`
     : '';
 }
 
@@ -270,7 +287,7 @@ function renderPods(status) {
         ${i === 0 ? `<span class="flow-src">${users}</span><span class="flowline"></span>` : `<span style="flex:0 0 56px"></span><span style="flex:0 0 10px"></span>`}
         <div class="pod ${isNew ? 'new' : ''} ${hot ? 'hot' : ''}">
           <div class="pname">Pod ${i + 1} · ${p.label}</div>
-          <div class="pcpu">${p.cpu == null ? '?' : p.cpu}%</div>
+          <div class="pcpu">${fmtCpu(p.cpu)}</div>
         </div>
       </div>`;
     } else {
@@ -293,6 +310,7 @@ function renderEvents(events) {
 function renderLoad(status) {
   const running = status.load && status.load.running;
   document.getElementById('btnStop').disabled = !running;
+  setStartBtn(running);
   // 「開始壓測」永遠可按：ops 端會先停掉舊壓測再以新的人數開新的
   const workers = status.load.workers ? ` · ${status.load.workers} 個模擬 worker` : '';
   const evtRate = Math.min(10, Math.max(1, Math.round((status.load.users || 0) / 50)));
@@ -337,10 +355,13 @@ async function poll() {
 
 document.getElementById('btnStart').onclick = async () => {
   const users = Number(document.getElementById('users').value) || 500;
-  await fetch('/api/load/start', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ users }),
-  });
+  starting = true; setStartBtn(false);
+  try {
+    await fetch('/api/load/start', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ users }),
+    });
+  } finally { starting = false; setStartBtn(true); }
 };
 document.getElementById('btnStop').onclick = () => fetch('/api/load/stop', { method: 'POST' });
 
