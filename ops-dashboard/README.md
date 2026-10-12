@@ -38,6 +38,24 @@ node ops-dashboard/server.js
 - 壓測:更新 `simulator-code` ConfigMap → 重建 load-generator Job(`--users` 由按鈕帶入)
 - 擴縮完全交給叢集內 HPA,儀表板顯示 `currentReplicas / desiredReplicas / CPU%`
 
+### k8s 模式的前提(第一次使用前)
+
+1. 切到分支並更新:`git fetch; git checkout feat/ops-dashboard; git pull`
+2. Docker Desktop 啟用 Kubernetes,`kubectl` 指向它,並已套用 `k8s/*.yaml`(namespace `realtime-map-notice`)。
+3. image 是**本機 build**、不從 registry 拉。event-service 用 `v3` tag(`:latest` 會被節點快取成舊版,導致程式碼沒更新):
+   ```powershell
+   docker build -t realtime-map-notice/event-service:v3 -f backend/event-service/Dockerfile .
+   ```
+   其他服務照 `docker build -t realtime-map-notice/<服務名>:latest -f backend/<服務名>/Dockerfile .`。重 build event-service 後要換新 tag(v4…)並 `kubectl -n realtime-map-notice set image deploy/event-service '*=realtime-map-notice/event-service:v4'`,同時改 `k8s/event-service.yaml`。
+4. ai-service 需要 Secret `gemini-key`(key 名稱 `keys`),沒有會卡在 `CreateContainerConfigError`。向負責後端 API 的組員取得 key 後:
+   ```powershell
+   kubectl -n realtime-map-notice create secret generic gemini-key --from-literal=keys=<KEY>
+   ```
+5. metrics-server 需補 `--kubelet-insecure-tls`(Docker Desktop 的 kubelet 憑證不被信任,否則 `kubectl top` 與 HPA 都沒資料)。**補丁不能重複套用**,先檢查再套:
+   ```powershell
+   if (-not (kubectl -n kube-system get deploy metrics-server -o yaml | Select-String 'kubelet-insecure-tls')) { kubectl -n kube-system patch deploy metrics-server --type=json --patch-file k8s/patches/metrics-server-insecure-tls.json }
+   ```
+6. 壓測用完務必清掉 Job(不會自己停):`kubectl -n realtime-map-notice delete job load-generator event-gen --ignore-not-found`
 ## 已知限制
 
 - 本機 demo 用途,勿部署到對外環境(ops 具備啟停容器/Job 的能力,無鑑別)
