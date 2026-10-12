@@ -360,7 +360,7 @@ async function clearEventsK8s() {
     "redis-cli --scan --pattern 'event_antispam:*' | xargs -r redis-cli del",
     'echo cleared',
   ].join(' && ');
-  const r = await sh('kubectl', ['-n', K8S_NS, 'exec', 'deploy/redis', 'sh', '-c', script]);
+  const r = await sh('kubectl', ['-n', K8S_NS, 'exec', 'deploy/redis', '--', 'sh', '-c', script]);
   logEvent(r.ok ? '🧹 已清空所有事件與反垃圾紀錄' : `⚠️ 清空失敗：${r.err}`);
   return r;
 }
