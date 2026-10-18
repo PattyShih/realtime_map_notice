@@ -5,20 +5,51 @@
 body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #333; }
 .app-container { position: relative; width: 100vw; height: 100vh; }
 
-/* 頂部導航區域：只有乾淨搜尋列 */
+/* 讓 map-panel 成為定位基準 */
+.map-panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* 頂部搜尋列：調低位置以避開狀態列與連線膠囊 */
 .top-nav {
-  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
-  width: 88%; max-width: 380px; z-index: 1000;
-  display: flex; flex-direction: column; gap: 8px;
+  position: absolute;
+  top: 92px;            /* 原本貼頂，調低至 92px 剛好在頂部膠囊下方 */
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 420px;
+  z-index: 1000;         /* 確保浮在地圖與圖釘上方 */
+  display: flex;
+  flex-direction: column;
 }
 
 .search-bar {
-  width: 100%; background: #ffffff; border-radius: 24px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.12); display: flex; align-items: center; padding: 0 16px;
+  width: 100%;
+  background: #ffffff;
+  border-radius: 24px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
 }
-.search-icon { display: flex; align-items: center; margin-right: 8px; }
-.search-bar input { width: 100%; padding: 12px 0; border: none; background: transparent; font-size: 0.95rem; outline: none; color: #333; }
-.search-bar input::placeholder { color: #888; }
+
+.search-bar .search-icon {
+  display: flex;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.search-bar input {
+  width: 100%;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  font-size: 0.95rem;
+  outline: none;
+  color: #333;
+}
 
 /* 過濾標籤按鈕 Chips (清單內部專用) */
 .list-filter-bar {
@@ -150,8 +181,23 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 .modal-header h3 { font-size: 1.15rem; font-weight: 600; color: #222; }
 .close-btn { background: none; border: none; font-size: 1.6rem; color: #666; cursor: pointer; padding: 0; line-height: 1; }
 
-/* 事件清單：手機上以底部抽屜呈現，給足高度讓它明顯抬升、不要貼著螢幕下緣 */
-.list-card-container { max-height: 75vh; min-height: 60vh; }
+/* 事件清單彈窗：高度佔螢幕 65%，保證大於螢幕一半 */
+.list-card-container {
+  height: 65vh !important;       /* 高度佔手機螢幕的 65% */
+  min-height: 50vh !important;   /* 最小高度為螢幕一半 */
+  max-height: 85vh !important;
+  border-radius: 24px 24px 0 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* 讓清單內部滾動區撐滿剩餘高度 */
+.list-card-container .event-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+}
 .empty-state { text-align: center; padding: 40px 10px; color: #888; font-size: 0.95rem; }
 .event-list { display: flex; flex-direction: column; gap: 10px; }
 .event-list-item {
@@ -1030,3 +1076,211 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   transition: background 0.15s ease;
 }
 .mine-logout-btn:hover { background: #e8e8ed; }
+/* ========================================== */
+/* 右上角膠囊切換滑桿 (Toggle Switch)         */
+/* ========================================== */
+.theme-toggle-switch {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 64px;
+  height: 32px;
+  background-color: #f1f3f5;
+  border-radius: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  cursor: pointer;
+  z-index: 1100;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+  user-select: none;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.switch-icon {
+  font-size: 13px;
+  line-height: 1;
+  z-index: 1;
+  transition: opacity 0.2s ease;
+}
+
+.sun-icon {
+  margin-left: 1px;
+}
+
+.moon-icon {
+  margin-right: 1px;
+}
+
+/* 滑動的小圓球 */
+.switch-handle {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 2;
+}
+
+/* 深色模式下的滑桿狀態 */
+.theme-toggle-switch.dark-active {
+  background-color: #2b3035;
+  border-color: #495057;
+}
+
+.theme-toggle-switch.dark-active .switch-handle {
+  transform: translateX(31px);
+  background-color: #1e2227;
+}
+/* ========================================== */
+/* 深色模式主題樣式 (Dark Mode)               */
+/* ========================================== */
+.app-container.dark-mode {
+  background-color: #121212 !important;
+  color: #e0e0e0 !important;
+}
+
+/* 戰情摘要與面板背景 */
+.dark-mode .ops-panel,
+.dark-mode .mine-panel,
+.dark-mode .tab-bar {
+  background-color: #181818 !important;
+  color: #e0e0e0 !important;
+  border-top-color: #2a2a2a !important;
+}
+
+/* 卡片與容器深色化 */
+.dark-mode .stat-card,
+.dark-mode .ops-ai-card,
+.dark-mode .mine-card,
+.dark-mode .mine-profile-card,
+.dark-mode .mine-push-card,
+.dark-mode .modal-card,
+.dark-mode .event-card,
+.dark-mode .category-group-card {
+  background-color: #222222 !important;
+  color: #f0f0f0 !important;
+  border-color: #333333 !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* 標題與內文字體顏色反轉 */
+.dark-mode .ops-header,
+.dark-mode .mine-header-title,
+.dark-mode .mine-card-title,
+.dark-mode .modal-header h3,
+.dark-mode .card-title,
+.dark-mode .stat-value {
+  color: #ffffff !important;
+}
+
+.dark-mode .stat-label,
+.dark-mode .ops-ai-hint,
+.dark-mode .mine-card-desc,
+.dark-mode .card-desc,
+.dark-mode .mine-meta {
+  color: #a0a0a0 !important;
+}
+
+/* 輸入框與文字區塊深色化 */
+.dark-mode .input-light,
+.dark-mode .select-light,
+.dark-mode .ops-select {
+  background-color: #2c2c2c !important;
+  color: #ffffff !important;
+  border-color: #444444 !important;
+}
+
+/* 只有未選中時維持暗色底 */
+.dark-mode .category-tag-btn:not(.active) {
+  background-color: #2a2a2a !important;
+  border-color: #3d3d3d !important;
+  color: #cccccc !important;
+}
+
+/* 選中狀態下保留高亮外框與微光背景 */
+.dark-mode .category-tag-btn.active {
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.15);
+}
+
+/* 右上角切換按鈕深色模式 */
+.dark-mode .theme-toggle-btn {
+  background-color: #2a2a2a !important;
+  border-color: #444444 !important;
+  color: #ffffff !important;
+}
+
+/* 底部導覽標籤深色模式 */
+.dark-mode .tab-btn {
+  color: #888888 !important;
+}
+
+.dark-mode .tab-btn.active {
+  color: #38bdf8 !important;
+}
+/* ========================================== */
+/* OpenStreetMap 夜間深色濾鏡 (保留完整地圖資訊) */
+/* ========================================== */
+.app-container.dark-mode .leaflet-tile-pane {
+  /* 反轉顏色並微調色溫與對比，維持深色質感且文字清晰 */
+  filter: brightness(0.65) invert(1) contrast(2.6) hue-rotate(200deg) saturate(0.35) brightness(0.75);
+}
+
+/* 確保自身定位藍點、雷達圈、事件圖釘不受濾鏡影響 */
+.app-container.dark-mode .leaflet-marker-pane,
+.app-container.dark-mode .leaflet-overlay-pane,
+.app-container.dark-mode .leaflet-shadow-pane {
+  filter: none !important;
+}
+/* ========================================== */
+/* 「我的發布」分頁深色樣式修復                */
+/* ========================================== */
+
+/* 1. 使用者資訊卡片深色底 */
+.dark-mode .mine-profile-card {
+  background-color: #222222 !important;
+  border: 1px solid #333333 !important;
+}
+
+/* 2. 帳號名稱改為高亮淺色（白色） */
+.dark-mode .mine-profile-name {
+  color: #f5f5f5 !important;
+  font-weight: 600;
+}
+
+/* 3. 帳號 Email 改為易讀的淺灰字體 */
+.dark-mode .mine-profile-email {
+  color: #b0b0b0 !important;
+}
+
+/* 4. 登出按鈕深色化 */
+.dark-mode .mine-logout-btn {
+  background-color: #333333 !important;
+  color: #e0e0e0 !important;
+  border: 1px solid #444444 !important;
+}
+
+/* 5. 推播通知卡片改為深色底與深色邊框 */
+.dark-mode .mine-push-card {
+  background: #222222 !important;
+  background-color: #222222 !important;
+  background-image: none !important;
+  border: 1px solid #333333 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 確保推播標題為清晰白色，說明文字為淡灰 */
+.dark-mode .mine-push-card .mine-push-title {
+  color: #ffffff !important;
+}
+
+.dark-mode .mine-push-card .mine-push-status {
+  color: #a0a0a0 !important;
+}

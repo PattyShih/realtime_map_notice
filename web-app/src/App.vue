@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { AI_SERVICE_URL, EVENT_SERVICE_URL, LOCATION_SERVICE_URL, NOTIFICATION_SERVICE_URL, NOTIFICATION_WS_URL } from './config.js'
@@ -7,16 +7,27 @@ import { GOOGLE_CLIENT_ID, getSavedAuth, clearAuth, authHeaders, loginWithGoogle
 import { PUSH_SUPPORTED, getPushState, enablePush, disablePush, syncPushSubscription, isStandalone } from './push.js'
 
 // ==========================================
+// 深色模式與主題切換
+// ==========================================
+const isDarkMode = ref(localStorage.getItem('app_theme') === 'dark')
+
+const toggleDarkMode = () => {
+  isDarkMode.value = !isDarkMode.value
+  localStorage.setItem('app_theme', isDarkMode.value ? 'dark' : 'light')
+}
+
+// ==========================================
 // 地圖核心與狀態
 // ==========================================
 const DEFAULT_COORDS = { lat: 25.0366, lng: 121.4323 } // 預設座標（輔仁大學）
-const map = ref(null)
+const map = shallowRef(null)
 const radarCircle = ref(null)
 const userMarker = ref(null)
 const currentCoords = ref({ ...DEFAULT_COORDS })
 const locationText = ref('正在取得真實 GPS 座標...')
 const eventsList = ref([])
 const markerMap = ref(new Map())
+
 // === 事件分類定義（通用版：涵蓋校園日常與街區突發） ===
 const CATEGORIES = [
   {
@@ -47,11 +58,11 @@ const selectCategoryTag = (tag, severity) => {
   selectedSubCategory.value = tag
   formData.value.category = severity
 }
+
 let expirationTimer = null
 let locationReportTimer = null
 let eventsRefreshTimer = null
 let countdownTimer = null
-// 剛發布成功的事件 ID：WS 廣播會把自己發的事件再推回來，用來避免重複加入列表與重複跳通知
 let lastPublishedEventId = null
 
 const fetchAddress = async (lat, lng) => {
@@ -104,15 +115,10 @@ const createColoredPin = (category) => {
 // ==========================================
 // 登入狀態（Google 登入 → 系統 JWT）
 // ==========================================
-// auth = { token: <JWT>, user: { id, name, email, picture } }，存在 localStorage
 const auth = ref(getSavedAuth())
 const myUser = computed(() => auth.value?.user || null)
-// 帳號身份：發布/編輯/刪除與「我的發布」的歸屬（一律以 token 內的 id 為準）
 const myUserId = computed(() => auth.value?.user?.id || '')
 
-// 裝置身份：同一帳號可能同時在手機／平板／電腦登入，定位、WebSocket 與
-// 推播訂閱若只用帳號當鑰匙，裝置之間會互相覆蓋（手機的定位被平板蓋掉，
-// 推播距離算成 0 公尺）。因此「我在哪裡／訂閱在誰身上」以帳號+裝置區分。
 const getOrCreateDeviceId = () => {
   let deviceId = localStorage.getItem('rmn_device_id')
   if (!deviceId) {
@@ -125,11 +131,9 @@ const myDeviceUid = computed(() =>
   myUserId.value ? `${myUserId.value}#${getOrCreateDeviceId()}` : ''
 )
 
-// 登入畫面：Google 官方按鈕掛載與回呼
 const googleBtnRef = ref(null)
 const loginError = ref('')
 const renderGoogleButton = () => {
-  // GSI 腳本為 async 載入：還沒就緒就稍後重試
   if (!window.google?.accounts?.id) {
     setTimeout(renderGoogleButton, 300)
     return
@@ -163,7 +167,6 @@ const showPushPrompt = ref(false)
 const refreshPushState = async () => { pushState.value = await getPushState() }
 refreshPushState()
 
-// 從主畫面圖示（standalone）開啟 App 時：若未訂閱且之前沒拒絕過，主動詢問要不要開通知
 if (PUSH_SUPPORTED && isStandalone() && !localStorage.getItem('push_prompt_dismissed')) {
   setTimeout(async () => {
     const st = await getPushState()
@@ -198,9 +201,7 @@ const dismissPushPrompt = () => {
 }
 
 // ==========================================
-// 三分頁導覽：戰情摘要（左）／地圖（中）／我的發布（右）
-// 底部 tab bar 切換，頁面間支援左右滑動（地圖頁僅接受邊緣滑動，
-// 避免與地圖平移手勢衝突）
+// 三分頁導覽
 // ==========================================
 const TABS = [
   { id: 'ops', label: '事件', icon: '📊' },
@@ -215,10 +216,17 @@ const trackStyle = computed(() => ({
 const switchTab = (id) => {
   if (!TABS.some(t => t.id === id)) return
   activeTab.value = id
+  if (id === 'map') {
+    nextTick(() => {
+      if (map.value) {
+        map.value.invalidateSize()
+      }
+    })
+  }
 }
 
 let touchStart = null
-const EDGE_ZONE = 36 // 地圖頁只接受從左右邊緣開始的滑動
+const EDGE_ZONE = 36
 const onTouchStart = (e) => {
   const t = e.changedTouches[0]
   touchStart = {
@@ -236,7 +244,6 @@ const onTouchEnd = (e) => {
   touchStart = null
 
   if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return
-  // 地圖頁：橫向滑動是平移地圖的主要手勢，僅邊緣起始的滑動才切換分頁
   if (activeTab.value === 'map' && !fromEdge) return
 
   const idx = TAB_INDEX[activeTab.value]
@@ -245,7 +252,7 @@ const onTouchEnd = (e) => {
 }
 
 // ==========================================
-// 戰情摘要頁：統計卡與 AI 事件分析
+// 戰情摘要頁
 // ==========================================
 const nowTick = ref(Date.now())
 const formatCountdown = (expiresAt) => {
@@ -264,7 +271,6 @@ const myEvents = computed(() => eventsList.value
   .filter(e => e.userId === myUserId.value)
   .sort((a, b) => (b.createdAt || b.expiresAt) - (a.createdAt || a.expiresAt)))
 
-// 相對時間顯示：剛剛 / N 分鐘前 / N 小時前
 const timeAgo = (createdAt) => {
   if (!createdAt) return ''
   const mins = Math.floor((Date.now() - createdAt) / 60000)
@@ -274,8 +280,6 @@ const timeAgo = (createdAt) => {
   if (hrs < 24) return `${hrs} 小時前`
   return `${Math.floor(hrs / 24)} 天前`
 }
-// 事件剩餘壽命（分鐘）與生命週期百分比
-const remainingMinutes = (expiresAt) => Math.max(0, Math.ceil((expiresAt - Date.now()) / 60000))
 const lifePercent = (item) => {
   if (!item.createdAt || !item.expiresAt) return 100
   const total = item.expiresAt - item.createdAt
@@ -288,7 +292,6 @@ const categoryMeta = (cat) => ({
   danger:  { label: '緊急突發', color: '#ff3b30', icon: '🔴' },
 }[cat] || { label: '其他', color: '#ff7f50', icon: '📍' })
 
-// 從「我的發布」直接發布：切回地圖頁並打開表單
 const publishFromMine = () => {
   switchTab('map')
   showModal.value = true
@@ -358,7 +361,6 @@ const copyReportSummary = async () => {
 
 // ==========================================
 // 座標上報 Location Service
-// 沒上報就不會進 GEO 索引，附近有事件時永遠收不到推播
 // ==========================================
 const reportLocation = async (lat, lng) => {
   try {
@@ -383,28 +385,21 @@ const handleLocationSuccess = async (position) => {
 
   if (!map.value) return
 
-  // === 500 公尺半透明藍色雷達圈 ===
   if (!radarCircle.value) {
     radarCircle.value = L.circle([latitude, longitude], {
       radius: 500,
-      color: '#007aff',       // 外框藍色
-      weight: 1.5,            // 外框線寬
-      fillColor: '#007aff',   // 填充藍色
-      fillOpacity: 0.12,      // 柔和半透明
-      interactive: false      // 不阻擋地圖底層點擊事件
+      color: '#007aff',
+      weight: 1.5,
+      fillColor: '#007aff',
+      fillOpacity: 0.12,
+      interactive: false
     }).addTo(map.value)
   } else {
     radarCircle.value.setLatLng([latitude, longitude])
   }
-  // ==============================
 
-  // 鏡頭自動平滑飛向真實 GPS 座標
-  map.value.flyTo([latitude, longitude], 16, {
-    animate: true,
-    duration: 1.2
-  })
+  map.value.flyTo([latitude, longitude], 16, { animate: true, duration: 1.2 })
 
-  // 確保地圖上永遠只有一個藍色定位點
   if (userMarker.value) {
     userMarker.value.setLatLng([latitude, longitude])
   } else {
@@ -418,7 +413,6 @@ const handleLocationSuccess = async (position) => {
 
 const handleLocationError = async (error, isManual = false) => {
   let errorMsg = '無法取得精確定位，已切換至預設位置'
-  
   if (error && error.code) {
     switch (error.code) {
       case error.PERMISSION_DENIED:
@@ -465,16 +459,12 @@ const requestUserLocation = (isManual = false) => {
     (error) => {
       handleLocationError(error, isManual)
     },
-    {
-      enableHighAccuracy: true,
-      timeout: 8000,
-      maximumAge: 10000
-    }
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 }
   )
 }
 
 // ==========================
-// 事件過期檢查與清理邏輯 (Timer)
+// 事件過期檢查與清理邏輯
 // ==========================
 const checkAndCleanExpiredEvents = () => {
   const now = Date.now()
@@ -484,11 +474,8 @@ const checkAndCleanExpiredEvents = () => {
     if (item.expiresAt) {
       if (now >= item.expiresAt) {
         const marker = markerMap.value.get(item.id)
-        if (marker && map.value) {
-          map.value.removeLayer(marker)
-        }
+        if (marker && map.value) map.value.removeLayer(marker)
         markerMap.value.delete(item.id)
-        console.log(`⏳ 事件已過期並自動清除: ${item.title} (ID: ${item.id})`)
         return
       }
     }
@@ -500,9 +487,6 @@ const checkAndCleanExpiredEvents = () => {
 
 // ==========================
 // 列表新增（統一去重入口）
-// 同一事件可能同時從「發布後立即加入」與「WebSocket 廣播」兩條路進來，
-// 一律先檢查 ID 與內容，避免列表出現重複卡片——重複 key 也會讓
-// v-for 渲染錯亂，連帶造成左下角列表按鈕等畫面元素異常消失。
 // ==========================
 const addEventUnique = (newEvent, { notify = true } = {}) => {
   if (!newEvent.id) return false
@@ -515,7 +499,6 @@ const addEventUnique = (newEvent, { notify = true } = {}) => {
 
   if (markerMap.value.has(newEvent.id)) return false
 
-  // 內容層級防禦：ID 不同但標題與描述完全相同者視為同一則
   const isContentDuplicate = eventsList.value.some(
     e => e.title === newEvent.title && e.description === newEvent.description
   )
@@ -551,10 +534,8 @@ let lastWsMessageAt = 0
 let heartbeatWatchdog = null
 let everConnected = false
 
-// 連線是否活著（OPEN 且近期有收到伺服器訊息）
 const isWsAlive = () => ws && ws.readyState === WebSocket.OPEN
 
-// 手機切背景時系統會凍結 WebSocket：回到前景立刻重連，不等重試倒數
 const resyncConnection = () => {
   if (isWsAlive()) return
   if (reconnectTimeout) clearTimeout(reconnectTimeout)
@@ -562,13 +543,10 @@ const resyncConnection = () => {
   setupWebSocket()
 }
 
-// 看門狗：連線看似 OPEN 但超過 45 秒沒收到任何訊息（伺服器每 30 秒會 ping），
-// 視為半死連線，主動切斷觸發重連
 const startHeartbeatWatchdog = () => {
   if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
   heartbeatWatchdog = setInterval(() => {
     if (isWsAlive() && Date.now() - lastWsMessageAt > 45000) {
-      console.log('⚠️ 連線逾時無訊息，主動重連')
       ws.close()
     }
   }, 10000)
@@ -582,12 +560,10 @@ const setupWebSocket = () => {
   ws = new WebSocket(`${NOTIFICATION_WS_URL}/ws/${userId}`)
 
   ws.onopen = () => {
-    console.log('✅ WebSocket 即時廣播頻道連線成功！')
     wsStatus.value = 'connected'
     reconnectAttempts = 0
     lastWsMessageAt = Date.now()
     startHeartbeatWatchdog()
-    // 重連後補抓附近事件：背景期間錯過的事件不會遺漏
     if (everConnected) fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
     everConnected = true
   }
@@ -597,7 +573,6 @@ const setupWebSocket = () => {
     try {
       const data = JSON.parse(event.data)
       if (data.type === 'hello') return
-      // 心跳：收到 ping 必須回 pong，否則伺服器會判定連線死亡並關閉
       if (data.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' }))
         return
@@ -631,7 +606,6 @@ const setupWebSocket = () => {
           analysis: eventData.analysis || null
         }
 
-        // 自己剛發布的事件會從 WS 廣播回來，不再跳「收到通報」
         addEventUnique(newEvent, { notify: newEvent.id !== lastPublishedEventId })
       }
     } catch (err) {
@@ -639,23 +613,17 @@ const setupWebSocket = () => {
     }
   }
 
-  ws.onerror = () => {
-    wsStatus.value = 'disconnected'
-  }
+  ws.onerror = () => { wsStatus.value = 'disconnected' }
 
   ws.onclose = () => {
     if (heartbeatWatchdog) clearInterval(heartbeatWatchdog)
     wsStatus.value = 'reconnecting'
     reconnectAttempts++
-    // 手機回到前景時希望秒連：0.5s 起跳、上限 5 秒
     const delay = Math.min(5000, 500 * Math.pow(2, reconnectAttempts))
-    reconnectTimeout = setTimeout(() => {
-      setupWebSocket()
-    }, delay)
+    reconnectTimeout = setTimeout(() => { setupWebSocket() }, delay)
   }
 }
 
-// 回到前景／網路恢復時立刻檢查並重連
 const handleVisibilityResume = () => {
   if (document.visibilityState === 'visible') resyncConnection()
 }
@@ -664,29 +632,32 @@ const handleNetworkOnline = () => resyncConnection()
 // ==========================
 // 生命週期管理
 // ==========================
-// 即時在線人數：每 3 秒查詢 location-service 的 GEO 索引成員數
 const onlineCount = ref(0)
 let onlinePollTimer = null
 const fetchOnlineCount = async () => {
   try {
     const res = await fetch(`${LOCATION_SERVICE_URL}/locations/online`)
     if (res.ok) onlineCount.value = (await res.json()).online
-  } catch {
-    // 服務未就緒時沿用上一次數值
-  }
+  } catch {}
 }
 
-// App 初始化：地圖、WebSocket、定位與所有輪詢——登入後才執行（DOM 需先渲染）
 const appStarted = ref(false)
 const initApp = () => {
-  // preferCanvas：向量層用 canvas 繪製，大量事件時效能較佳
-  map.value = L.map('map', { preferCanvas: true }).setView([currentCoords.value.lat, currentCoords.value.lng], 16)
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map.value)
+  map.value = L.map('map', {
+    preferCanvas: true,
+    zoomAnimation: true,
+    fadeAnimation: true,
+    markerZoomAnimation: true
+  }).setView([currentCoords.value.lat, currentCoords.value.lng], 16)
 
+  // 統一使用一套 OSM，深色由 CSS 濾鏡處理
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map.value)
+  
   setupWebSocket()
-  requestUserLocation() // 統一由此函式初始化定位與單一標記
+  requestUserLocation()
 
-  // 已訂閱過推播的裝置：把訂閱補登記到「帳號+裝置」的名下（身分規則改版自癒）
   if (pushState.value.subscribed) {
     syncPushSubscription(myDeviceUid.value).catch(() => {})
   }
@@ -694,22 +665,20 @@ const initApp = () => {
   fetchOnlineCount()
   onlinePollTimer = setInterval(fetchOnlineCount, 3000)
   expirationTimer = setInterval(checkAndCleanExpiredEvents, 10000)
-  // 每 30 秒重報座標：last_seen TTL 60 秒，定期上報維持「在線」狀態
   locationReportTimer = setInterval(() => {
     reportLocation(currentCoords.value.lat, currentCoords.value.lng)
   }, 30000)
-  // 每 15 秒重抓附近事件：讓別人編輯/刪除的事件在本地列表同步（v1 無即時編輯推播）
+  // 找到 eventsRefreshTimer 那行，改為：
   eventsRefreshTimer = setInterval(() => {
-    fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
+    if (activeTab.value === 'map' && map.value) {
+      fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
+    }
   }, 15000)
-  // 每秒更新倒數計時
   countdownTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
-  // 前景恢復／網路恢復時立刻重連 WebSocket
   document.addEventListener('visibilitychange', handleVisibilityResume)
   window.addEventListener('online', handleNetworkOnline)
 }
 
-// 登入成功（auth 由 null → 有值）時啟動 App；等 nextTick 讓地圖 DOM 先渲染
 watch(auth, async (val) => {
   if (!val || appStarted.value) return
   appStarted.value = true
@@ -719,7 +688,6 @@ watch(auth, async (val) => {
 })
 
 onMounted(() => {
-  // 已有有效登入狀態：直接進 App；否則顯示 Google 登入頁
   if (auth.value) {
     appStarted.value = true
     initApp()
@@ -745,15 +713,11 @@ onUnmounted(() => {
 // ==========================
 const recenterMap = () => {
   if (!map.value) return
-
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         handleLocationSuccess(position)
-        map.value.flyTo([position.coords.latitude, position.coords.longitude], 16, {
-          animate: true,
-          duration: 1.2
-        })
+        map.value.flyTo([position.coords.latitude, position.coords.longitude], 16, { animate: true, duration: 1.2 })
         triggerToast('📍 已回到您的當前位置')
       },
       (error) => {
@@ -801,15 +765,13 @@ const flyToEvent = (item) => {
 }
 
 // ==========================
-// 發布表單與後端 API 對接
+// 發布表單
 // ==========================
 const showModal = ref(false)
 const toastMessage = ref('')
 const showToast = ref(false)
 const formData = ref({ title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' })
 
-// 照片上傳前壓縮：手機原圖動輒 3-5MB，base64 後會超過後端上限，
-// 也會撐爆 Redis。最長邊縮到 1600px、轉 JPEG（品質 0.85），畫質肉眼幾乎無差。
 const compressImage = (file, maxSide = 1600, quality = 0.85) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -823,7 +785,7 @@ const compressImage = (file, maxSide = 1600, quality = 0.85) =>
         canvas.width = Math.max(1, Math.round(img.width * scale))
         canvas.height = Math.max(1, Math.round(img.height * scale))
         const ctx = canvas.getContext('2d')
-        ctx.fillStyle = '#ffffff' // PNG 透明背景轉 JPEG 時鋪白底
+        ctx.fillStyle = '#ffffff'
         ctx.fillRect(0, 0, canvas.width, canvas.height)
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
         resolve(canvas.toDataURL('image/jpeg', quality))
@@ -845,14 +807,12 @@ const handleImageUpload = async (e) => {
   const file = e.target.files[0]
   if (!file) return
   try {
-    // 小於 200KB 的圖直接用原圖（維持原始格式與透明度）
     if (file.size <= 200 * 1024) {
       formData.value.imageFile = file
       formData.value.imagePreview = await readFileAsDataURL(file)
       return
     }
     const compressed = await compressImage(file)
-    // 壓縮後仍超過後端上限（罕見），再壓一次更狠的參數
     const finalPreview = compressed.length > 2_000_000
       ? await compressImage(file, 1080, 0.7)
       : compressed
@@ -869,7 +829,6 @@ const removeImage = () => {
   formData.value.imagePreview = '' 
 }
 
-// FastAPI 驗證錯誤的 detail 可能是字串或物件陣列，統一轉成可讀字串
 const formatApiDetail = (detail) => {
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail)) {
@@ -891,7 +850,6 @@ const handleSubmit = async () => {
   const durationMinutes = parseFloat(formData.value.duration) || 60
   const expiresAt = Date.now() + durationMinutes * 60 * 1000
 
-  // 1. 自動為標題附帶選中的分類標籤（例如：[圖書館空位] 文理大道有位子）
   const finalTitle = formData.value.title.startsWith(`[${selectedSubCategory.value}]`)
     ? formData.value.title
     : `[${selectedSubCategory.value}] ${formData.value.title}`
@@ -905,7 +863,7 @@ const handleSubmit = async () => {
     radius_meters: 500,
     duration_minutes: durationMinutes,
     image_url: formData.value.imagePreview || '',
-    user_id: myUserId.value // 後端會再以 JWT 內的 user_id 覆蓋，此欄位僅供舊版相容
+    user_id: myUserId.value
   }
 
   try {
@@ -916,7 +874,6 @@ const handleSubmit = async () => {
     })
 
     if (response.ok) {
-      // 用後端回傳的正式 event_id 當列表 ID，WebSocket 廣播回來時才能對應到同一筆、不會重複
       const body = await response.json()
       lastPublishedEventId = body.event_id || null
       const dist = getDistance(currentCoords.value.lat, currentCoords.value.lng, currentCoords.value.lat, currentCoords.value.lng)
@@ -947,16 +904,14 @@ const handleSubmit = async () => {
       showModal.value = false
       triggerToast(`成功發布「${newEvent.title}」！已同步新增至地圖與清單。`)
 
-      // 重置表單與預設標籤
       formData.value = { title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' }
       selectedSubCategory.value = '圖書館空位'
     } else {
-      // 後端反垃圾機制（429 頻率限制 / 409 重複內容 / 422 未過 AI 審核）顯示具體原因
       let errorMsg = '發布失敗，請確認 API 欄位格式！'
       try {
         const err = await response.json()
         if (err && err.detail) errorMsg = `⚠️ ${formatApiDetail(err.detail)}`
-      } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
+      } catch (_) {}
       triggerToast(errorMsg)
     }
   } catch (error) {
@@ -973,25 +928,44 @@ const editingEventId = ref(null)
 const editForm = ref({ title: '', category: 'info', description: '' })
 const deletingId = ref(null)
 
+const editSelectedSubCategory = ref('')
+
+const selectEditCategoryTag = (tag, severity) => {
+  editSelectedSubCategory.value = tag
+  editForm.value.category = severity
+}
+
 const startEditEvent = (item) => {
   editingEventId.value = item.id
-  editForm.value = {
-    title: item.title,
-    category: item.category, // 前端類別：info / warning / danger
-    description: item.description
+  
+  const match = (item.title || '').match(/^\[(.*?)\]\s*(.*)$/)
+  if (match) {
+    editSelectedSubCategory.value = match[1]
+    editForm.value.title = match[2]
+  } else {
+    editSelectedSubCategory.value = ''
+    editForm.value.title = item.title || ''
   }
+
+  editForm.value.category = item.category
+  editForm.value.description = item.description || ''
   showEditModal.value = true
 }
 
 const submitEdit = async () => {
+  let finalTitle = editForm.value.title.trim()
+  if (editSelectedSubCategory.value) {
+    finalTitle = `[${editSelectedSubCategory.value}] ${finalTitle}`
+  }
+
   const severity = editForm.value.category === 'danger' ? 'urgent' : editForm.value.category
   try {
     const response = await fetch(`${EVENT_SERVICE_URL}/events/${editingEventId.value}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
-        user_id: myUserId.value, // 後端會再以 JWT 內的 user_id 覆蓋
-        title: editForm.value.title,
+        user_id: myUserId.value,
+        title: finalTitle,
         message: editForm.value.description || '無詳細描述',
         severity
       })
@@ -1000,7 +974,7 @@ const submitEdit = async () => {
     if (response.ok) {
       const item = eventsList.value.find(e => e.id === editingEventId.value)
       if (item) {
-        item.title = editForm.value.title
+        item.title = finalTitle
         item.description = editForm.value.description || '無詳細描述'
         item.category = editForm.value.category
         const marker = markerMap.value.get(item.id)
@@ -1013,7 +987,7 @@ const submitEdit = async () => {
       try {
         const err = await response.json()
         if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
-      } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
+      } catch (_) {}
       triggerToast(errorMsg)
     }
   } catch (error) {
@@ -1042,7 +1016,7 @@ const deleteEvent = async (item) => {
       try {
         const err = await response.json()
         if (err && err.detail) errorMsg = `⚠️ ${err.detail}`
-      } catch (_) { /* 回應非 JSON 時維持預設訊息 */ }
+      } catch (_) {}
       triggerToast(errorMsg)
     }
   } catch (error) {
@@ -1056,12 +1030,9 @@ const deleteEvent = async (item) => {
 // 取得周遭事件 (GET API)
 const fetchNearbyEvents = async (lat, lng) => {
   try {
-    // 地圖是全台的佈告欄：所有事件都看得到；500 公尺只影響「誰收到推播」
     const response = await fetch(`${EVENT_SERVICE_URL}/events?latitude=${lat}&longitude=${lng}&radius=500000`)
     if (response.ok) {
       const data = await response.json()
-      console.log('GET /events 回傳資料：', data)
-
       markerMap.value.forEach(marker => marker.remove())
       markerMap.value.clear()
       eventsList.value = []
@@ -1073,7 +1044,6 @@ const fetchNearbyEvents = async (lat, lng) => {
         if (typeof event === 'string') return
 
         const eventId = event.event_id || event.id
-        // 回應本身可能帶重複，先按 ID 去重
         if (!eventId || seenIds.has(eventId)) return
         seenIds.add(eventId)
 
@@ -1145,7 +1115,7 @@ const createPopupContent = (event) => {
 }
 
 // ==========================================
-// 圖片燈箱 (Lightbox) 放大檢視控制
+// 圖片燈箱 (Lightbox)
 // ==========================================
 const lightboxImage = ref('')
 const showLightbox = ref(false)
@@ -1166,18 +1136,20 @@ window.openImageLightbox = openLightbox
 </script>
 
 <template>
-  <div v-if="auth" class="app-container">
+  <div v-if="auth" class="app-container" :class="{ 'dark-mode': isDarkMode }">
     <!-- 連線狀態指示膠囊 -->
-  <div v-show="activeTab !== 'mine'" class="connection-pill" :class="wsStatus">
-    <span class="status-indicator-dot"></span>
-    <span v-if="wsStatus === 'connected'">即時同步中</span>
-    <span v-else-if="wsStatus === 'reconnecting'">連線中斷，重試中...</span>
-    <span v-else>伺服器未連線</span>
-  </div>
-    <!-- 即時在線人數膠囊（GEO 索引成員數，含模擬壓測使用者） -->
-  <div v-show="activeTab !== 'mine'" class="connection-pill online-pill">
-    <span>👥 即時在線 {{ onlineCount }} 人</span>
-  </div>
+    <div v-show="activeTab !== 'mine'" class="connection-pill" :class="wsStatus">
+      <span class="status-indicator-dot"></span>
+      <span v-if="wsStatus === 'connected'">即時同步中</span>
+      <span v-else-if="wsStatus === 'reconnecting'">連線中斷，重試中...</span>
+      <span v-else>伺服器未連線</span>
+    </div>
+    
+    <!-- 即時在線人數膠囊 -->
+    <div v-show="activeTab !== 'mine'" class="connection-pill online-pill">
+      <span>👥 即時在線 {{ onlineCount }} 人</span>
+    </div>
+
     <!-- Toast 通知 -->
     <transition name="toast">
       <div v-if="showToast" class="toast-card">
@@ -1292,6 +1264,18 @@ window.openImageLightbox = openLightbox
         <!-- 頁面 2：地圖（主畫面） -->
         <section class="tab-panel map-panel">
           <div id="map"></div>
+
+          <!-- 右上角：深色 / 淺色膠囊切換滑桿 -->
+          <div
+            class="theme-toggle-switch"
+            :class="{ 'dark-active': isDarkMode }"
+            @click="toggleDarkMode"
+            :title="isDarkMode ? '目前為深色模式，點擊切換為淺色' : '目前為淺色模式，點擊切換為深色'"
+          >
+            <span class="switch-icon sun-icon">☀️</span>
+            <span class="switch-icon moon-icon">🌙</span>
+            <div class="switch-handle"></div>
+          </div>>
         </section>
 
         <!-- 頁面 3：我的發布 -->
@@ -1301,7 +1285,7 @@ window.openImageLightbox = openLightbox
             <span v-if="myEvents.length" class="mine-count">{{ myEvents.length }} 則進行中</span>
           </div>
 
-          <!-- 登入帳號資料卡（Google 帳號） -->
+          <!-- 登入帳號資料卡 -->
           <div v-if="myUser" class="mine-profile-card">
             <img v-if="myUser.picture" :src="myUser.picture" alt="頭像" referrerpolicy="no-referrer" class="mine-avatar" />
             <div v-else class="mine-avatar mine-avatar-placeholder">👤</div>
@@ -1382,12 +1366,12 @@ window.openImageLightbox = openLightbox
       </div>
     </div>
 
-    <!-- 左下角：「📋 查看附近清單」按鈕（僅地圖頁顯示） -->
+    <!-- 左下角：「📋 查看附近清單」按鈕 -->
     <button v-show="activeTab === 'map'" class="list-fab-btn" @click="showListModal = true">
       📋 列表 <span v-if="filteredSortedEvents.length > 0" class="badge">{{ filteredSortedEvents.length }}</span>
     </button>
 
-    <!-- 右下方「定位回正」按鈕（僅地圖頁顯示） -->
+    <!-- 右下方「定位回正」按鈕 -->
     <button v-show="activeTab === 'map'" class="recenter-btn" @click="recenterMap" title="回到我的位置">
       <svg viewBox="0 0 24 24" width="20" height="20" stroke="#555555" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="8"></circle>
@@ -1398,7 +1382,7 @@ window.openImageLightbox = openLightbox
       </svg>
     </button>
 
-    <!-- 右下角懸浮按鈕 FAB（僅地圖頁顯示） -->
+    <!-- 右下角懸浮按鈕 FAB -->
     <button v-show="activeTab === 'map'" class="fab-btn" @click="showModal = true">＋</button>
 
     <!-- 底部 tab bar -->
@@ -1447,20 +1431,18 @@ window.openImageLightbox = openLightbox
             class="event-card"
             @click="flyToEvent(item)"
           >
-            <!-- 若有圖片則顯示縮圖，點擊只放大圖片，不觸發外層卡片的飛越 -->
             <div 
               v-if="item.imageUrl" 
               class="card-thumb" 
               @click.stop="openLightbox(item.imageUrl)" 
               title="點擊查看大圖"
-              >
+            >
               <img :src="item.imageUrl" alt="event-pic" />
             </div>
 
             <div class="card-content">
               <div class="card-header">
                 <span class="card-title">{{ item.title }}</span>
-                <!-- 加上圖示與「分」字，語意更直觀 -->
                 <span class="card-badge" :class="item.category">
                   步行時間約 {{ item.walkTime }} 分鐘
                 </span>
@@ -1468,7 +1450,7 @@ window.openImageLightbox = openLightbox
               <p class="card-desc">{{ item.description }}</p>
               <div class="card-meta">
                 <span>距離 {{ item.distance }}公尺</span>
-                <span>發布時間  {{ item.timestamp }}</span>
+                <span>發布時間 {{ item.timestamp }}</span>
                 <span v-if="item.userId === myUserId" class="card-actions">
                   <button type="button" class="card-action-btn" title="編輯事件" @click.stop="startEditEvent(item)">✏️</button>
                   <button type="button" class="card-action-btn" title="刪除事件" :disabled="deletingId === item.id" @click.stop="deleteEvent(item)">🗑️</button>
@@ -1551,6 +1533,7 @@ window.openImageLightbox = openLightbox
         </form>
       </div>
     </div>
+
     <!-- 編輯事件表單 -->
     <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
       <div class="modal-card">
@@ -1565,24 +1548,29 @@ window.openImageLightbox = openLightbox
             <input type="text" v-model="editForm.title" placeholder="事件名稱" required maxlength="100" class="input-light" />
           </div>
 
-          <div class="form-group category-group">
-            <label class="group-label">事件類別：</label>
-            <div class="radio-options">
-              <label class="radio-item">
-                <input type="radio" v-model="editForm.category" value="info" />
-                <span class="dot dot-green"></span>
-                <span>空位 / 活動</span>
-              </label>
-              <label class="radio-item">
-                <input type="radio" v-model="editForm.category" value="warning" />
-                <span class="dot dot-yellow"></span>
-                <span>遺失 / 擁擠</span>
-              </label>
-              <label class="radio-item">
-                <input type="radio" v-model="editForm.category" value="danger" />
-                <span class="dot dot-red"></span>
-                <span>緊急 / 突發</span>
-              </label>
+          <!-- 事件分類選擇器（與發布頁面一致） -->
+          <div class="category-selector-container">
+            <label class="category-label">事件分類與危害程度：</label>
+            <div class="category-groups">
+              <div v-for="cat in CATEGORIES" :key="cat.group" class="category-group-card">
+                <div class="category-group-header">
+                  <span class="category-dot" :style="{ backgroundColor: cat.color }"></span>
+                  <span class="category-group-title" :style="{ color: cat.color }">{{ cat.group }}</span>
+                </div>
+                <div class="category-tags">
+                  <button
+                    type="button"
+                    v-for="tag in cat.tags"
+                    :key="tag"
+                    class="category-tag-btn"
+                    :class="{ active: editSelectedSubCategory === tag }"
+                    :style="editSelectedSubCategory === tag ? { borderColor: cat.color, color: cat.color, backgroundColor: cat.color + '18' } : {}"
+                    @click="selectEditCategoryTag(tag, cat.severity)"
+                  >
+                    {{ tag }}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1594,7 +1582,31 @@ window.openImageLightbox = openLightbox
         </form>
       </div>
     </div>
+
+    <!-- 加入主畫面後的推播詢問 -->
+    <transition name="toast">
+      <div v-if="showPushPrompt" class="push-prompt-overlay">
+        <div class="push-prompt-card">
+          <div class="push-prompt-icon">🔔</div>
+          <div class="push-prompt-title">開啟通知？</div>
+          <p class="push-prompt-desc">開啟後即使沒有打開 App，附近有緊急事件時也會直接推播到這台裝置。</p>
+          <div class="push-prompt-actions">
+            <button type="button" class="push-prompt-later" @click="dismissPushPrompt">先不用</button>
+            <button type="button" class="push-prompt-enable" @click="onEnablePush">開啟通知</button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 大圖燈箱 Lightbox Modal -->
+    <transition name="toast">
+      <div v-if="showLightbox" class="lightbox-overlay" @click="closeLightbox">
+        <button class="lightbox-close-btn" @click="closeLightbox">✕</button>
+        <img :src="lightboxImage" class="lightbox-img" @click.stop alt="現場大圖" />
+      </div>
+    </transition>
   </div>
+
   <!-- Google 登入頁：未登入時的唯一畫面 -->
   <div v-else class="login-screen">
     <div class="login-card">
@@ -1609,25 +1621,4 @@ window.openImageLightbox = openLightbox
       <div v-if="loginError" class="login-error">{{ loginError }}</div>
     </div>
   </div>
-  <!-- 加入主畫面後的推播詢問 -->
-  <transition name="toast">
-    <div v-if="showPushPrompt" class="push-prompt-overlay">
-      <div class="push-prompt-card">
-        <div class="push-prompt-icon">🔔</div>
-        <div class="push-prompt-title">開啟通知？</div>
-        <p class="push-prompt-desc">開啟後即使沒有打開 App，附近有緊急事件時也會直接推播到這台裝置。</p>
-        <div class="push-prompt-actions">
-          <button type="button" class="push-prompt-later" @click="dismissPushPrompt">先不用</button>
-          <button type="button" class="push-prompt-enable" @click="onEnablePush">開啟通知</button>
-        </div>
-      </div>
-    </div>
-  </transition>
-  <!-- 大圖燈箱 Lightbox Modal -->
-  <transition name="toast">
-    <div v-if="showLightbox" class="lightbox-overlay" @click="closeLightbox">
-     <button class="lightbox-close-btn" @click="closeLightbox">✕</button>
-      <img :src="lightboxImage" class="lightbox-img" @click.stop alt="現場大圖" />
-    </div>
-  </transition>
 </template>
