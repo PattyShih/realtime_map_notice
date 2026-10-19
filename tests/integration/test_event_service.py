@@ -159,10 +159,12 @@ class FakeAsyncClient:
         timeout: float,
         response_payload: dict | None = None,
         raise_error: Exception | None = None,
+        raise_error_on: str | None = None,
     ) -> None:
         self.timeout = timeout
         self.response_payload = response_payload if response_payload is not None else {}
         self.raise_error = raise_error
+        self.raise_error_on = raise_error_on
         self.posts: list[tuple[str, dict[str, object]]] = []
 
     async def __aenter__(self) -> "FakeAsyncClient":
@@ -172,12 +174,31 @@ class FakeAsyncClient:
         return None
 
     async def post(self, url: str, json: dict[str, object]):
-        if self.raise_error is not None:
+        if self.raise_error is not None and (
+            self.raise_error_on is None or self.raise_error_on in url
+        ):
             raise self.raise_error
 
         self.posts.append((url, json))
         payload = self.response_payload
-
+        if url.endswith("/evaluate-event") and not (
+            "decision" in payload or "verdict" in payload
+        ):
+            payload = {
+                "decision": "publish",
+                "reason": "test event",
+                "analysis": {
+                    "category": "other",
+                    "suggested_severity": "info",
+                    "summary": "Test event",
+                    "incident_facts": ["A concrete event was reported."],
+                    "advice": [],
+                    "emergency_contacts": [],
+                    "report_summary": "Test event",
+                    "confidence": 0.8,
+                    "provider": "keyword",
+                },
+            }
         class Response:
             status_code = 200
 
@@ -523,6 +544,7 @@ async def test_create_event_broadcast_failure_still_creates_event(monkeypatch) -
     fake_client = FakeAsyncClient(
         timeout=5.0,
         raise_error=httpx.ConnectError("notification-service down"),
+        raise_error_on="/broadcast/nearby",
     )
     monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
 
@@ -711,8 +733,8 @@ async def test_create_event_rejected_by_moderation(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_event_moderation_fail_open(monkeypatch) -> None:
-    """AI 服務掛掉時 fail-open：事件仍正常建立。"""
+async def test_create_event_moderation_fail_closed(monkeypatch) -> None:
+    """事件審核服務掛掉時拒絕發布，避免未審核內容進入地圖。"""
     fake_redis = install_fake_redis(monkeypatch)
     fake_client = FakeAsyncClient(
         timeout=5.0, raise_error=httpx.ConnectError("ai-service down")
@@ -723,8 +745,8 @@ async def test_create_event_moderation_fail_open(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post("/events", json=make_event_payload(1), headers=AUTH)
 
-    assert response.status_code == 200
-    assert len(fake_redis.set_calls) == 1
+    assert response.status_code == 503
+    assert len(fake_redis.set_calls) == 0
 
 
 async def create_event_for_test(monkeypatch, user_id: str = "u-owner", title: str = "Editable event") -> tuple[dict, FakeRedis, FakeAsyncClient]:

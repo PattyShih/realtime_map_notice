@@ -27,6 +27,7 @@ const currentCoords = ref({ ...DEFAULT_COORDS })
 const locationText = ref('正在取得真實 GPS 座標...')
 const eventsList = ref([])
 const markerMap = ref(new Map())
+const eventsRefreshing = ref(false)
 
 // === 事件分類定義（通用版：涵蓋校園日常與街區突發） ===
 const CATEGORIES = [
@@ -1064,6 +1065,17 @@ const fetchNearbyEvents = async (lat, lng) => {
           analysis: event.analysis || null
         }
 
+        const refreshNearbyEvents = async () => {
+          if (eventsRefreshing.value) return
+          eventsRefreshing.value = true
+          try {
+            await fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
+            triggerToast('🔄 事件列表已更新')
+          } finally {
+            eventsRefreshing.value = false
+          }
+        }
+
         eventsList.value.push(newEvent)
 
         const marker = L.marker([newEvent.location.lat, newEvent.location.lng], {
@@ -1154,7 +1166,17 @@ window.openImageLightbox = openLightbox
 
         <!-- 頁面 1：戰情摘要 -->
         <section class="tab-panel ops-panel">
-          <div class="ops-header">📊 事件摘要</div>
+          <div class="ops-header">
+            <span>📊 事件摘要</span>
+            <button
+              type="button"
+              class="refresh-events-btn"
+              :disabled="eventsRefreshing"
+              @click="refreshNearbyEvents"
+            >
+              {{ eventsRefreshing ? '整理中...' : '🔄 重新整理事件' }}
+            </button>
+          </div>
 
           <div class="stats-grid">
             <div class="stat-card">
