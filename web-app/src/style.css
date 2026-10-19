@@ -781,13 +781,15 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 .mine-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  position: relative;
 }
-.mine-header-title {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #1c1c1e;
+
+.mine-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .mine-count {
   font-size: 0.75rem;
