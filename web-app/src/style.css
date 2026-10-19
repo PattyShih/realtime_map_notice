@@ -688,6 +688,25 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   color: #1c1c1e;
   margin-bottom: 14px;
 }
+.ops-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.refresh-events-btn {
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+  color: #374151;
+  padding: 7px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.refresh-events-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

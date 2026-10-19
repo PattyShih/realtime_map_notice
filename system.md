@@ -360,7 +360,8 @@ AI provider 由環境變數 `AI_PROVIDER` 切換：
 設計重點：
 
 - 與 antispam 分工：antispam 擋「行為」（洗頻、重複貼文），AI Service 擋「內容」（廣告、詐騙、辱罵）。
-- fail-open：AI 服務不可用或 LLM 回覆異常時放行並記 log，審核不阻擋正常發布。
+- 事件發布審核採 fail-closed：AI 服務不可用、逾時或回傳無效結果時，不寫入 Redis、不推播，回傳 503 要求稍後重試。
+- AI 服務內部的 LLM 審核仍可依 provider 設定使用關鍵字 fallback；但事件服務只接受完整的 `evaluate-event` 結果後才發布。
 - 審核發生在 antispam 之後、寫入 Redis 之前，被拒絕的事件不留任何儲存痕跡。
 - LLM 輸出要求嚴格 JSON（`response_format: json_object`），並對 markdown code fence 做容錯解析。
 - 事件分析另外由 `ANALYSIS_PROVIDER` 控制，可使用關鍵字分析或 LLM 分析；LLM 無法使用時會回落到關鍵字分析。

@@ -51,7 +51,8 @@ async def moderate_event_content(title: str, message: str) -> None:
     """送 AI Service 審核內容；判定垃圾訊息時 raise 422。
 
     與 antispam 互補：antispam 擋行為（洗頻、重複），AI 擋內容（廣告、辱罵）。
-    AI 服務不可用時 fail-open 放行，不阻擋正常發布。
+    此為舊版相容 helper；目前建立與編輯事件使用 evaluate_event_content，
+    審核服務不可用時會 fail-closed，避免未審核內容發布。
     """
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -106,7 +107,7 @@ async def evaluate_event_content(
     severity: str,
     latitude: float,
     longitude: float,
-) -> dict | None:
+) -> dict:
     """一次完成發布審核與事件分析；拒絕非事件內容。"""
     try:
         async with httpx.AsyncClient(timeout=AI_ANALYSIS_TIMEOUT_SECONDS) as client:
@@ -123,16 +124,19 @@ async def evaluate_event_content(
             response.raise_for_status()
             result = response.json()
     except (httpx.HTTPError, ValueError) as e:
-        logger.warning("event evaluation unavailable (event allowed): %s", e)
-        return None
+        logger.error("event evaluation unavailable (event rejected): %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail="事件審核服務目前無法使用，請稍後再試",
+        ) from e
 
-    # 保留舊 AI service 的回應相容性，避免滾動部署期間誤擋發布。
     if result.get("verdict") == "spam":
         reason = result.get("reason") or "內容未通過審核"
         raise HTTPException(status_code=422, detail=f"內容未通過審核：{reason}")
 
     if "decision" not in result:
-        return result.get("analysis")
+        logger.error("event evaluation response missing decision")
+        raise HTTPException(status_code=503, detail="事件審核結果無效，請稍後再試")
 
     if result["decision"] == "reject":
         raise HTTPException(
@@ -145,8 +149,8 @@ async def evaluate_event_content(
             mode="json"
         )
     except ValueError as e:
-        logger.warning("invalid event evaluation response: %s", e)
-        return None
+        logger.error("invalid event evaluation response: %s", e)
+        raise HTTPException(status_code=503, detail="事件審核結果無效，請稍後再試") from e
 
 
 async def broadcast_to_notification_service(broadcast_payload: dict) -> dict:
