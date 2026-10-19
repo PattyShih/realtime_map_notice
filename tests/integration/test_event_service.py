@@ -733,6 +733,39 @@ async def test_create_event_rejected_by_moderation(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_rejected_event_does_not_consume_antispam_active_slot(monkeypatch) -> None:
+    """AI 拒絕的事件不應留下活躍事件或其他反垃圾訊息。"""
+    fake_redis = install_fake_redis(monkeypatch)
+    fake_client = FakeAsyncClient(
+        timeout=5.0,
+        response_payload={
+            "decision": "reject",
+            "reason": "沒有可觀察的事件內容",
+            "analysis": {
+                "category": "other",
+                "suggested_severity": "info",
+                "summary": "無效內容",
+                "incident_facts": [],
+                "advice": [],
+                "emergency_contacts": [],
+                "report_summary": "無效內容",
+                "confidence": 1.0,
+                "provider": "llm",
+            },
+        },
+    )
+    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/events", json=make_event_payload(1), headers=AUTH)
+
+    assert response.status_code == 422
+    assert fake_redis.zsets == {}
+    assert fake_redis.store == {}
+
+
+@pytest.mark.asyncio
 async def test_create_event_moderation_fail_closed(monkeypatch) -> None:
     """事件審核服務掛掉時拒絕發布，避免未審核內容進入地圖。"""
     fake_redis = install_fake_redis(monkeypatch)
