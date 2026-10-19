@@ -391,13 +391,32 @@ async def _llm_evaluate(payload: EventAnalysisRequest) -> EventEvaluationRespons
     if payload.latitude is not None and payload.longitude is not None:
         context.append(f"座標：{payload.latitude}, {payload.longitude}")
 
-    result = await _request_llm_json(EVALUATION_SYSTEM_PROMPT, "\n".join(context))
-    decision = result.get("decision")
-    if decision not in ("publish", "reject"):
-        raise ValueError("invalid event evaluation decision")
-    analysis = EventAnalysisResponse.model_validate(
-        {**_normalize_evaluation_result(result), "provider": "llm"}
-    )
+    user_content = "\n".join(context)
+    try:
+        result = await _request_llm_json(EVALUATION_SYSTEM_PROMPT, user_content)
+        normalized = _normalize_evaluation_result(result)
+        decision = normalized.get("decision")
+        if decision not in ("publish", "reject"):
+            raise ValueError("invalid event evaluation decision")
+        analysis = EventAnalysisResponse.model_validate(
+            {**normalized, "provider": "llm"}
+        )
+    except (KeyError, TypeError, ValueError) as first_error:
+        retry_prompt = (
+            f"{EVALUATION_SYSTEM_PROMPT}\n"
+            "這是格式重試：上一個回覆格式無效。請只輸出一個合法 JSON 物件，"
+            "不要使用 Markdown。category 必須是英文代碼，"
+            "incident_facts、advice、emergency_contacts 必須是 JSON 陣列。"
+        )
+        logger.warning("Invalid LLM evaluation shape; retrying once: %s", first_error)
+        result = await _request_llm_json(retry_prompt, user_content)
+        normalized = _normalize_evaluation_result(result)
+        decision = normalized.get("decision")
+        if decision not in ("publish", "reject"):
+            raise ValueError("invalid event evaluation decision") from first_error
+        analysis = EventAnalysisResponse.model_validate(
+            {**normalized, "provider": "llm"}
+        )
     return EventEvaluationResponse(
         decision=decision,
         reason=str(result.get("reason") or "LLM 審核完成"),
