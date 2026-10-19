@@ -166,7 +166,7 @@ def _extract_json(text: str) -> dict:
     return json.loads(cleaned[start : end + 1])
 
 
-def _normalize_evaluation_result(result: dict) -> dict:
+def _normalize_evaluation_result(result: dict, fallback_summary: str = "事件內容") -> dict:
     """Normalize common LLM variations before validating the response schema."""
     normalized = dict(result)
     category_aliases = {
@@ -182,12 +182,18 @@ def _normalize_evaluation_result(result: dict) -> dict:
     }
     category = normalized.get("category")
     if isinstance(category, str):
-        normalized["category"] = category_aliases.get(category, category)
+        normalized["category"] = category_aliases.get(category, "other")
+    else:
+        normalized["category"] = "other"
 
     for field in ("incident_facts", "advice", "emergency_contacts"):
         value = normalized.get(field)
         if isinstance(value, str):
             normalized[field] = [value]
+        elif not isinstance(value, list):
+            normalized[field] = []
+        else:
+            normalized[field] = [str(item) for item in value if item is not None]
 
     severity_aliases = {
         "資訊": "info",
@@ -199,7 +205,20 @@ def _normalize_evaluation_result(result: dict) -> dict:
     }
     severity = normalized.get("suggested_severity")
     if isinstance(severity, str):
-        normalized["suggested_severity"] = severity_aliases.get(severity, severity)
+        normalized["suggested_severity"] = severity_aliases.get(severity, "info")
+    else:
+        normalized["suggested_severity"] = "info"
+
+    summary = normalized.get("summary")
+    normalized["summary"] = str(summary or fallback_summary)[:500]
+    report_summary = normalized.get("report_summary")
+    normalized["report_summary"] = str(report_summary or normalized["summary"])[:2000]
+
+    try:
+        confidence = float(normalized.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    normalized["confidence"] = max(0.0, min(1.0, confidence))
     return normalized
 
 
@@ -394,7 +413,7 @@ async def _llm_evaluate(payload: EventAnalysisRequest) -> EventEvaluationRespons
     user_content = "\n".join(context)
     try:
         result = await _request_llm_json(EVALUATION_SYSTEM_PROMPT, user_content)
-        normalized = _normalize_evaluation_result(result)
+        normalized = _normalize_evaluation_result(result, payload.title)
         decision = normalized.get("decision")
         if decision not in ("publish", "reject"):
             raise ValueError("invalid event evaluation decision")
@@ -410,7 +429,7 @@ async def _llm_evaluate(payload: EventAnalysisRequest) -> EventEvaluationRespons
         )
         logger.warning("Invalid LLM evaluation shape; retrying once: %s", first_error)
         result = await _request_llm_json(retry_prompt, user_content)
-        normalized = _normalize_evaluation_result(result)
+        normalized = _normalize_evaluation_result(result, payload.title)
         decision = normalized.get("decision")
         if decision not in ("publish", "reject"):
             raise ValueError("invalid event evaluation decision") from first_error

@@ -473,6 +473,29 @@ async def test_evaluate_event_retries_invalid_llm_shape(monkeypatch) -> None:
     assert response.json()["decision"] == "reject"
 
 
+@pytest.mark.asyncio
+async def test_evaluate_event_fills_optional_model_fields(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "MODERATION_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "ANALYSIS_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "fake-gemini-key")
+    evaluation = {"decision": "reject", "reason": "沒有具體事件"}
+    client = FakeAsyncClient(timeout=8.0, content=json.dumps(evaluation))
+    monkeypatch.setattr(
+        ai_service.httpx,
+        "AsyncClient",
+        lambda timeout: _GeminiTestClient(client),
+    )
+
+    response = await post_evaluate(
+        {"title": "啊啊啊啊", "message": "啊啊啊啊", "severity": "info"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["decision"] == "reject"
+    assert response.json()["analysis"]["summary"] == "啊啊啊啊"
+
+
 class _GeminiTestClient:
     def __init__(self, delegate: FakeAsyncClient) -> None:
         self.delegate = delegate
