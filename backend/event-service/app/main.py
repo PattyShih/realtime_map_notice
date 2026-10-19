@@ -17,6 +17,7 @@ from backend.shared.jwt_auth import create_token, verify_token
 from backend.shared.redis_client import create_redis
 from backend.shared.schemas import (
     EventAnalysisResponse,
+    EventEvaluationResponse,
     EventCreate,
     EventResponse,
     EventUpdate,
@@ -96,6 +97,55 @@ async def analyze_event_content(
             return EventAnalysisResponse.model_validate(response.json()).model_dump(mode="json")
     except (httpx.HTTPError, ValueError) as e:
         logger.warning("event analysis unavailable (event allowed): %s", e)
+        return None
+
+
+async def evaluate_event_content(
+    title: str,
+    message: str,
+    severity: str,
+    latitude: float,
+    longitude: float,
+) -> dict | None:
+    """一次完成發布審核與事件分析；拒絕非事件內容。"""
+    try:
+        async with httpx.AsyncClient(timeout=AI_ANALYSIS_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"{AI_SERVICE_URL}/evaluate-event",
+                json={
+                    "title": title,
+                    "message": message,
+                    "severity": severity,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("event evaluation unavailable (event allowed): %s", e)
+        return None
+
+    # 保留舊 AI service 的回應相容性，避免滾動部署期間誤擋發布。
+    if result.get("verdict") == "spam":
+        reason = result.get("reason") or "內容未通過審核"
+        raise HTTPException(status_code=422, detail=f"內容未通過審核：{reason}")
+
+    if "decision" not in result:
+        return result.get("analysis")
+
+    if result["decision"] == "reject":
+        raise HTTPException(
+            status_code=422,
+            detail=f"內容未通過審核：{result.get('reason') or '這不是一則事件內容'}",
+        )
+
+    try:
+        return EventEvaluationResponse.model_validate(result).analysis.model_dump(
+            mode="json"
+        )
+    except ValueError as e:
+        logger.warning("invalid event evaluation response: %s", e)
         return None
 
 
@@ -350,33 +400,19 @@ async def analyze_existing_event(
     event_id: str,
     actor: Actor = Depends(require_actor),
 ) -> EventAnalysisResponse:
-    """分析並保存既有事件，避免結果只存在前端暫存狀態。"""
+    """回傳發布時已保存的分析，不重新呼叫 AI。"""
     if actor.via != "jwt":
         raise HTTPException(status_code=401, detail="請使用登入帳號分析事件")
 
     event = await _load_owned_event(event_id, actor.user_id)
-    analysis = await analyze_event_content(
-        event["title"],
-        event["message"],
-        event["severity"],
-        event["latitude"],
-        event["longitude"],
-    )
+    analysis = event.get("analysis")
     if analysis is None:
-        raise HTTPException(status_code=503, detail="AI 分析目前無法使用")
-
-    event["analysis"] = analysis
-    event_key = f"event:{event_id}"
+        raise HTTPException(status_code=404, detail="這則事件沒有已保存的分析結果")
     try:
-        ttl = await redis.ttl(event_key)
-        if ttl <= 0:
-            raise HTTPException(status_code=404, detail="事件不存在或已過期")
-        await redis.set(event_key, json.dumps(event), ex=ttl)
-    except RedisError as e:
-        logger.error("Event analysis update failed: %s", e)
-        raise HTTPException(status_code=503, detail="Event storage unavailable") from e
-
-    return EventAnalysisResponse.model_validate(analysis)
+        return EventAnalysisResponse.model_validate(analysis)
+    except ValueError as e:
+        logger.error("Invalid saved analysis for %s: %s", event_id, e)
+        raise HTTPException(status_code=503, detail="Event analysis unavailable") from e
 
 
 @app.put("/events/{event_id}")
@@ -392,9 +428,7 @@ async def update_event(
 
     # 編輯後的內容同樣要過 AI 審核（antispam 計數不重跑：
     # 編輯不產生新事件也不推播，重複偵測對「只改幾個字」反而誤擋）
-    await moderate_event_content(payload.title, payload.message)
-
-    analysis = await analyze_event_content(
+    analysis = await evaluate_event_content(
         payload.title,
         payload.message,
         payload.severity,
@@ -470,9 +504,7 @@ async def create_event(
     )
 
     # AI 內容審核：判定垃圾訊息會 raise 422；服務不可用時放行
-    await moderate_event_content(payload.title, payload.message)
-
-    analysis = await analyze_event_content(
+    analysis = await evaluate_event_content(
         payload.title,
         payload.message,
         payload.severity,

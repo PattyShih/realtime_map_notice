@@ -303,7 +303,6 @@ const dangerEventCount = computed(() =>
 // AI 事件分析與報案摘要
 // ==========================
 const selectedAnalysisEventId = ref('')
-const analysisLoading = ref(false)
 const analysisError = ref('')
 
 const selectedAnalysisEvent = computed(() => {
@@ -321,30 +320,6 @@ const analysisProviderLabel = computed(() => {
 
 const selectAnalysisEvent = (eventId) => {
   selectedAnalysisEventId.value = eventId
-  analysisError.value = ''
-}
-
-const analyzeSelectedEvent = async () => {
-  const event = selectedAnalysisEvent.value
-  if (!event || analysisLoading.value) return
-
-  analysisLoading.value = true
-  analysisError.value = ''
-  try {
-    const response = await fetch(`${EVENT_SERVICE_URL}/events/${event.id}/analysis`, {
-      method: 'POST',
-      headers: { ...authHeaders() }
-    })
-    const body = await response.json()
-    if (!response.ok) throw new Error(formatApiDetail(body.detail || 'AI 分析失敗'))
-
-    event.analysis = body
-    triggerToast(`${analysisProviderLabel.value}完成`)
-  } catch (error) {
-    analysisError.value = error?.message || 'AI 服務目前無法使用'
-  } finally {
-    analysisLoading.value = false
-  }
 }
 
 const copyReportSummary = async () => {
@@ -1204,7 +1179,7 @@ window.openImageLightbox = openLightbox
             <div class="ops-ai-header">
               {{ analysisProviderLabel === '尚未分析' ? '🧭 事件分析' : analysisProviderLabel }}
             </div>
-            <p class="ops-ai-hint">選擇事件後查看摘要、處理建議與聯絡方式。</p>
+            <p class="ops-ai-hint">事件發布時會自動完成分析；選擇事件即可查看結果。</p>
 
             <select
               v-if="eventsList.length"
@@ -1212,25 +1187,13 @@ window.openImageLightbox = openLightbox
               :value="selectedAnalysisEventId"
               @change="selectAnalysisEvent($event.target.value)"
             >
-              <option value="">選擇要分析的事件</option>
+              <option value="">選擇事件查看分析</option>
               <option v-for="item in eventsList" :key="item.id" :value="item.id">
                 {{ item.title }}
               </option>
             </select>
 
-            <p v-else class="ops-ai-hint">目前沒有可分析的事件。</p>
-
-            <button
-              v-if="selectedAnalysisEvent"
-              type="button"
-              class="submit-btn ops-analyze-btn"
-              :disabled="analysisLoading"
-              @click="analyzeSelectedEvent"
-            >
-              {{ analysisLoading ? '分析中...' : (selectedAnalysis ? '重新分析' : '開始分析') }}
-            </button>
-
-            <div v-if="analysisError" class="ops-error">{{ analysisError }}</div>
+            <p v-else class="ops-ai-hint">目前沒有事件分析結果。</p>
 
             <div v-if="selectedAnalysis" class="ops-result">
               <div class="ops-result-summary">{{ selectedAnalysis.summary }}</div>

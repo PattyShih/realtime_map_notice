@@ -707,7 +707,7 @@ async def test_create_event_rejected_by_moderation(monkeypatch) -> None:
     # 被拒絕的事件不應寫入 Redis，也不應廣播
     assert len(fake_redis.set_calls) == 0
     assert len(fake_redis.geoadd_calls) == 0
-    assert all(url.endswith("/moderate") for url, _ in fake_client.posts)
+    assert all(url.endswith("/evaluate-event") for url, _ in fake_client.posts)
 
 
 @pytest.mark.asyncio
