@@ -426,6 +426,53 @@ async def test_evaluate_event_normalizes_common_llm_localized_fields(monkeypatch
     assert response.json()["analysis"]["advice"] == ["請補充更多細節"]
 
 
+@pytest.mark.asyncio
+async def test_evaluate_event_retries_invalid_llm_shape(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "MODERATION_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "ANALYSIS_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "fake-gemini-key")
+    valid = {
+        "decision": "reject",
+        "reason": "沒有具體事件",
+        "category": "other",
+        "suggested_severity": "info",
+        "summary": "無效內容",
+        "incident_facts": [],
+        "advice": [],
+        "emergency_contacts": [],
+        "report_summary": "無效內容",
+        "confidence": 1.0,
+    }
+    client = FakeAsyncClient(
+        timeout=8.0,
+        content=json.dumps({"decision": "maybe"}, ensure_ascii=False),
+    )
+    client.responses = [
+        json.dumps({"decision": "maybe"}, ensure_ascii=False),
+        json.dumps(valid, ensure_ascii=False),
+    ]
+
+    class RetryClient(_GeminiTestClient):
+        async def post(self, url: str, json: dict, headers: dict | None = None):
+            content = self.delegate.responses.pop(0)
+            self.delegate.content = content
+            return await super().post(url, json, headers)
+
+    monkeypatch.setattr(
+        ai_service.httpx,
+        "AsyncClient",
+        lambda timeout: RetryClient(client),
+    )
+
+    response = await post_evaluate(
+        {"title": "測試", "message": "沒有具體事件", "severity": "info"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["decision"] == "reject"
+
+
 class _GeminiTestClient:
     def __init__(self, delegate: FakeAsyncClient) -> None:
         self.delegate = delegate
