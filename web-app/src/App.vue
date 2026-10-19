@@ -977,8 +977,23 @@ const submitEdit = async () => {
         item.title = finalTitle
         item.description = editForm.value.description || '無詳細描述'
         item.category = editForm.value.category
+
         const marker = markerMap.value.get(item.id)
-        if (marker) marker.bindPopup(createPopupContent(item))
+        if (marker) {
+          // 1. 即時更換圖釘顏色
+          marker.setIcon(createColoredPin(item.category))
+          // 2. 即時更新彈跳視窗內容
+          marker.bindPopup(createPopupContent(item))
+
+          // 3. 確保如果當前分類有被勾選篩選，就維持在地圖上；若沒勾選則隱藏
+          if (map.value) {
+            if (selectedFilters.value[item.category]) {
+              if (!map.value.hasLayer(marker)) map.value.addLayer(marker)
+            } else {
+              if (map.value.hasLayer(marker)) map.value.removeLayer(marker)
+            }
+          }
+        }
       }
       showEditModal.value = false
       triggerToast('✅ 事件已更新')
@@ -1264,25 +1279,27 @@ window.openImageLightbox = openLightbox
         <!-- 頁面 2：地圖（主畫面） -->
         <section class="tab-panel map-panel">
           <div id="map"></div>
-
-          <!-- 右上角：深色 / 淺色膠囊切換滑桿 -->
-          <div
-            class="theme-toggle-switch"
-            :class="{ 'dark-active': isDarkMode }"
-            @click="toggleDarkMode"
-            :title="isDarkMode ? '目前為深色模式，點擊切換為淺色' : '目前為淺色模式，點擊切換為深色'"
-          >
-            <span class="switch-icon sun-icon">☀️</span>
-            <span class="switch-icon moon-icon">🌙</span>
-            <div class="switch-handle"></div>
-          </div>>
         </section>
 
         <!-- 頁面 3：我的發布 -->
         <section class="tab-panel mine-panel">
           <div class="mine-header">
-            <span class="mine-header-title">📋 我的發布</span>
-            <span v-if="myEvents.length" class="mine-count">{{ myEvents.length }} 則進行中</span>
+            <div class="mine-header-left">
+              <span class="mine-header-title">📋 我的發布</span>
+              <span v-if="myEvents.length" class="mine-count">{{ myEvents.length }} 則進行中</span>
+            </div>
+
+            <!-- 右上角深淺色切換膠囊 -->
+            <div
+              class="theme-toggle-switch"
+              :class="{ 'dark-active': isDarkMode }"
+              @click="toggleDarkMode"
+              :title="isDarkMode ? '目前為深色模式，點擊切換為淺色' : '目前為淺色模式，點擊切換為深色'"
+            >
+              <span class="switch-icon sun-icon">☀️</span>
+              <span class="switch-icon moon-icon">🌙</span>
+              <div class="switch-handle"></div>
+            </div>
           </div>
 
           <!-- 登入帳號資料卡 -->
