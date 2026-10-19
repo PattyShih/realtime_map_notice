@@ -496,9 +496,50 @@ async def test_evaluate_event_fills_optional_model_fields(monkeypatch) -> None:
     assert response.json()["analysis"]["summary"] == "啊啊啊啊"
 
 
+@pytest.mark.asyncio
+async def test_evaluation_request_uses_gemini_response_schema(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "MODERATION_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "ANALYSIS_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "fake-gemini-key")
+    client = FakeAsyncClient(
+        timeout=8.0,
+        content=json.dumps(
+            {
+                "decision": "reject",
+                "reason": "沒有具體事件",
+                "category": "other",
+                "suggested_severity": "info",
+                "summary": "無效內容",
+                "incident_facts": [],
+                "advice": [],
+                "emergency_contacts": [],
+                "report_summary": "無效內容",
+                "confidence": 1.0,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        ai_service.httpx,
+        "AsyncClient",
+        lambda timeout: _GeminiTestClient(client),
+    )
+
+    response = await post_evaluate(
+        {"title": "測試", "message": "啊啊啊啊", "severity": "info"}
+    )
+
+    assert response.status_code == 200
+    request = client.posts[0][1]
+    assert request["generationConfig"]["responseSchema"] == (
+        ai_service.EVALUATION_RESPONSE_SCHEMA
+    )
+
+
 class _GeminiTestClient:
     def __init__(self, delegate: FakeAsyncClient) -> None:
         self.delegate = delegate
+        self.posts: list[tuple[str, dict]] = []
 
     async def __aenter__(self):
         return self
@@ -507,6 +548,8 @@ class _GeminiTestClient:
         return None
 
     async def post(self, url: str, json: dict, headers: dict | None = None):
+        self.posts.append((url, json))
+        self.delegate.posts.append((url, json))
         return FakeGeminiResponse(self.delegate.content)
 
 
