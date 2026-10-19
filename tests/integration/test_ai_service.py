@@ -375,6 +375,57 @@ async def test_evaluate_event_publishes_strange_but_observable_content(monkeypat
     assert response.json()["analysis"]["provider"] == "llm"
 
 
+@pytest.mark.asyncio
+async def test_evaluate_event_keyword_mode_does_not_require_api_key(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "MODERATION_PROVIDER", "keyword")
+    monkeypatch.setattr(ai_service, "ANALYSIS_PROVIDER", "keyword")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEYS", [])
+
+    response = await post_evaluate(
+        {"title": "圖書館空位", "message": "三樓窗邊還有座位", "severity": "info"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["decision"] == "publish"
+    assert response.json()["analysis"]["provider"] == "keyword"
+
+
+@pytest.mark.asyncio
+async def test_evaluate_event_normalizes_common_llm_localized_fields(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "MODERATION_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "ANALYSIS_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "fake-gemini-key")
+    evaluation = {
+        "decision": "publish",
+        "reason": "描述了可觀察事件",
+        "category": "其他",
+        "suggested_severity": "一般",
+        "summary": "校園事件",
+        "incident_facts": "現場有可觀察現象",
+        "advice": "請補充更多細節",
+        "emergency_contacts": [],
+        "report_summary": "測試事件",
+        "confidence": 0.5,
+    }
+    client = FakeAsyncClient(timeout=8.0, content=json.dumps(evaluation, ensure_ascii=False))
+    monkeypatch.setattr(
+        ai_service.httpx,
+        "AsyncClient",
+        lambda timeout: _GeminiTestClient(client),
+    )
+
+    response = await post_evaluate(
+        {"title": "測試事件", "message": "校園有可觀察現象", "severity": "info"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["analysis"]["category"] == "other"
+    assert response.json()["analysis"]["advice"] == ["請補充更多細節"]
+
+
 class _GeminiTestClient:
     def __init__(self, delegate: FakeAsyncClient) -> None:
         self.delegate = delegate

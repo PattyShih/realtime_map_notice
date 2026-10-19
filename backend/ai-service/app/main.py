@@ -166,6 +166,43 @@ def _extract_json(text: str) -> dict:
     return json.loads(cleaned[start : end + 1])
 
 
+def _normalize_evaluation_result(result: dict) -> dict:
+    """Normalize common LLM variations before validating the response schema."""
+    normalized = dict(result)
+    category_aliases = {
+        "其他": "other",
+        "安全": "safety",
+        "交通": "traffic",
+        "失物招領": "lost_found",
+        "活動": "activity",
+        "空間": "space",
+        "餐飲": "food",
+        "施工": "construction",
+        "疑似跟蹤": "suspected_stalking",
+    }
+    category = normalized.get("category")
+    if isinstance(category, str):
+        normalized["category"] = category_aliases.get(category, category)
+
+    for field in ("incident_facts", "advice", "emergency_contacts"):
+        value = normalized.get(field)
+        if isinstance(value, str):
+            normalized[field] = [value]
+
+    severity_aliases = {
+        "資訊": "info",
+        "一般": "info",
+        "注意": "warning",
+        "警告": "warning",
+        "危險": "danger",
+        "緊急": "urgent",
+    }
+    severity = normalized.get("suggested_severity")
+    if isinstance(severity, str):
+        normalized["suggested_severity"] = severity_aliases.get(severity, severity)
+    return normalized
+
+
 def _gemini_keys() -> list[str]:
     """Return configured keys, keeping GEMINI_API_KEY as a compatibility fallback."""
     return GEMINI_API_KEYS or ([GEMINI_API_KEY] if GEMINI_API_KEY else [])
@@ -359,7 +396,7 @@ async def _llm_evaluate(payload: EventAnalysisRequest) -> EventEvaluationRespons
     if decision not in ("publish", "reject"):
         raise ValueError("invalid event evaluation decision")
     analysis = EventAnalysisResponse.model_validate(
-        {**result, "provider": "llm"}
+        {**_normalize_evaluation_result(result), "provider": "llm"}
     )
     return EventEvaluationResponse(
         decision=decision,
@@ -386,13 +423,15 @@ async def analyze_event(payload: EventAnalysisRequest) -> EventAnalysisResponse:
 
 @app.post("/evaluate-event", response_model=EventEvaluationResponse)
 async def evaluate_event(payload: EventAnalysisRequest) -> EventEvaluationResponse:
-    if AI_PROVIDER == "gemini" and not _gemini_keys():
-        raise HTTPException(
-            status_code=503,
-            detail="GEMINI_API_KEY 或 GEMINI_API_KEYS 未設定",
-        )
-    if AI_PROVIDER != "gemini" and not OPENAI_API_KEY:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY 未設定")
+    # 關鍵字模式不需要外部 API key；只有實際選用 LLM 時才檢查設定。
+    if ANALYSIS_PROVIDER == "llm" or MODERATION_PROVIDER == "llm":
+        if AI_PROVIDER == "gemini" and not _gemini_keys():
+            raise HTTPException(
+                status_code=503,
+                detail="GEMINI_API_KEY 或 GEMINI_API_KEYS 未設定",
+            )
+        if AI_PROVIDER != "gemini" and not OPENAI_API_KEY:
+            raise HTTPException(status_code=503, detail="OPENAI_API_KEY 未設定")
 
     try:
         if ANALYSIS_PROVIDER == "llm" or MODERATION_PROVIDER == "llm":

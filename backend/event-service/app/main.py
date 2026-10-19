@@ -121,6 +121,12 @@ async def evaluate_event_content(
                     "longitude": longitude,
                 },
             )
+            if response.status_code >= 400:
+                logger.error(
+                    "event evaluation service returned %s: %s",
+                    response.status_code,
+                    getattr(response, "text", "")[:500],
+                )
             response.raise_for_status()
             result = response.json()
     except (httpx.HTTPError, ValueError) as e:
@@ -507,7 +513,7 @@ async def create_event(
         payload.duration_minutes,
     )
 
-    # AI 內容審核：判定垃圾訊息會 raise 422；服務不可用時放行
+    # AI 內容審核：判定垃圾訊息會 raise 422；服務不可用時拒絕發布
     analysis = await evaluate_event_content(
         payload.title,
         payload.message,
