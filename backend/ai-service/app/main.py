@@ -100,6 +100,50 @@ EVALUATION_SYSTEM_PROMPT = (
     "emergency_contacts、report_summary、confidence。"
 )
 
+EVALUATION_RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "decision": {"type": "STRING", "enum": ["publish", "reject"]},
+        "reason": {"type": "STRING"},
+        "category": {
+            "type": "STRING",
+            "enum": [
+                "suspected_stalking",
+                "safety",
+                "traffic",
+                "lost_found",
+                "activity",
+                "space",
+                "food",
+                "construction",
+                "other",
+            ],
+        },
+        "suggested_severity": {
+            "type": "STRING",
+            "enum": ["info", "warning", "danger", "urgent"],
+        },
+        "summary": {"type": "STRING"},
+        "incident_facts": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "advice": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "emergency_contacts": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "report_summary": {"type": "STRING"},
+        "confidence": {"type": "NUMBER"},
+    },
+    "required": [
+        "decision",
+        "reason",
+        "category",
+        "suggested_severity",
+        "summary",
+        "incident_facts",
+        "advice",
+        "emergency_contacts",
+        "report_summary",
+        "confidence",
+    ],
+}
+
 app = FastAPI(title="realtime_map_notice AI Service", version="0.1.0")
 configure_cors(app)
 
@@ -166,7 +210,7 @@ def _extract_json(text: str) -> dict:
     return json.loads(cleaned[start : end + 1])
 
 
-def _normalize_evaluation_result(result: dict) -> dict:
+def _normalize_evaluation_result(result: dict, fallback_summary: str = "事件內容") -> dict:
     """Normalize common LLM variations before validating the response schema."""
     normalized = dict(result)
     category_aliases = {
@@ -182,12 +226,18 @@ def _normalize_evaluation_result(result: dict) -> dict:
     }
     category = normalized.get("category")
     if isinstance(category, str):
-        normalized["category"] = category_aliases.get(category, category)
+        normalized["category"] = category_aliases.get(category, "other")
+    else:
+        normalized["category"] = "other"
 
     for field in ("incident_facts", "advice", "emergency_contacts"):
         value = normalized.get(field)
         if isinstance(value, str):
             normalized[field] = [value]
+        elif not isinstance(value, list):
+            normalized[field] = []
+        else:
+            normalized[field] = [str(item) for item in value if item is not None]
 
     severity_aliases = {
         "資訊": "info",
@@ -199,7 +249,20 @@ def _normalize_evaluation_result(result: dict) -> dict:
     }
     severity = normalized.get("suggested_severity")
     if isinstance(severity, str):
-        normalized["suggested_severity"] = severity_aliases.get(severity, severity)
+        normalized["suggested_severity"] = severity_aliases.get(severity, "info")
+    else:
+        normalized["suggested_severity"] = "info"
+
+    summary = normalized.get("summary")
+    normalized["summary"] = str(summary or fallback_summary)[:500]
+    report_summary = normalized.get("report_summary")
+    normalized["report_summary"] = str(report_summary or normalized["summary"])[:2000]
+
+    try:
+        confidence = float(normalized.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    normalized["confidence"] = max(0.0, min(1.0, confidence))
     return normalized
 
 
@@ -227,8 +290,16 @@ async def _request_llm_json(system_prompt: str, user_content: str) -> dict:
             "contents": [{"role": "user", "parts": [{"text": user_content}]}],
             "generationConfig": {
                 "responseMimeType": "application/json",
+                "responseSchema": EVALUATION_RESPONSE_SCHEMA
+                if system_prompt.startswith(EVALUATION_SYSTEM_PROMPT)
+                else None,
                 "temperature": 0.3,
             },
+        }
+        request["generationConfig"] = {
+            key: value
+            for key, value in request["generationConfig"].items()
+            if value is not None
         }
         keys = _gemini_keys()
         if not keys:
@@ -394,7 +465,7 @@ async def _llm_evaluate(payload: EventAnalysisRequest) -> EventEvaluationRespons
     user_content = "\n".join(context)
     try:
         result = await _request_llm_json(EVALUATION_SYSTEM_PROMPT, user_content)
-        normalized = _normalize_evaluation_result(result)
+        normalized = _normalize_evaluation_result(result, payload.title)
         decision = normalized.get("decision")
         if decision not in ("publish", "reject"):
             raise ValueError("invalid event evaluation decision")
@@ -410,7 +481,7 @@ async def _llm_evaluate(payload: EventAnalysisRequest) -> EventEvaluationRespons
         )
         logger.warning("Invalid LLM evaluation shape; retrying once: %s", first_error)
         result = await _request_llm_json(retry_prompt, user_content)
-        normalized = _normalize_evaluation_result(result)
+        normalized = _normalize_evaluation_result(result, payload.title)
         decision = normalized.get("decision")
         if decision not in ("publish", "reject"):
             raise ValueError("invalid event evaluation decision") from first_error
