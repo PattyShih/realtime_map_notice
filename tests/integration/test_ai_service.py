@@ -78,6 +78,12 @@ async def post_analyze(payload: dict) -> httpx.Response:
         return await client.post("/analyze-event", json=payload)
 
 
+async def post_evaluate(payload: dict) -> httpx.Response:
+    transport = ASGITransport(app=ai_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        return await client.post("/evaluate-event", json=payload)
+
+
 @pytest.mark.asyncio
 async def test_healthz() -> None:
     transport = ASGITransport(app=ai_service.app)
@@ -301,6 +307,72 @@ async def test_gemini_provider_analyzes_event(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["category"] == "suspected_stalking"
+
+
+@pytest.mark.asyncio
+async def test_evaluate_event_rejects_non_event_content(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "ANALYSIS_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "fake-gemini-key")
+    evaluation = {
+        "decision": "reject",
+        "reason": "內容是在評論發文，不是地圖事件",
+        "category": "other",
+        "suggested_severity": "info",
+        "summary": "非事件內容",
+        "incident_facts": [],
+        "advice": [],
+        "emergency_contacts": [],
+        "report_summary": "非事件內容",
+        "confidence": 0.98,
+    }
+    client = FakeAsyncClient(timeout=8.0, content=json.dumps(evaluation, ensure_ascii=False))
+    monkeypatch.setattr(
+        ai_service.httpx,
+        "AsyncClient",
+        lambda timeout: _GeminiTestClient(client),
+    )
+
+    response = await post_evaluate(
+        {"title": "提醒", "message": "大家不要發廢文", "severity": "info"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["decision"] == "reject"
+    assert response.json()["analysis"]["provider"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_evaluate_event_publishes_strange_but_observable_content(monkeypatch) -> None:
+    monkeypatch.setattr(ai_service, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(ai_service, "ANALYSIS_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "GEMINI_API_KEY", "fake-gemini-key")
+    evaluation = {
+        "decision": "publish",
+        "reason": "內容描述了可觀察的現象，即使尚未確認",
+        "category": "other",
+        "suggested_severity": "info",
+        "summary": "操場上看到疑似大型鳥類飛過",
+        "incident_facts": ["使用者看到大型物體飛過操場"],
+        "advice": ["如再次出現可補充照片或時間"],
+        "emergency_contacts": [],
+        "report_summary": "尚未確認的校園現象",
+        "confidence": 0.45,
+    }
+    client = FakeAsyncClient(timeout=8.0, content=json.dumps(evaluation, ensure_ascii=False))
+    monkeypatch.setattr(
+        ai_service.httpx,
+        "AsyncClient",
+        lambda timeout: _GeminiTestClient(client),
+    )
+
+    response = await post_evaluate(
+        {"title": "操場怪事", "message": "剛剛看到很大的鳥飛過操場", "severity": "info"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["decision"] == "publish"
+    assert response.json()["analysis"]["provider"] == "llm"
 
 
 class _GeminiTestClient:

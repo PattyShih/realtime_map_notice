@@ -64,6 +64,13 @@ class EventAnalysisResponse(BaseModel):
     provider: str = "unknown"
 
 
+class EventEvaluationResponse(BaseModel):
+    """事件發布前的內容審核與分析結果。"""
+    decision: Literal["publish", "reject"]
+    reason: str = Field(..., min_length=1, max_length=500)
+    analysis: EventAnalysisResponse
+
+
 class EventNotification(BaseModel):
     type: Literal["event"] = "event"
     event_id: str
@@ -159,4 +166,3 @@ class PushSubscription(BaseModel):
     expiration_time: int | None = Field(None, alias="expirationTime")
 
     model_config = {"populate_by_name": True}
-

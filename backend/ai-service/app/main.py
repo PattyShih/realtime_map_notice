@@ -22,12 +22,13 @@ import logging
 import os
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from backend.shared.cors import configure_cors
 from backend.shared.schemas import (
     EventAnalysisRequest,
     EventAnalysisResponse,
+    EventEvaluationResponse,
     ModerationRequest,
     ModerationResponse,
 )
@@ -83,6 +84,20 @@ ANALYSIS_SYSTEM_PROMPT = (
     '{"category": "activity", "suggested_severity": "info", "summary": "...", "incident_facts": ["..."], "advice": ["..."], "emergency_contacts": [], "report_summary": "...", "confidence": 0.8}\n'
     "category 僅能為：suspected_stalking / safety / traffic / lost_found / activity / space / food / construction / other\n"
     "suggested_severity 僅能為：info / warning / danger / urgent"
+)
+
+EVALUATION_SYSTEM_PROMPT = (
+    "你是校園地圖事件發布前的審核與分析助手。"
+    "請判斷內容是否描述一個發生在校園或附近、可能被觀察或查證的事件、現象或狀況。"
+    "資訊不完整、看起來荒謬、可能是誤認，但仍描述具體現象時，必須 decision=publish。"
+    "只有完全沒有事件內容的個人感想、聊天、無意義文字，或評論／規勸其他使用者與平台的文字才 decision=reject。"
+    "例如「我同學好帥」、「今天好累」、「哈哈哈哈」、「大家不要發廢文」應拒絕；"
+    "例如「剛剛看到一隻很大的鳥飛過操場」、「不知道是不是施工，剛剛聽到巨響」應發布。"
+    "廣告、詐騙、辱罵或人身攻擊也應拒絕。"
+    "若內容可能是真的但尚未確認，仍發布，並在分析中說明尚未確認，不要捏造事實。"
+    "只能回覆合法 JSON，欄位必須包含 decision（publish/reject）、reason、"
+    "category、suggested_severity、summary、incident_facts、advice、"
+    "emergency_contacts、report_summary、confidence。"
 )
 
 app = FastAPI(title="realtime_map_notice AI Service", version="0.1.0")
@@ -334,6 +349,25 @@ async def _llm_moderate(payload: ModerationRequest) -> ModerationResponse:
         )
 
 
+async def _llm_evaluate(payload: EventAnalysisRequest) -> EventEvaluationResponse:
+    context = [f"標題：{payload.title}", f"內容：{payload.message}"]
+    if payload.latitude is not None and payload.longitude is not None:
+        context.append(f"座標：{payload.latitude}, {payload.longitude}")
+
+    result = await _request_llm_json(EVALUATION_SYSTEM_PROMPT, "\n".join(context))
+    decision = result.get("decision")
+    if decision not in ("publish", "reject"):
+        raise ValueError("invalid event evaluation decision")
+    analysis = EventAnalysisResponse.model_validate(
+        {**result, "provider": "llm"}
+    )
+    return EventEvaluationResponse(
+        decision=decision,
+        reason=str(result.get("reason") or "LLM 審核完成"),
+        analysis=analysis,
+    )
+
+
 @app.post("/moderate", response_model=ModerationResponse)
 async def moderate(payload: ModerationRequest) -> ModerationResponse:
     if MODERATION_PROVIDER == "off":
@@ -348,3 +382,27 @@ async def analyze_event(payload: EventAnalysisRequest) -> EventAnalysisResponse:
     if ANALYSIS_PROVIDER == "llm":
         return await _llm_analyze(payload)
     return _keyword_analyze(payload)
+
+
+@app.post("/evaluate-event", response_model=EventEvaluationResponse)
+async def evaluate_event(payload: EventAnalysisRequest) -> EventEvaluationResponse:
+    if AI_PROVIDER == "gemini" and not _gemini_keys():
+        raise HTTPException(
+            status_code=503,
+            detail="GEMINI_API_KEY 或 GEMINI_API_KEYS 未設定",
+        )
+    if AI_PROVIDER != "gemini" and not OPENAI_API_KEY:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY 未設定")
+
+    try:
+        if ANALYSIS_PROVIDER == "llm" or MODERATION_PROVIDER == "llm":
+            return await _llm_evaluate(payload)
+        analysis = _keyword_analyze(payload)
+        return EventEvaluationResponse(
+            decision="publish",
+            reason="目前使用關鍵字模式，未執行 LLM 審核",
+            analysis=analysis,
+        )
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
+        logger.warning("Event evaluation failed: %s", error)
+        raise HTTPException(status_code=503, detail="AI 審核目前無法使用") from error
