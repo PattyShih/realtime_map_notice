@@ -1305,3 +1305,51 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
 .dark-mode .mine-push-card .mine-push-status {
   color: #a0a0a0 !important;
 }
+/* ======================================================== */
+/* 戰情摘要頁：AI 分析內文高亮與事件摘要自然層次              */
+/* ======================================================== */
+
+/* 1. 強制提升「事件經過」與「建議處理方式」條列文字亮度 */
+.dark-mode .ops-result-block,
+.dark-mode .ops-result-block li,
+.dark-mode .ops-result-list li,
+.dark-mode .ops-result ul li {
+  color: #f0f0f0 !important; /* 清晰明亮的淺白字 */
+}
+
+/* 2. 事件經過的小圓點 (bullet) 顏色也同步變亮 */
+.dark-mode .ops-result-list {
+  color: #f0f0f0 !important;
+}
+
+/* 3. 事件摘要卡片：自然炭灰底（比外層稍亮一階，不泛藍、不死黑） */
+.dark-mode .ops-result-report {
+  background-color: #2a2a2e !important;
+  background: #2a2a2e !important;
+  border: 1px solid #3e3e44 !important;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* 4. 事件摘要標題與內文 */
+.dark-mode .ops-result-report .ops-result-title {
+  color: #ff9f0a !important; /* 柔和警示橘 */
+}
+
+.dark-mode .ops-result-report p {
+  color: #f5f5f7 !important; /* 柔和白字 */
+}
+
+/* 5. 複製按鈕（常態與 Hover） */
+.dark-mode .copy-summary-btn {
+  background-color: #38383e !important;
+  color: #e5e5ea !important;
+  border: 1px solid #48484e !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.dark-mode .copy-summary-btn:hover {
+  background-color: #44444c !important;
+  border-color: #5a5a62 !important;
+  color: #ffffff !important;
+}
