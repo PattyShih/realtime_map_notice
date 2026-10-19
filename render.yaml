@@ -73,7 +73,7 @@ services:
       - key: ANALYSIS_PROVIDER
         value: llm
       - key: MODERATION_PROVIDER
-        value: keyword
+        value: llm
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_API_KEYS

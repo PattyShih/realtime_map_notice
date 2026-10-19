@@ -504,22 +504,22 @@ async def create_event(
 
     event_id = str(uuid4())
 
-    # 反垃圾訊息：頻率限制、重複偵測；未通過會直接 raise 429/409
-    await antispam.check_and_register(
-        payload.user_id,
-        payload.title,
-        payload.message,
-        event_id,
-        payload.duration_minutes,
-    )
-
-    # AI 內容審核：判定垃圾訊息會 raise 422；服務不可用時拒絕發布
+    # 先完成 AI 內容審核；被拒絕或審核服務不可用時，不應留下 antispam 登記。
     analysis = await evaluate_event_content(
         payload.title,
         payload.message,
         payload.severity,
         payload.latitude,
         payload.longitude,
+    )
+
+    # AI 通過後才登記反垃圾訊息，避免被拒絕的內容佔用活躍事件額度。
+    await antispam.check_and_register(
+        payload.user_id,
+        payload.title,
+        payload.message,
+        event_id,
+        payload.duration_minutes,
     )
 
     event_data = payload.model_dump()
