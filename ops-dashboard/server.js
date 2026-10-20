@@ -28,9 +28,7 @@ const PRIMARY_PORT = 8001;
 const REPLICA_PORTS = [18001, 18002]; // 額外副本發布到主機的埠（r2、r3）
 const MAX_REPLICAS = 1 + REPLICA_PORTS.length;
 const SCALE_UP_CPU = Number(process.env.OPS_SCALE_UP_CPU || 25); // 平均 CPU 高於此值 → 擴展
-const SCALE_DOWN_CPU = Number(process.env.OPS_SCALE_DOWN_CPU || 8); // 平均 CPU 低於此值連續 N 次 → 縮回
-const SCALE_DOWN_TICKS = 2;
-const SCALE_UP_TICKS = 1; // 一次達標即擴展：demo 節奏優先（人數指標本身可控，不會誤觸發）
+const SCALE_UP_TICKS = 2; // CPU 連續超標秒數：滿 2 秒才擴，避免瞬間雜訊誤觸
 const CHECK_MS = 1000;
 // 單一模擬程序約 800 人後自身飽和（見 k8s/README.md），人數多時拆多個 worker 容器
 const LOAD_WORKERS = [
@@ -44,12 +42,11 @@ const state = {
   load: { running: false, users: 0 },
   replicas: 1,
   rrIndex: 0,
-  lowTicks: 0,
   upTicks: 0,
+  maxWarned: false,
   scaling: false,
   events: [], // { t: 'HH:MM:SS', msg }
   eventGen: { running: false },
-  peakUsers: 0, // 本次壓測以來的最大人數：讓遞增過程副本只增不減
 };
 
 function logEvent(msg) {
@@ -178,7 +175,8 @@ async function startLoadCompose(users) {
     ]);
   }
   state.load = { running: true, users };
-  state.peakUsers = Math.max(state.peakUsers, users);
+  state.upTicks = 0;
+  state.maxWarned = false;
 
   // 事件流併入：人越多事件越多（每 50 人 1 則/秒，上限 10 則/秒）
   const evtRate = Math.min(10, Math.max(1, Math.round(users / 50)));
@@ -221,28 +219,37 @@ async function startEventGenCompose(rate = 10) {
 }
 
 async function stopEventGenCompose() {
-  const r = await sh('docker', ['rm', '-f', 'ops-event-gen']);
-  if (r.ok && state.eventGen.running) logEvent('⏹ 事件模式：已停止發布');
+  await sh('docker', ['rm', '-f', 'ops-event-gen']);
+  // 保險起見確認真的移除了；rm -f 對剛啟動（pip install 中）的容器偶發未生效
+  const check = await sh('docker', ['inspect', 'ops-event-gen']);
+  if (check.ok) await sh('docker', ['rm', '-f', 'ops-event-gen']);
+  if (state.eventGen.running) logEvent('⏹ 事件模式：已停止發布');
   state.eventGen = { running: false };
 }
 
 async function stopLoadCompose() {
+  // 先停事件流並確認容器已死：確保沒有任何來源繼續寫入事件，再清資料
+  await stopEventGenCompose();
   let had = false;
-  for (const name of [...loadWorkerNames(LOAD_WORKERS.at(-1).count), 'ops-event-gen', 'ops-load-generator']) {
+  for (const name of [...loadWorkerNames(LOAD_WORKERS.at(-1).count), 'ops-load-generator']) {
     const r = await sh('docker', ['rm', '-f', name]);
     if (r.ok) had = true;
   }
-  if (had && state.load.running) logEvent(`⏹ 停止模擬（${state.load.users} 人與事件流已撤）`);
+  const wasRunning = state.load.running;
+  if (wasRunning) logEvent(`⏹ 停止模擬（${state.load.users} 人與事件流已撤）`);
   state.load = { running: false, users: 0, workers: 0 };
-  state.lowTicks = 0;
   state.upTicks = 0;
-  state.peakUsers = 0; // 峰值歸零：下一次壓測從 1 副本重新開始
-  if (had) {
+  state.maxWarned = false;
+  if (had || wasRunning) {
     const purged = await purgeSimUsers();
     if (purged.ok) logEvent('🧹 已清除模擬使用者在線紀錄（在線人數即時回落）');
-    // 停止模擬＝地圖清空：撤流量後順手清除所有事件與反垃圾紀錄
     await clearEventsCompose();
     logEvent('🗺️ 地圖已清空（所有事件與數據歸零）');
+    // 追加二次清空：捕捉清空當下仍在途中的寫入（事件最後幾筆請求、
+    // 前端 15 秒定期抓取的競態），確保地圖不會再長出殘留事件
+    setTimeout(() => {
+      clearEventsCompose().then(() => logEvent('🧹 二次清空完成（確認無殘留）'));
+    }, 2500);
   }
 }
 
@@ -288,7 +295,7 @@ async function composeStatus() {
 
   return {
     mode: 'compose',
-    autoscaler: { up: SCALE_UP_CPU, down: SCALE_DOWN_CPU, max: MAX_REPLICAS, avgCpu },
+    autoscaler: { up: SCALE_UP_CPU, max: MAX_REPLICAS, avgCpu },
     pool: [PRIMARY_PORT, ...REPLICA_PORTS.slice(0, state.replicas - 1)],
     pods,
     chart: {
@@ -302,10 +309,10 @@ async function composeStatus() {
   };
 }
 
-// compose 模式的模擬 HPA：以「本次壓測峰值人數」為唯一指標（棘輪設計）。
-// 人數從 0 慢慢遞增到 500 的過程中，副本只會增加不會減少——
-// CPU 噪音不再參與判斷（之前 avg 在門檻上下來回，造成副本忽多忽少）。
-// 按下停止壓測後峰值歸零，副本才會縮回 1 個。
+// compose 模式的模擬 HPA：與真 HPA 相同的「CPU 超過門檻才擴展」行為。
+// 擴展：平均 CPU ≥ 門檻連續 SCALE_UP_TICKS 秒 → +1 副本（階梯式，方塊依序彈出）；
+// 壓測進行中不縮減（避免 demo 過程忽多忽少）；停止壓測後一律縮回 1 副本。
+// 這樣 CPU 曲線會真實呈現「爬升 → 穿越門檻 → 擴展 → 回落」的 HPA 生命週期。
 async function autoscalerTick() {
   if (state.scaling) return;
   const stats = await composeStats();
@@ -313,22 +320,29 @@ async function autoscalerTick() {
   if (!loc.length) return;
   const replicas = Math.max(1, loc.length);
   state.replicas = replicas;
+  const avgCpu = Math.round((loc.reduce((s, c) => s + (c.cpu || 0), 0) / loc.length) * 10) / 10;
 
-  const users = state.load.running ? state.load.users : 0;
-  if (users > state.peakUsers) state.peakUsers = users;
+  if (!state.load.running) {
+    state.upTicks = 0;
+    state.maxWarned = false;
+    if (replicas > 1) {
+      await scaleTo(1);
+      logEvent('📉 壓測已停止，縮回 1 副本');
+    }
+    return;
+  }
 
-  let desired = 1;
-  if (state.peakUsers >= 400) desired = MAX_REPLICAS;
-  else if (state.peakUsers >= 100) desired = 2;
+  if (avgCpu >= SCALE_UP_CPU) state.upTicks += 1;
+  else state.upTicks = 0;
 
-  if (desired > replicas) {
-    // 階梯式擴展：每次只長一個 Pod，方塊依序彈出（demo 視覺）
-    await scaleTo(replicas + 1);
-    logEvent(`📈 擴展：${replicas} → ${replicas + 1} 副本（峰值人數 ${state.peakUsers}）`);
-  } else if (desired < replicas && !state.load.running) {
-    // 只有停止壓測（峰值歸零）才縮減，demo 遞增過程中不縮
-    await scaleTo(desired);
-    logEvent(`📉 壓測已停止，縮回 ${desired} 副本`);
+  if (state.upTicks >= SCALE_UP_TICKS && replicas < MAX_REPLICAS) {
+    state.upTicks = 0;
+    const next = replicas + 1;
+    await scaleTo(next);
+    logEvent(`📈 擴展：CPU ${avgCpu}% ≥ 門檻 ${SCALE_UP_CPU}%，${replicas} → ${next} 副本`);
+  } else if (replicas >= MAX_REPLICAS && !state.maxWarned && state.upTicks >= SCALE_UP_TICKS) {
+    state.maxWarned = true;
+    logEvent(`⚠️ CPU ${avgCpu}% 仍高於門檻，已達最大副本數 ${MAX_REPLICAS}`);
   }
 }
 
@@ -563,7 +577,7 @@ async function main() {
   if (!exists.ok) logEvent(`⚠️ 找不到 ${PRIMARY_CONTAINER}，請先 docker compose up -d`);
   logEvent(state.mode === 'k8s'
     ? `偵測到 K8s 命名空間 ${K8S_NS} → k8s 模式（真 HPA）`
-    : `未偵測到 K8s → compose 模式（模擬 HPA：${SCALE_UP_CPU}% 擴展 / ${SCALE_DOWN_CPU}%×${SCALE_DOWN_TICKS} 縮回，最多 ${MAX_REPLICAS} 副本）`);
+    : `未偵測到 K8s → compose 模式（模擬 HPA：平均 CPU ${SCALE_UP_CPU}% 連續 ${SCALE_UP_TICKS} 秒擴展，最多 ${MAX_REPLICAS} 副本，停止後縮回 1）`);
   if (state.mode === 'compose') setInterval(() => autoscalerTick().catch(() => {}), CHECK_MS);
   server.listen(PORT, () => console.log(`ops dashboard → http://localhost:${PORT}`));
 }
