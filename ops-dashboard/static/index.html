@@ -146,9 +146,10 @@
 </div>
 
 <p class="foot">
-  compose 模式：HPA 由 ops 服務模擬（平均 CPU ≥ 25% 連續 2 次擴展、≤ 8% 連續 3 次縮回，最多 3 副本；
-  門檻可用環境變數調整），額外副本發布於 :18001/:18002，壓測流量經 ops 的 round-robin proxy 分流
-  （等效 K8s Service），模擬人數 > 800 自動拆多個 worker 容器。
+  compose 模式：HPA 由 ops 服務模擬——與真 HPA 相同，平均 CPU ≥ 25% 連續 2 秒才擴展
+  （最多 3 副本；門檻可用環境變數調整），壓測進行中不縮減，停止壓測後自動縮回 1 副本並
+  二次清空事件（確保無殘留寫入）；額外副本發布於 :18001/:18002，壓測流量經 ops 的
+  round-robin proxy 分流（等效 K8s Service），模擬人數 > 800 自動拆多個 worker 容器。
   k8s 模式：讀取真實 HPA / kubectl top，壓測以 load-generator Job 於叢集內發動。
 </p>
 
@@ -229,11 +230,11 @@ function renderPods(status) {
   const row = document.getElementById('podRow');
   const a = status.autoscaler || {};
   const isK8s = status.mode === 'k8s';
+  const running = !!(status.load && status.load.running);
   const replicas = isK8s ? (a.current ?? 0) : status.pool.length;
   const max = a.max || 3;
   const avg = isK8s ? a.cpu : a.avgCpu;
   const up = isK8s ? (a.targetCpu || 50) : (a.up ?? 25);
-  const down = a.down ?? 8;
 
   let cls = 'banner ok';
   let txt = `🟢 負載正常 — ${replicas} 個副本運行中（CPU ${avg ?? '?'}% ／ 門檻 ${up}%）`;
@@ -246,9 +247,9 @@ function renderPods(status) {
   } else if (avg != null && avg >= up && replicas < max) {
     cls = 'banner hot';
     txt = `🔥 高負載！CPU ${avg}% ≥ 門檻 ${up}% — 正在擴展…`;
-  } else if (avg != null && avg <= down && replicas > 1) {
+  } else if (avg != null && avg >= up && replicas >= max) {
     cls = 'banner hot';
-    txt = `🌙 負載回落（CPU ${avg}% ≤ ${down}%）— 準備縮回…`;
+    txt = `🔥 CPU ${avg}% 高於門檻 — 已達最大副本數 ${max}，以水平分流撐住流量`;
   }
   banner.textContent = txt;
   banner.className = cls;
