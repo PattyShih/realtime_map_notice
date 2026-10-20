@@ -150,7 +150,7 @@ async function purgeSimUsers() {
   await sh('docker', ['rm', '-f', 'ops-redis-purge']);
   const script = [
     "members=$(redis-cli -h redis --scan --pattern 'realtime_map_notice:user:last_seen:u-*' | sed 's/.*last_seen://')",
-    '[ -n "$members" ] && redis-cli -h redis zrem user:locations $members',
+    '[ -n "$members" ] && redis-cli -h redis zrem realtime_map_notice:user:locations $members',
     "redis-cli -h redis --scan --pattern 'realtime_map_notice:user:last_seen:u-*' | xargs -r redis-cli -h redis del",
     'echo purged',
   ].join(' && ');
