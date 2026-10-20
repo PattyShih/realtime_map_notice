@@ -30,6 +30,11 @@ def user_channel(user_id: str) -> str:
     return f"realtime_map_notice:user:{user_id}:notifications"
 
 
+# 全域控制頻道：ops 儀表板清空事件時 publish 到這裡，所有 WS 連線收到後
+# 立即清空前端地圖，不必等前端的 15 秒定期同步
+OPS_RESET_CHANNEL = "realtime_map_notice:ops:reset"
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     await redis.ping()
@@ -88,6 +93,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
 
     pubsub = redis.pubsub()
     await pubsub.subscribe(user_channel(user_id))
+    await pubsub.subscribe(OPS_RESET_CHANNEL)
 
     # 追蹤最後一次收到 pong 的時間
     last_pong_time = asyncio.get_event_loop().time()
@@ -107,8 +113,15 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
                 )
 
                 if message and message["type"] == "message":
-                    await websocket.send_text(message["data"])
-                    logger.info(f"📤 Sent notification to user {user_id}")
+                    channel = message.get("channel")
+                    if isinstance(channel, bytes):
+                        channel = channel.decode()
+                    if channel == OPS_RESET_CHANNEL:
+                        # 儀表板清空事件：轉發 reset 指令，前端立即清空地圖
+                        await websocket.send_text('{"type":"reset"}')
+                    else:
+                        await websocket.send_text(message["data"])
+                        logger.info(f"📤 Sent notification to user {user_id}")
             except asyncio.TimeoutError:
                 pass  # 沒有 Redis 訊息，繼續迴圈
 
@@ -155,6 +168,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str) -> None:
     finally:
         ping_task.cancel()
         await pubsub.unsubscribe(user_channel(user_id))
+        await pubsub.unsubscribe(OPS_RESET_CHANNEL)
         await pubsub.close()
         logger.info(f"🛑 User {user_id} connection cleanup complete")
 

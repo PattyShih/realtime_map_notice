@@ -553,6 +553,14 @@ const setupWebSocket = () => {
         ws.send(JSON.stringify({ type: 'pong' }))
         return
       }
+      // 儀表板清空事件：立即清空本地地圖與清單，不必等 15 秒定期同步
+      if (data.type === 'reset') {
+        markerMap.value.forEach(marker => marker && map.value && map.value.removeLayer(marker))
+        markerMap.value.clear()
+        eventsList.value = []
+        triggerToast('🧹 事件已由運維儀表板清空')
+        return
+      }
 
       const eventData = data.event || data.payload || data
 

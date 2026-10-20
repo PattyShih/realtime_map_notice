@@ -30,10 +30,11 @@ const MAX_REPLICAS = 1 + REPLICA_PORTS.length;
 const SCALE_UP_CPU = Number(process.env.OPS_SCALE_UP_CPU || 25); // 平均 CPU 高於此值 → 擴展
 const SCALE_UP_TICKS = 2; // CPU 連續超標秒數：滿 2 秒才擴，避免瞬間雜訊誤觸
 const CHECK_MS = 1000;
-// 單一模擬程序約 800 人後自身飽和（見 k8s/README.md），人數多時拆多個 worker 容器
+// 單一模擬程序約 400 人後自身飽和（Python 事件迴圈先成為瓶頸，服務端 CPU 反而測不高），
+// 每個 worker 控制在 400 人內，確保壓力真實落在 location-service 上
 const LOAD_WORKERS = [
-  { max: 800, count: 1 },
-  { max: 1600, count: 2 },
+  { max: 400, count: 1 },
+  { max: 800, count: 2 },
   { max: Infinity, count: 3 },
 ];
 
@@ -185,12 +186,14 @@ async function startLoadCompose(users) {
   logEvent(`⚡ 開始模擬：${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人）＋ 事件流每秒約 ${evtRate} 則`);
 }
 
-// 清空所有事件：刪除事件本體、GEO 索引與反垃圾紀錄（demo 重來用）
+// 清空所有事件：刪除事件本體、GEO 索引與反垃圾紀錄（demo 重來用），
+// 並發布 reset 廣播讓所有前端立即清空地圖（不必等 15 秒定期同步）
 async function clearEventsCompose() {
   const script = [
     "redis-cli --scan --pattern 'event:*' | xargs -r redis-cli del",
     'redis-cli del event_locations',
     "redis-cli --scan --pattern 'event_antispam:*' | xargs -r redis-cli del",
+    "redis-cli publish realtime_map_notice:ops:reset '{\"type\":\"reset\"}'",
     'echo cleared',
   ].join(' && ');
   const r = await sh('docker', ['exec', `${COMPOSE_PROJECT}-redis-1`, 'sh', '-c', script]);
@@ -372,6 +375,7 @@ async function clearEventsK8s() {
     "redis-cli --scan --pattern 'event:*' | xargs -r redis-cli del",
     'redis-cli del event_locations',
     "redis-cli --scan --pattern 'event_antispam:*' | xargs -r redis-cli del",
+    "redis-cli publish realtime_map_notice:ops:reset '{\"type\":\"reset\"}'",
     'echo cleared',
   ].join(' && ');
   const r = await sh('kubectl', ['-n', K8S_NS, 'exec', 'deploy/redis', 'sh', '-c', script]);
