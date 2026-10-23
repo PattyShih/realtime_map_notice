@@ -644,7 +644,10 @@ const initApp = () => {
     preferCanvas: true,
     zoomAnimation: true,
     fadeAnimation: true,
-    markerZoomAnimation: true
+    // App 分頁以 CSS transform 滑動，transform 過的祖先容器裡
+    // Leaflet 的標記縮放動畫會座標錯位（縮放時圖釘飄移）——關閉它，
+    // 縮放後圖釘直接貼回正確座標
+    markerZoomAnimation: false
   }).setView([currentCoords.value.lat, currentCoords.value.lng], 16)
 
   // 統一使用一套 OSM，深色由 CSS 濾鏡處理
@@ -1132,7 +1135,7 @@ const createPopupContent = (event) => {
       ${event.locationLabel ? `<div style="margin: 4px 0 0; font-size: 0.78rem; color: #1b6b7a; font-weight: bold;">📍 ${event.locationLabel}</div>` : ''}
       <h4 style="margin: 4px 0 6px 0; font-size: 1rem; color: #222;">${event.title}</h4>
       ${imageHtml}
-      <p style="margin: 0 0 8px 0; font-size: 0.85rem; color: #444; word-break: break-word;">${event.description}</p>
+      ${event.description && event.description !== '無詳細描述' ? `<p style="margin: 0 0 8px 0; font-size: 0.85rem; color: #444; word-break: break-word;">${event.description}</p>` : ''}
       <div style="background: #f5f5f5; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; color: #333;">
         🚶 距離約 <b>${event.distance}m</b>｜步行約 <b>${event.walkTime} 分鐘</b>
       </div>
@@ -1367,7 +1370,7 @@ window.openImageLightbox = openLightbox
               </div>
 
               <div class="mine-card-title">{{ item.title }}</div>
-              <p class="mine-card-desc">{{ item.description }}</p>
+              <p v-if="item.description && item.description !== '無詳細描述'" class="mine-card-desc">{{ item.description }}</p>
 
               <div class="mine-life">
                 <div class="mine-life-bar">
@@ -1473,7 +1476,7 @@ window.openImageLightbox = openLightbox
                   步行時間約 {{ item.walkTime }} 分鐘
                 </span>
               </div>
-              <p class="card-desc">{{ item.description }}</p>
+              <p v-if="item.description && item.description !== '無詳細描述'" class="card-desc">{{ item.description }}</p>
               <div class="card-meta">
                 <span>距離 {{ item.distance }}公尺</span>
                 <span>發布時間 {{ item.timestamp }}</span>

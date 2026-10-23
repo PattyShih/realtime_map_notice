@@ -15,6 +15,14 @@ def test_measured_zhongmeitang_returns_label() -> None:
     assert resolve_campus_location(25.0381, 121.4319) == "中美堂"
 
 
+def test_grass_areas_return_labels() -> None:
+    # 草地/開放空間實測點
+    assert resolve_campus_location(25.035425, 121.432454) == "維也納森林"
+    assert resolve_campus_location(25.034496, 121.432927) == "小巴黎"
+    assert resolve_campus_location(25.036363, 121.433590) == "文學院荷花池"
+    assert resolve_campus_location(25.036024, 121.433667) == "文學院前草地"
+
+
 def test_measured_songyan_returns_label() -> None:
     # 實測點：站在聖言樓前發事件應正確判別
     assert resolve_campus_location(25.035496, 121.431612) == "SF 聖言樓"
