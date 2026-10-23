@@ -513,40 +513,30 @@ async def analyze_event(payload: EventAnalysisRequest) -> EventAnalysisResponse:
 
 @app.post("/evaluate-event", response_model=EventEvaluationResponse)
 async def evaluate_event(payload: EventAnalysisRequest) -> EventEvaluationResponse:
-    # 關鍵字模式不需要外部 API key；只有實際選用 LLM 時才檢查設定。
+    # 關鍵字模式不需要外部 API key。LLM 模式的任何失敗（含金鑰未設定、
+    # 逾時、額度用罄）一律退回 keyword 審核——/evaluate-event 不回 503，
+    # 發布流程永遠不被審核服務卡住（可用性優先於完美過濾）。
     if ANALYSIS_PROVIDER == "llm" or MODERATION_PROVIDER == "llm":
-        if AI_PROVIDER == "gemini" and not _gemini_keys():
-            raise HTTPException(
-                status_code=503,
-                detail="GEMINI_API_KEY 或 GEMINI_API_KEYS 未設定",
+        try:
+            return await _llm_evaluate(payload)
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as llm_error:
+            # LLM 暫時故障（逾時、額度用罄、格式失敗、金鑰問題）：fail-open
+            # 退回 keyword 審核而非 503 擋發布——可用性優先於完美過濾，
+            # 與「API 故障自動 fallback 至 keyword」的設計承諾一致
+            logger.warning(
+                "LLM evaluation failed, falling back to keyword moderation: %s",
+                llm_error,
             )
-        if AI_PROVIDER != "gemini" and not OPENAI_API_KEY:
-            raise HTTPException(status_code=503, detail="OPENAI_API_KEY 未設定")
+            analysis = _keyword_analyze(payload)
+            return EventEvaluationResponse(
+                decision="publish",
+                reason="LLM 審核暫時無法使用，已改用關鍵字審核（fail-open）",
+                analysis=analysis,
+            )
 
-    try:
-        if ANALYSIS_PROVIDER == "llm" or MODERATION_PROVIDER == "llm":
-            try:
-                return await _llm_evaluate(payload)
-            except (httpx.HTTPError, KeyError, TypeError, ValueError) as llm_error:
-                # LLM 暫時故障（逾時、額度用罄、格式失敗）：fail-open 退回
-                # keyword 審核而非 503 擋發布——可用性優先於完美過濾，
-                # 與「API 故障自動 fallback 至 keyword」的設計承諾一致
-                logger.warning(
-                    "LLM evaluation failed, falling back to keyword moderation: %s",
-                    llm_error,
-                )
-                analysis = _keyword_analyze(payload)
-                return EventEvaluationResponse(
-                    decision="publish",
-                    reason="LLM 審核暫時無法使用，已改用關鍵字審核（fail-open）",
-                    analysis=analysis,
-                )
-        analysis = _keyword_analyze(payload)
-        return EventEvaluationResponse(
-            decision="publish",
-            reason="目前使用關鍵字模式，未執行 LLM 審核",
-            analysis=analysis,
-        )
-    except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
-        logger.warning("Event evaluation failed: %s", error)
-        raise HTTPException(status_code=503, detail="AI 審核目前無法使用") from error
+    analysis = _keyword_analyze(payload)
+    return EventEvaluationResponse(
+        decision="publish",
+        reason="目前使用關鍵字模式，未執行 LLM 審核",
+        analysis=analysis,
+    )
