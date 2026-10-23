@@ -84,6 +84,38 @@ async def post_evaluate(payload: dict) -> httpx.Response:
         return await client.post("/evaluate-event", json=payload)
 
 
+def make_evaluate_payload() -> dict:
+    return {
+        "title": "Library seats",
+        "message": "3F has seats near windows",
+        "severity": "info",
+        "latitude": 25.0173,
+        "longitude": 121.5397,
+    }
+
+
+@pytest.mark.asyncio
+async def test_evaluate_event_llm_failure_falls_back_to_keyword(monkeypatch) -> None:
+    """LLM 故障時不擋發布：退回 keyword 審核回 200（fail-open），而非 503。
+
+    這是簡報第 29 頁「API 故障自動 fallback 至 keyword」承諾的回歸測試。
+    """
+    monkeypatch.setattr(ai_service, "MODERATION_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "OPENAI_API_KEY", "test-key")
+    fake_client = FakeAsyncClient(
+        timeout=8.0, raise_error=httpx.ConnectError("llm down")
+    )
+    monkeypatch.setattr(ai_service.httpx, "AsyncClient", lambda timeout=8.0: fake_client)
+
+    response = await post_evaluate(make_evaluate_payload())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"] == "publish"
+    assert "關鍵字" in body["reason"]
+    assert body["analysis"]["provider"] == "keyword"
+
+
 @pytest.mark.asyncio
 async def test_healthz() -> None:
     transport = ASGITransport(app=ai_service.app)

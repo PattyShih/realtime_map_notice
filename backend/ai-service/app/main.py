@@ -525,7 +525,22 @@ async def evaluate_event(payload: EventAnalysisRequest) -> EventEvaluationRespon
 
     try:
         if ANALYSIS_PROVIDER == "llm" or MODERATION_PROVIDER == "llm":
-            return await _llm_evaluate(payload)
+            try:
+                return await _llm_evaluate(payload)
+            except (httpx.HTTPError, KeyError, TypeError, ValueError) as llm_error:
+                # LLM 暫時故障（逾時、額度用罄、格式失敗）：fail-open 退回
+                # keyword 審核而非 503 擋發布——可用性優先於完美過濾，
+                # 與「API 故障自動 fallback 至 keyword」的設計承諾一致
+                logger.warning(
+                    "LLM evaluation failed, falling back to keyword moderation: %s",
+                    llm_error,
+                )
+                analysis = _keyword_analyze(payload)
+                return EventEvaluationResponse(
+                    decision="publish",
+                    reason="LLM 審核暫時無法使用，已改用關鍵字審核（fail-open）",
+                    analysis=analysis,
+                )
         analysis = _keyword_analyze(payload)
         return EventEvaluationResponse(
             decision="publish",
