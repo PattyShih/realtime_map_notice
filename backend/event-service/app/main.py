@@ -28,6 +28,8 @@ NOTIFICATION_SERVICE_URL = os.getenv(
     "NOTIFICATION_SERVICE_URL",
     "http://localhost:8003",
 )
+# 校外事件的路段名稱：Nominatim 逆向地理編碼（免費，需標示 User-Agent）
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 AI_SERVICE_URL = os.getenv(
     "AI_SERVICE_URL",
     "http://localhost:8004",
@@ -158,6 +160,28 @@ async def evaluate_event_content(
     except ValueError as e:
         logger.error("invalid event evaluation response: %s", e)
         raise HTTPException(status_code=503, detail="事件審核結果無效，請稍後再試") from e
+
+
+async def resolve_road_name(latitude: float, longitude: float) -> str | None:
+    """校外事件的路段名稱（如「縣政二路」）；純加值資訊，失敗一律靜默回 None。"""
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            response = await client.get(
+                NOMINATIM_URL,
+                params={
+                    "format": "json",
+                    "lat": latitude,
+                    "lon": longitude,
+                    "zoom": 17,
+                    "addressdetails": 1,
+                },
+                headers={"User-Agent": "realtime-map-notice/1.0 (campus event map)"},
+            )
+            response.raise_for_status()
+            return (response.json().get("address") or {}).get("road") or None
+    except Exception as e:
+        logger.warning("road name lookup failed (event allowed): %s", e)
+        return None
 
 
 async def broadcast_to_notification_service(broadcast_payload: dict) -> dict:
@@ -531,6 +555,9 @@ async def create_event(
     # 教授建議：輔大範圍內的座標自動判別地標（哪一棟大樓／區域），
     # 隨事件與通知送出——緊急時只打「火警」兩個字，大家也知道在哪一棟
     location_label = resolve_campus_location(payload.latitude, payload.longitude)
+    if location_label is None:
+        # 校外事件：改顯示路段名稱（如「縣政二路」），查不到則不顯示
+        location_label = await resolve_road_name(payload.latitude, payload.longitude)
     if location_label:
         event_data["location_label"] = location_label
 
