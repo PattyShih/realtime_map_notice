@@ -173,6 +173,18 @@ class FakeAsyncClient:
     async def __aexit__(self, exc_type, exc, tb) -> None:
         return None
 
+    async def get(self, url: str, params: dict | None = None, headers: dict | None = None):
+        class Response:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self):
+                return {"address": {"road": "縣政二路"}}
+
+        return Response()
+
     async def post(self, url: str, json: dict[str, object]):
         if self.raise_error is not None and (
             self.raise_error_on is None or self.raise_error_on in url
@@ -815,8 +827,8 @@ async def test_create_event_attaches_campus_location_label(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_event_outside_campus_has_no_location_label(monkeypatch) -> None:
-    """校外事件不做地標判別：location_label 為 None。"""
+async def test_create_event_outside_campus_shows_road_name(monkeypatch) -> None:
+    """校外事件不做地標判別，改顯示路段名稱（如「縣政二路」）。"""
     install_fake_redis(monkeypatch)
     fake_client = FakeAsyncClient(timeout=5.0)
     monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
@@ -836,7 +848,7 @@ async def test_create_event_outside_campus_has_no_location_label(monkeypatch) ->
         )
 
     assert response.status_code == 200
-    assert response.json()["location_label"] is None
+    assert response.json()["location_label"] == "縣政二路"
 
 
 async def create_event_for_test(monkeypatch, user_id: str = "u-owner", title: str = "Editable event") -> tuple[dict, FakeRedis, FakeAsyncClient]:
