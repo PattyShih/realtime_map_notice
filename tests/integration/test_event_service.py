@@ -782,6 +782,63 @@ async def test_create_event_moderation_fail_closed(monkeypatch) -> None:
     assert len(fake_redis.set_calls) == 0
 
 
+@pytest.mark.asyncio
+async def test_create_event_attaches_campus_location_label(monkeypatch) -> None:
+    """輔大範圍內的事件自動附上地標（教授建議）：存進事件本體並隨廣播送出。"""
+    fake_redis = install_fake_redis(monkeypatch)
+    fake_client = FakeAsyncClient(timeout=5.0)
+    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/events",
+            headers=AUTH,
+            json={
+                "user_id": "u-0001",
+                "title": "火警",
+                "message": "火警警鈴大作",
+                "latitude": 25.0372,  # 輔大總圖附近
+                "longitude": 121.4325,
+                "severity": "urgent",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["location_label"] == "輔大總圖書館"
+
+    stored = json.loads(fake_redis.set_calls[0]["value"])
+    assert stored["location_label"] == "輔大總圖書館"
+
+    broadcast = [p for p in fake_client.posts if p[0].endswith("/broadcast/nearby")][0]
+    assert broadcast[1]["location_label"] == "輔大總圖書館"
+
+
+@pytest.mark.asyncio
+async def test_create_event_outside_campus_has_no_location_label(monkeypatch) -> None:
+    """校外事件不做地標判別：location_label 為 None。"""
+    install_fake_redis(monkeypatch)
+    fake_client = FakeAsyncClient(timeout=5.0)
+    monkeypatch.setattr(event_service.httpx, "AsyncClient", lambda timeout=5.0: fake_client)
+
+    transport = ASGITransport(app=event_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/events",
+            headers=AUTH,
+            json={
+                "user_id": "u-0001",
+                "title": "Outside",
+                "message": "outside campus",
+                "latitude": 25.0173,  # 台北，不在輔大範圍
+                "longitude": 121.5397,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["location_label"] is None
+
+
 async def create_event_for_test(monkeypatch, user_id: str = "u-owner", title: str = "Editable event") -> tuple[dict, FakeRedis, FakeAsyncClient]:
     """建立一則事件供編輯/刪除測試使用，回傳（回應主體, fake_redis, fake_client）。"""
     fake_redis = install_fake_redis(monkeypatch)

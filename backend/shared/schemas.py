@@ -88,6 +88,8 @@ class EventNotification(BaseModel):
     # 新增：通知時保留圖片
     image_base64: str | None = None
     image_url: str | None = None
+    # 輔大範圍內的地標判別（如「中美堂」），隨通知顯示
+    location_label: str | None = None
     analysis: EventAnalysisResponse | None = None
 
 
@@ -104,6 +106,8 @@ class EventResponse(BaseModel):
     image_url: str | None = None
     # 舊事件資料沒有 user_id，預設空字串以維持向下相容
     user_id: str = ""
+    # 輔大範圍內的地標判別（如「輔大總圖書館」）；校外事件為 None
+    location_label: str | None = None
     analysis: EventAnalysisResponse | None = None
 
 
@@ -152,6 +156,8 @@ class NearbyBroadcast(BaseModel):
     duration_minutes: float = Field(60, gt=0, le=1440)
     created_at: datetime | None = None
     expires_at: datetime | None = None
+    # 輔大範圍內的地標判別，隨事件通知送出
+    location_label: str | None = None
     analysis: EventAnalysisResponse | None = None
 
 

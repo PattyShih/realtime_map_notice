@@ -1,0 +1,28 @@
+# Keep Alive：每 10 分鐘 ping 一次四個服務的 healthz，防止 Render 免費層休眠。
+# 免費層 15 分鐘沒有流量會睡著，喚醒要 30–60 秒；期間 AI 審核（fail-closed）
+# 會讓發布被擋。此工作流讓服務保持清醒，demo 前也不用再手動熱機。
+# 注意：GitHub 排程工作在 repo 60 天沒有活動後會自動停用，屆時重新 push 即可啟用。
+name: Keep Alive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # 每 10 分鐘（UTC）
+  workflow_dispatch: {} # 允許手動觸發
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping 四個服務的 healthz
+        run: |
+          for url in \
+            https://rmn-location.onrender.com/healthz \
+            https://rmn-event.onrender.com/healthz \
+            https://rmn-notification.onrender.com/healthz \
+            https://rmn-ai.onrender.com/healthz; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 "$url" || echo "000")
+            echo "$(date -u +%H:%M:%S) $url → $code"
+          done
