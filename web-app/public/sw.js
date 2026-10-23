@@ -60,11 +60,12 @@ self.addEventListener('push', (event) => {
   } catch {
     data = { title: '附近新事件', message: event.data ? event.data.text() : '' };
   }
-  const title = data.title ? `📍 ${data.title}` : '📍 附近新事件';
+  // 排版（iOS 第一行會被時間標籤壓縮）：
+  // 第一行 = 地標（短，不截斷）；內文 = 完整事件標題＋描述＋距離（可換行不截斷）
+  const title = data.location_label ? `📍 ${data.location_label}` : '📍 附近新事件';
   const body = [
-    // 地標判別：緊急事件（如「火警」）也能立刻知道在哪一棟大樓
-    data.location_label ? `📍 ${data.location_label}` : null,
-    data.message,
+    data.title,
+    data.message && data.message !== '無詳細描述' ? data.message : null,
     data.distance_meters != null ? `距離約 ${Math.round(data.distance_meters)} 公尺` : null,
   ]
     .filter(Boolean)
