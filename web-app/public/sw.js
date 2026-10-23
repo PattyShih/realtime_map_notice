@@ -61,10 +61,11 @@ self.addEventListener('push', (event) => {
     data = { title: '附近新事件', message: event.data ? event.data.text() : '' };
   }
   // 排版（iOS 第一行會被時間標籤壓縮）：
-  // 第一行 = 地標（短，不截斷）；內文 = 完整事件標題＋描述＋距離（可換行不截斷）
-  const title = data.location_label ? `📍 ${data.location_label}` : '📍 附近新事件';
+  // 輔大範圍內 → 第一行 = 地標名（短），內文 = 完整事件標題＋描述＋距離
+  // 校外事件 → 不顯示地標行，第一行直接是事件標題，內文 = 描述＋距離
+  const title = data.location_label ? `📍 ${data.location_label}` : data.title;
   const body = [
-    data.title,
+    data.location_label ? data.title : null,
     data.message && data.message !== '無詳細描述' ? data.message : null,
     data.distance_meters != null ? `距離約 ${Math.round(data.distance_meters)} 公尺` : null,
   ]
