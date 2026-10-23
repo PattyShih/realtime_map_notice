@@ -17,7 +17,7 @@ def test_measured_zhongmeitang_returns_label() -> None:
 
 def test_measured_songyan_returns_label() -> None:
     # 實測點：站在聖言樓前發事件應正確判別
-    assert resolve_campus_location(25.035496, 121.431612) == "聖言樓（管理學院）"
+    assert resolve_campus_location(25.035496, 121.431612) == "SF 聖言樓"
 
 
 def test_outside_campus_returns_none() -> None:
