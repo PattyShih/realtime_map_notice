@@ -23,6 +23,13 @@ def test_grass_areas_return_labels() -> None:
     assert resolve_campus_location(25.036024, 121.433667) == "文學院前草地"
 
 
+def test_gates_and_facilities_return_labels() -> None:
+    # 門口/周邊設施抽查（含校園邊界最南端）
+    assert resolve_campus_location(25.032907, 121.435252) == "輔大捷運站"
+    assert resolve_campus_location(25.036991, 121.432356) == "風華廣場"
+    assert resolve_campus_location(25.032681, 121.433638) == "善美停車場"
+
+
 def test_measured_songyan_returns_label() -> None:
     # 實測點：站在聖言樓前發事件應正確判別
     assert resolve_campus_location(25.035496, 121.431612) == "SF 聖言樓"
