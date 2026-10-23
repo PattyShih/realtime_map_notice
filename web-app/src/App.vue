@@ -643,12 +643,17 @@ const initApp = () => {
   map.value = L.map('map', {
     preferCanvas: true,
     zoomAnimation: true,
-    fadeAnimation: true,
     // App 分頁以 CSS transform 滑動，transform 過的祖先容器裡
-    // Leaflet 的標記縮放動畫會座標錯位（縮放時圖釘飄移）——關閉它，
-    // 縮放後圖釘直接貼回正確座標
+    // Leaflet 的標記縮放動畫會座標錯位（縮放時圖釘飄移、閃爍）——
+    // 關閉標記動畫，並在每次縮放結束時強制圖釘重新貼回座標（見 zoomend）
+    fadeAnimation: false,
     markerZoomAnimation: false
   }).setView([currentCoords.value.lat, currentCoords.value.lng], 16)
+
+  map.value.on('zoomend', () => {
+    markerMap.value.forEach((marker) => marker.update())
+    if (userMarker.value) userMarker.value.update()
+  })
 
   // 統一使用一套 OSM，深色由 CSS 濾鏡處理
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
