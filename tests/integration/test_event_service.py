@@ -798,8 +798,8 @@ async def test_create_event_attaches_campus_location_label(monkeypatch) -> None:
                 "user_id": "u-0001",
                 "title": "火警",
                 "message": "火警警鈴大作",
-                "latitude": 25.0393,  # 輔大總圖（校正後座標）
-                "longitude": 121.4314,
+                "latitude": 25.036230,  # 輔大總圖（實地實測座標）
+                "longitude": 121.434509,
                 "severity": "urgent",
             },
         )
