@@ -95,6 +95,20 @@ def make_evaluate_payload() -> dict:
 
 
 @pytest.mark.asyncio
+async def test_evaluate_event_llm_without_key_still_publishes(monkeypatch) -> None:
+    """金鑰未設定也不擋發布：退回 keyword 審核回 200。"""
+    monkeypatch.setattr(ai_service, "MODERATION_PROVIDER", "llm")
+    monkeypatch.setattr(ai_service, "OPENAI_API_KEY", "")
+
+    response = await post_evaluate(make_evaluate_payload())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"] == "publish"
+    assert body["analysis"]["provider"] == "keyword"
+
+
+@pytest.mark.asyncio
 async def test_evaluate_event_llm_failure_falls_back_to_keyword(monkeypatch) -> None:
     """LLM 故障時不擋發布：退回 keyword 審核回 200（fail-open），而非 503。
 
