@@ -25,7 +25,7 @@ const COMPOSE_NET = `${COMPOSE_PROJECT}_default`;
 const PRIMARY_CONTAINER = `${COMPOSE_PROJECT}-location-service-1`;
 const K8S_NS = 'realtime-map-notice';
 const PRIMARY_PORT = 8001;
-const REPLICA_PORTS = [18001, 18002]; // 額外副本發布到主機的埠（r2、r3）
+const REPLICA_PORTS = [18001, 18002, 18003, 18004]; // 額外副本發布到主機的埠（r2–r5）
 const MAX_REPLICAS = 1 + REPLICA_PORTS.length;
 const SCALE_UP_CPU = Number(process.env.OPS_SCALE_UP_CPU || 25); // 平均 CPU 高於此值 → 擴展
 const SCALE_UP_TICKS = 2; // CPU 連續超標秒數：滿 2 秒才擴，避免瞬間雜訊誤觸
@@ -270,7 +270,9 @@ async function composeStatus() {
     : null;
 
   // 每個副本的獨立資訊（給前端「容器擴展現場」面板畫方塊）
-  const extraPort = { 'ops-location-r2': REPLICA_PORTS[0], 'ops-location-r3': REPLICA_PORTS[1] };
+  const extraPort = Object.fromEntries(
+    extraReplicaNames(REPLICA_PORTS.length).map(({ name, port }) => [name, port]),
+  );
   const pods = locContainers.map((c, i) => ({
     id: c.name,
     label: c.name === PRIMARY_CONTAINER ? ':8001' : `:${extraPort[c.name] || '?'}`,
@@ -529,7 +531,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/load/start' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
-      const users = Math.min(3000, Math.max(100, Number(body.users) || 500));
+      const users = Math.min(3000, Math.max(10, Number(body.users) || 500));
       if (state.mode === 'k8s') await startLoadK8s(users);
       else await startLoadCompose(users);
       return sendJson(res, 200, { ok: true, users });

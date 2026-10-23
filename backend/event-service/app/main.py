@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from redis.exceptions import RedisError
 
 from backend.shared.antispam import EventAntiSpam
+from backend.shared.campus import resolve_campus_location
 from backend.shared.cors import configure_cors
 from backend.shared.jwt_auth import create_token, verify_token
 from backend.shared.redis_client import create_redis
@@ -359,6 +360,7 @@ async def get_events(
                     duration_minutes=event.get("duration_minutes", 60),
                     image_url=event.get("image_url"),
                     user_id=event.get("user_id", ""),
+                    location_label=event.get("location_label"),
                     analysis=event.get("analysis"),
                 )
             )
@@ -526,6 +528,11 @@ async def create_event(
     event_data["created_at"] = datetime.now(timezone.utc).isoformat()
     if analysis is not None:
         event_data["analysis"] = analysis
+    # 教授建議：輔大範圍內的座標自動判別地標（哪一棟大樓／區域），
+    # 隨事件與通知送出——緊急時只打「火警」兩個字，大家也知道在哪一棟
+    location_label = resolve_campus_location(payload.latitude, payload.longitude)
+    if location_label:
+        event_data["location_label"] = location_label
 
     try:
         await redis.set(
@@ -566,11 +573,13 @@ async def create_event(
                 + timedelta(minutes=payload.duration_minutes)
             ).isoformat(),
             "analysis": analysis,
+            "location_label": location_label,
         }
     )
 
     return {
         "event_id": event_id,
+        "location_label": location_label,
         "analysis": analysis,
         "nearby_user_count": broadcast_stats.get("total_nearby_users", 0),
         "active_user_count": broadcast_stats.get("active_user_count", 0),

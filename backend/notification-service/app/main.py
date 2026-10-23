@@ -273,6 +273,7 @@ async def broadcast_to_nearby_users(broadcast: NearbyBroadcast) -> dict[str, obj
             created_at=broadcast.created_at,
             expires_at=broadcast.expires_at,
             deep_link=f"event:{broadcast.event_id}",
+            location_label=broadcast.location_label,
             image_base64=broadcast.image_base64,
             image_url=broadcast.image_url,
             analysis=broadcast.analysis,

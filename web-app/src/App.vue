@@ -353,14 +353,10 @@ const reportLocation = async (lat, lng) => {
 // ==========================================
 // 定位成功/失敗防呆處理
 // ==========================================
-const handleLocationSuccess = async (position) => {
-  const { latitude, longitude } = position.coords
-  currentCoords.value = { lat: latitude, lng: longitude }
-  fetchAddress(latitude, longitude)
-  reportLocation(latitude, longitude)
-
+// 500 公尺雷達圈：真實定位與預設位置（輔大）都要畫，
+// 已存在時只更新圓心，避免重複圖層
+const ensureRadarCircle = (latitude, longitude) => {
   if (!map.value) return
-
   if (!radarCircle.value) {
     radarCircle.value = L.circle([latitude, longitude], {
       radius: 500,
@@ -373,6 +369,17 @@ const handleLocationSuccess = async (position) => {
   } else {
     radarCircle.value.setLatLng([latitude, longitude])
   }
+}
+
+const handleLocationSuccess = async (position) => {
+  const { latitude, longitude } = position.coords
+  currentCoords.value = { lat: latitude, lng: longitude }
+  fetchAddress(latitude, longitude)
+  reportLocation(latitude, longitude)
+
+  if (!map.value) return
+
+  ensureRadarCircle(latitude, longitude)
 
   map.value.flyTo([latitude, longitude], 16, { animate: true, duration: 1.2 })
 
@@ -408,6 +415,8 @@ const handleLocationError = async (error, isManual = false) => {
   reportLocation(DEFAULT_COORDS.lat, DEFAULT_COORDS.lng)
 
   if (map.value) {
+    // 預設位置（輔大）同樣顯示 500 公尺推播圈，與真實定位一致
+    ensureRadarCircle(DEFAULT_COORDS.lat, DEFAULT_COORDS.lng)
     if (userMarker.value) {
       userMarker.value.setLatLng([DEFAULT_COORDS.lat, DEFAULT_COORDS.lng])
     } else {
@@ -503,6 +512,7 @@ const addEventUnique = (newEvent, { notify = true } = {}) => {
 // WebSocket 連線與即時推播
 // ==========================
 const wsStatus = ref('connecting')
+let mapResetUntil = 0 // 收到儀表板 reset 後的靜默期：丟棄仍在途中的事件推播
 let reconnectAttempts = 0
 let reconnectTimeout = null
 let ws = null
@@ -558,9 +568,11 @@ const setupWebSocket = () => {
         markerMap.value.forEach(marker => marker && map.value && map.value.removeLayer(marker))
         markerMap.value.clear()
         eventsList.value = []
+        mapResetUntil = Date.now() + 5000 // 忽略清空瞬間還在途中的事件推播
         triggerToast('🧹 事件已由運維儀表板清空')
         return
       }
+      if (Date.now() < mapResetUntil) return
 
       const eventData = data.event || data.payload || data
 
@@ -587,7 +599,8 @@ const setupWebSocket = () => {
           walkTime: walkTime,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           expiresAt: expiresAt,
-          analysis: eventData.analysis || null
+          analysis: eventData.analysis || null,
+          locationLabel: eventData.location_label || ''
         }
 
         addEventUnique(newEvent, { notify: newEvent.id !== lastPublishedEventId })
@@ -876,7 +889,8 @@ const handleSubmit = async () => {
         walkTime: walkTime,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         expiresAt: expiresAt,
-        analysis: body.analysis || null
+        analysis: body.analysis || null,
+        locationLabel: body.location_label || ''
       }
 
       addEventUnique(newEvent, { notify: false })
@@ -1070,7 +1084,8 @@ const fetchNearbyEvents = async (lat, lng) => {
           walkTime: walkTime,
           timestamp: new Date(createdAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           expiresAt: expiresAt,
-          analysis: event.analysis || null
+          analysis: event.analysis || null,
+          locationLabel: event.location_label || ''
         }
 
         const refreshNearbyEvents = async () => {
@@ -1114,6 +1129,7 @@ const createPopupContent = (event) => {
   return `
     <div style="font-family: sans-serif; min-width: 180px; max-width: 220px;">
       <span style="font-size: 0.75rem; color: #666; font-weight: bold;">${categoryLabels[event.category]}</span>
+      ${event.locationLabel ? `<div style="margin: 4px 0 0; font-size: 0.78rem; color: #1b6b7a; font-weight: bold;">📍 ${event.locationLabel}</div>` : ''}
       <h4 style="margin: 4px 0 6px 0; font-size: 1rem; color: #222;">${event.title}</h4>
       ${imageHtml}
       <p style="margin: 0 0 8px 0; font-size: 0.85rem; color: #444; word-break: break-word;">${event.description}</p>

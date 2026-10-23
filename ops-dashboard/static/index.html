@@ -42,6 +42,13 @@
     border: none; border-radius: 8px; cursor: pointer; color: #04121f;
   }
   button.start { background: var(--accent); }
+  .spinner {
+    display: inline-block; width: 12px; height: 12px; vertical-align: -2px;
+    border: 2px solid rgba(4,18,31,.25); border-top-color: #04121f;
+    border-radius: 50%; margin-right: 6px; animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  button.busy { opacity: .7; cursor: wait; }
   button.stop { background: var(--red); color: #2a0505; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   .loadinfo { font-size: 13px; color: var(--muted); margin-top: 6px; }
@@ -115,8 +122,8 @@
 <div class="grid">
   <div class="panel">
     <h2>模擬器（流量＋事件流）</h2>
-    <label>模擬湧入人數（100–3000）：流量與 Pod 隨人數擴展，事件流每 50 人約 1 則/秒</label>
-    <input id="users" type="number" value="500" min="100" max="3000" step="100">
+    <label>模擬湧入人數（10–3000）：流量與 Pod 隨人數擴展，事件流每 50 人約 1 則/秒</label>
+    <input id="users" type="number" value="500" min="10" max="3000" step="10">
     <button id="btnStart" class="start">⚡ 開始模擬</button>
     <button id="btnStop" class="stop" disabled>⏹ 停止並清空</button>
     <div class="loadinfo" id="loadInfo">目前無模擬流量</div>
@@ -147,9 +154,9 @@
 
 <p class="foot">
   compose 模式：HPA 由 ops 服務模擬——與真 HPA 相同，平均 CPU ≥ 25% 連續 2 秒才擴展
-  （最多 3 副本；門檻可用環境變數調整），壓測進行中不縮減，停止壓測後自動縮回 1 副本並
-  二次清空事件（確保無殘留寫入）；額外副本發布於 :18001/:18002，壓測流量經 ops 的
-  round-robin proxy 分流（等效 K8s Service），模擬人數 > 800 自動拆多個 worker 容器。
+  （最多 5 副本；門檻可用環境變數調整），壓測進行中不縮減，停止壓測後自動縮回 1 副本並
+  二次清空事件（確保無殘留寫入）；額外副本發布於 :18001–:18004，壓測流量經 ops 的
+  round-robin proxy 分流（等效 K8s Service），模擬人數 > 400 自動拆多個 worker 容器。
   k8s 模式：讀取真實 HPA / kubectl top，壓測以 load-generator Job 於叢集內發動。
 </p>
 
@@ -293,8 +300,14 @@ function renderEvents(events) {
 
 function renderLoad(status) {
   const running = status.load && status.load.running;
-  document.getElementById('btnStop').disabled = !running;
-  // 「開始壓測」永遠可按：ops 端會先停掉舊壓測再以新的人數開新的
+  const startBtn = document.getElementById('btnStart');
+  const stopBtn = document.getElementById('btnStop');
+  // 按鈕 busy 期間等輪詢確認狀態就緒才解鎖（防止重複點擊）
+  if (startBtn.classList.contains('busy') && running) resetButtons(true);
+  if (stopBtn.classList.contains('busy') && !running) resetButtons(false);
+  stopBtn.disabled = !running;
+  if (!running) startBtn.disabled = false;
+  // 「開始模擬」永遠可按：ops 端會先停掉舊壓測再以新的人數開新的
   const workers = status.load.workers ? ` · ${status.load.workers} 個模擬 worker` : '';
   const evtRate = Math.min(10, Math.max(1, Math.round((status.load.users || 0) / 50)));
   document.getElementById('loadInfo').innerHTML = running
@@ -336,14 +349,38 @@ async function poll() {
   } catch { /* ops 服務未就緒，下一輪再試 */ }
 }
 
-document.getElementById('btnStart').onclick = async () => {
+// 開始/停止都需要數秒（清理、建容器），按鈕顯示轉圈並鎖定，
+// 2 秒輪詢確認狀態變化後由 renderLoad 解鎖
+const btnStart = document.getElementById('btnStart');
+const btnStop = document.getElementById('btnStop');
+
+function setBusy(button, label) {
+  button.disabled = true;
+  button.classList.add('busy');
+  button.innerHTML = `<span class="spinner"></span>${label}`;
+}
+
+function resetButtons(loadRunning) {
+  btnStart.classList.remove('busy');
+  btnStop.classList.remove('busy');
+  btnStart.innerHTML = '⚡ 開始模擬';
+  btnStop.innerHTML = '⏹ 停止並清空';
+  stopBtn.disabled = !loadRunning;
+  startBtn.disabled = loadRunning;
+}
+
+btnStart.onclick = async () => {
   const users = Number(document.getElementById('users').value) || 500;
+  setBusy(btnStart, '啟動中…');
   await fetch('/api/load/start', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ users }),
   });
 };
-document.getElementById('btnStop').onclick = () => fetch('/api/load/stop', { method: 'POST' });
+btnStop.onclick = async () => {
+  setBusy(btnStop, '停止並清空中…');
+  await fetch('/api/load/stop', { method: 'POST' });
+};
 
 
 poll();

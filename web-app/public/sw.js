@@ -62,6 +62,8 @@ self.addEventListener('push', (event) => {
   }
   const title = data.title ? `📍 ${data.title}` : '📍 附近新事件';
   const body = [
+    // 地標判別：緊急事件（如「火警」）也能立刻知道在哪一棟大樓
+    data.location_label ? `📍 ${data.location_label}` : null,
     data.message,
     data.distance_meters != null ? `距離約 ${Math.round(data.distance_meters)} 公尺` : null,
   ]
