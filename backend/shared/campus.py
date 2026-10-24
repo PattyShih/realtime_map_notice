@@ -13,7 +13,12 @@
     from backend.shared.campus import resolve_campus_location
     label = resolve_campus_location(lat, lng)  # "文開樓（外語學院）" 或 None
 """
+import logging
 import math
+
+import httpx
+
+logger = logging.getLogger(__name__)
 
 # 輔大校園 bounding box（含校外宿舍與醫院周邊）；座標在此範圍外不判別
 CAMPUS_BOUNDS = {
@@ -123,6 +128,35 @@ def _distance_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> floa
     dlng = math.radians(lng2 - lng1)
     a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlng / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
+
+
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
+
+
+async def resolve_road_name(latitude: float, longitude: float) -> str | None:
+    """校外座標的路段名稱（Nominatim 逆向地理編碼）。
+
+    純加值資訊：任何失敗（網路、限流、無路名資料）一律靜默回 None，
+    呼叫端以「不顯示」處理即可。
+    """
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            response = await client.get(
+                NOMINATIM_URL,
+                params={
+                    "format": "json",
+                    "lat": latitude,
+                    "lon": longitude,
+                    "zoom": 17,
+                    "addressdetails": 1,
+                },
+                headers={"User-Agent": "realtime-map-notice/1.0 (campus event map)"},
+            )
+            response.raise_for_status()
+            return (response.json().get("address") or {}).get("road") or None
+    except Exception as e:
+        logger.warning("road name lookup failed: %s", e)
+        return None
 
 
 def resolve_campus_location(latitude: float, longitude: float) -> str | None:

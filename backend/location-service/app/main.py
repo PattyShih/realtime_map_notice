@@ -5,6 +5,9 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI, Query
 
+from fastapi import HTTPException
+
+from backend.shared.campus import resolve_campus_location, resolve_road_name
 from backend.shared.config import GEO_CLEANUP_INTERVAL_SECONDS, LAST_SEEN_TTL_SECONDS, USER_LAST_SEEN_PREFIX, USER_LOCATION_KEY
 from backend.shared.cors import configure_cors
 from backend.shared.push import PUSH_SUBSCRIPTIONS_PREFIX
@@ -91,6 +94,22 @@ async def update_location(payload: LocationUpdate) -> dict[str, str]:
         ex=LAST_SEEN_TTL_SECONDS,
     )
     return {"status": "accepted", "user_id": payload.user_id}
+
+
+@app.get("/locations/resolve")
+async def resolve_display_location(
+    latitude: float = Query(..., ge=-90, le=90),
+    longitude: float = Query(..., ge=-180, le=180),
+) -> dict[str, str | None]:
+    """把座標轉成顯示用位置：校園內回大樓名稱，校外回路段名稱。
+
+    與事件發布時的 location_label 同一套邏輯（campus.py），
+    讓前端「目前位置」和事件標籤永遠一致。
+    """
+    label = resolve_campus_location(latitude, longitude)
+    if label is None:
+        label = await resolve_road_name(latitude, longitude)
+    return {"label": label}
 
 
 @app.get("/locations/online")
