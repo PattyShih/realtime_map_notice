@@ -15,6 +15,13 @@ def test_measured_zhongmeitang_returns_label() -> None:
     assert resolve_campus_location(25.0381, 121.4319) == "中美堂"
 
 
+def test_long_building_multi_anchor() -> None:
+    # 理工學院建築群較長：三個錨點都應判別為同一標籤
+    assert resolve_campus_location(25.034421, 121.431682) == "理工學院"
+    assert resolve_campus_location(25.033789, 121.432991) == "理工學院"
+    assert resolve_campus_location(25.034620, 121.431180) == "理工學院"
+
+
 def test_grass_areas_return_labels() -> None:
     # 草地/開放空間實測點
     assert resolve_campus_location(25.035425, 121.432454) == "維也納森林"
