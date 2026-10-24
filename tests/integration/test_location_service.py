@@ -104,6 +104,43 @@ async def test_update_location(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_resolve_location_campus_label(monkeypatch) -> None:
+    """校園內座標回大樓名稱（不查路名）。"""
+    async def fake_road(lat, lng):
+        raise AssertionError("校園內不應查路名")
+    monkeypatch.setattr(location_service, "resolve_road_name", fake_road)
+
+    transport = ASGITransport(app=location_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/locations/resolve",
+            params={"latitude": 25.036230, "longitude": 121.434509},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"label": "輔大總圖書館"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_location_road_fallback(monkeypatch) -> None:
+    """校園外座標回路段名稱。"""
+    async def fake_road(lat, lng):
+        return "中正路"
+    monkeypatch.setattr(location_service, "resolve_road_name", fake_road)
+
+    transport = ASGITransport(app=location_service.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/locations/resolve",
+            params={"latitude": 25.0173, "longitude": 121.5397},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"label": "中正路"}
+
+
+@pytest.mark.asyncio
 async def test_get_nearby_users(monkeypatch) -> None:
     fake_redis = FakeRedis()
     fake_redis.geosearch_result = ["u-0001", "u-0002"]

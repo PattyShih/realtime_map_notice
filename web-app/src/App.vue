@@ -67,6 +67,17 @@ let countdownTimer = null
 let lastPublishedEventId = null
 
 const fetchAddress = async (lat, lng) => {
+  // 優先走後端解析：校園內顯示大樓名（與事件標籤同一套邏輯）、校外顯示路名
+  try {
+    const res = await fetch(`${LOCATION_SERVICE_URL}/locations/resolve?latitude=${lat}&longitude=${lng}`)
+    if (res.ok) {
+      const { label } = await res.json()
+      if (label) {
+        locationText.value = `目前位置：${label}`
+        return
+      }
+    }
+  } catch { /* 後端解析失敗，退回 Nominatim */ }
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`)
     const data = await res.json()
