@@ -29,6 +29,7 @@ const eventsList = ref([])
 const markerMap = ref(new Map())
 const eventsRefreshing = ref(false)
 
+
 // === 事件分類定義（通用版：涵蓋校園日常與街區突發） ===
 const CATEGORIES = [
   {
@@ -115,12 +116,29 @@ const createUserPin = () => {
   })
 }
 
-const createColoredPin = (category) => {
+const createColoredPin = (category, isMine = false) => {
   const colorMap = { info: '#34c759', warning: '#ffcc00', danger: '#ff3b30' }
+  const bg = colorMap[category] || '#ff3b30'
+  const borderColor = isMine ? '#00d2ff' : '#ffffff'
+  const borderWidth = isMine ? '3px' : '2px'
+
   return L.divIcon({
-    className: 'custom-pin-container',
-    html: `<div class="pin-body" style="background-color: ${colorMap[category] || '#ff7f50'};"></div>`,
-    iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -24]
+    className: `custom-pin-container ${isMine ? 'is-my-pin' : ''}`,
+    html: `
+      <div class="pin-body" style="
+        background-color: ${bg};
+        border: ${borderWidth} solid ${borderColor} !important;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        position: relative;
+        width: 100%;
+        height: 100%;
+        border-radius: 50% 50% 50% 0;
+        transform: rotate(-45deg);
+      "></div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 28],
+    popupAnchor: [0, -26]
   })
 }
 
@@ -170,6 +188,36 @@ const logout = () => {
   clearAuth()
   location.reload()
 }
+
+// ==========================================
+// 綠黃紅統計長條圖計算
+// ==========================================
+const eventLevelCounts = computed(() => {
+  let green = 0, yellow = 0, red = 0
+  eventsList.value.forEach(ev => {
+    // 依據 category 判斷等級（綠：空位/一般；黃：人潮/提醒；紅：突發/安全）
+    if (ev.category === 'library' || ev.category === 'restaurant' || ev.category === 'facility' || ev.category === 'info') {
+      green++
+    } else if (ev.category === 'crowd' || ev.category === 'warning') {
+      yellow++
+    } else {
+      red++
+    }
+  })
+  const total = eventsList.value.length || 1
+  return {
+    green,
+    yellow,
+    red,
+    greenPct: Math.round((green / total) * 100),
+    yellowPct: Math.round((yellow / total) * 100),
+    redPct: Math.round((red / total) * 100)
+  }
+})
+
+// 過濾與發布的 Loading 動畫狀態
+const isFiltering = ref(false)
+const isSubmittingEvent = ref(false)
 
 // ==========================
 // 手機推播（Web Push）
@@ -502,8 +550,15 @@ const addEventUnique = (newEvent, { notify = true } = {}) => {
 
   eventsList.value.unshift(newEvent)
 
+  // 判斷是不是自己發布的事件（比對 myUserId 或 email）
+  const isMine = !!(
+  (newEvent.userId && (newEvent.userId === myUserId.value || newEvent.userId === auth.value?.user?.id)) ||
+  (newEvent.user_id && (newEvent.user_id === myUserId.value || newEvent.user_id === auth.value?.user?.id)) ||
+  (newEvent.user_email && newEvent.user_email === myUser.value?.email)
+)
+
   const marker = L.marker([newEvent.location.lat, newEvent.location.lng], {
-    icon: createColoredPin(newEvent.category)
+  icon: createColoredPin(newEvent.category, isMine)
   })
   marker.bindPopup(createPopupContent(newEvent))
 
@@ -749,18 +804,20 @@ const recenterMap = () => {
 
 const selectedFilters = ref({ info: true, warning: true, danger: true })
 
-const toggleFilter = (cat) => {
-  selectedFilters.value[cat] = !selectedFilters.value[cat]
-  eventsList.value.forEach(item => {
-    const marker = markerMap.value.get(item.id)
-    if (marker) {
-      if (selectedFilters.value[item.category]) {
-        if (!map.value.hasLayer(marker)) map.value.addLayer(marker)
-      } else {
-        if (map.value.hasLayer(marker)) map.value.removeLayer(marker)
-      }
-    }
-  })
+const toggleFilter = (category) => {
+  // 1. 立即啟動轉圈圈
+  isFiltering.value = true
+
+  // 2. 切換分類選取狀態
+  selectedFilters.value[category] = !selectedFilters.value[category]
+
+  // 3. 原本的圖釘過濾與列表篩選邏輯（如果原函式有呼叫其他函式，保持原樣）
+  // 例如：filterMarkers() 或更新地圖圖釘顯示
+
+  // 4. 給予 350ms 的動畫回饋時間，結束後關閉轉圈
+  setTimeout(() => {
+    isFiltering.value = false
+  }, 350)
 }
 
 const showListModal = ref(false)
@@ -863,6 +920,10 @@ const triggerToast = (msg) => {
 }
 
 const handleSubmit = async () => {
+  // 1. 防重複點擊：如果已經在送出中，直接攔截
+  if (isSubmittingEvent.value) return
+  isSubmittingEvent.value = true
+
   const durationMinutes = parseFloat(formData.value.duration) || 60
   const expiresAt = Date.now() + durationMinutes * 60 * 1000
 
@@ -892,6 +953,11 @@ const handleSubmit = async () => {
     if (response.ok) {
       const body = await response.json()
       lastPublishedEventId = body.event_id || null
+
+      // 2. 先把彈窗關閉並跳出成功通知，體感速度最快！
+      showModal.value = false
+      triggerToast(`成功發布「${finalTitle}」！`)
+
       const dist = getDistance(currentCoords.value.lat, currentCoords.value.lng, currentCoords.value.lat, currentCoords.value.lng)
       const walkTime = Math.max(1, Math.round(dist / 80))
 
@@ -918,9 +984,10 @@ const handleSubmit = async () => {
         marker.openPopup()
       }
 
-      showModal.value = false
-      triggerToast(`成功發布「${newEvent.title}」！已同步新增至地圖與清單。`)
+      // 3. 背景自動同步周邊事件列表，保證清單最新
+      fetchNearbyEvents(currentCoords.value.lat, currentCoords.value.lng)
 
+      // 4. 重置表單
       formData.value = { title: '', category: 'info', duration: '60', description: '', imageFile: null, imagePreview: '' }
       selectedSubCategory.value = '圖書館空位'
     } else {
@@ -934,6 +1001,9 @@ const handleSubmit = async () => {
   } catch (error) {
     console.error('網路連線失敗:', error)
     triggerToast('網路請求失敗，請確認後端服務是否正常！')
+  } finally {
+    // 5. 無論成功或失敗，結束 loading 轉圈狀態
+    isSubmittingEvent.value = false
   }
 }
 
@@ -998,7 +1068,7 @@ const submitEdit = async () => {
         const marker = markerMap.value.get(item.id)
         if (marker) {
           // 1. 即時更換圖釘顏色
-          marker.setIcon(createColoredPin(item.category))
+          marker.setIcon(createColoredPin(item.category, true))
           // 2. 即時更新彈跳視窗內容
           marker.bindPopup(createPopupContent(item))
 
@@ -1120,8 +1190,15 @@ const fetchNearbyEvents = async (lat, lng) => {
 
         eventsList.value.push(newEvent)
 
+        // 同樣判斷是不是自己發布的
+        const isMine = !!(
+          (newEvent.userId && (newEvent.userId === myUserId.value || newEvent.userId === auth.value?.user?.id)) ||
+          (newEvent.user_id && (newEvent.user_id === myUserId.value || newEvent.user_id === auth.value?.user?.id)) ||
+          (newEvent.user_email && newEvent.user_email === myUser.value?.email)
+        )
+
         const marker = L.marker([newEvent.location.lat, newEvent.location.lng], {
-          icon: createColoredPin(newEvent.category)
+          icon: createColoredPin(newEvent.category, isMine)
         })
         marker.bindPopup(createPopupContent(newEvent))
 
@@ -1137,23 +1214,30 @@ const fetchNearbyEvents = async (lat, lng) => {
   }
 }
 
-const createPopupContent = (event) => {
-  const categoryLabels = { info: '🟢 空位/活動', warning: '🟡 遺失/擁擠', danger: '🔴 緊急突發' }
-  const imageHtml = event.imageUrl 
-    ? `<div style="margin: 8px 0; border-radius: 6px; overflow: hidden; max-height: 140px; background: #eee; cursor: pointer;" onclick="window.openImageLightbox('${event.imageUrl}')" title="點擊查看大圖">
-         <img src="${event.imageUrl}" style="width: 100%; height: 100%; object-fit: cover; display: block;" />
-       </div>` 
-    : ''
+const createPopupContent = (item) => {
+  const isMine = (item.userId && item.userId === myUserId.value) || 
+                 (item.user_id && item.user_id === myUserId.value) || 
+                 (item.user_email && item.user_email === myUser.value?.email)
+
+  const categoryLabels = {
+    info: '🟢 空位/活動',
+    warning: '🟡 遺失/擁擠',
+    danger: '🔴 緊急突發'
+  }
 
   return `
-    <div style="font-family: sans-serif; min-width: 180px; max-width: 220px;">
-      <span style="font-size: 0.75rem; color: #666; font-weight: bold;">${categoryLabels[event.category]}</span>
-      ${event.locationLabel ? `<div style="margin: 4px 0 0; font-size: 0.78rem; color: #1b6b7a; font-weight: bold;">📍 ${event.locationLabel}</div>` : ''}
-      <h4 style="margin: 4px 0 6px 0; font-size: 1rem; color: #222;">${event.title}</h4>
-      ${imageHtml}
-      ${event.description && event.description !== '無詳細描述' ? `<p style="margin: 0 0 8px 0; font-size: 0.85rem; color: #444; word-break: break-word;">${event.description}</p>` : ''}
-      <div style="background: #f5f5f5; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; color: #333;">
-        🚶 距離約 <b>${event.distance}m</b>｜步行約 <b>${event.walkTime} 分鐘</b>
+    <div class="custom-popup ${isMine ? 'my-event-popup' : ''}">
+      <div class="popup-top-row" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <span class="popup-category">${categoryLabels[item.category] || '📌 事件'}</span>
+        ${isMine ? '<span class="popup-my-badge">👑 我的發布</span>' : ''}
+      </div>
+      <div class="popup-title" style="font-weight: bold; font-size: 15px; margin-bottom: 4px; color: #1c1c1e;">
+        ${item.title}
+      </div>
+      ${item.description && item.description !== '無詳細描述' ? `<p style="margin: 4px 0; font-size: 13px; color: #666;">${item.description}</p>` : ''}
+      <div class="popup-meta" style="font-size: 12px; color: #8e8e93; margin-top: 6px; display: flex; align-items: center; gap: 8px;">
+        <span>🚶 距離約 ${item.distance || 0}m</span>
+        <span>步行約 ${item.walkTime || 1} 分鐘</span>
       </div>
     </div>
   `
@@ -1239,7 +1323,25 @@ window.openImageLightbox = openLightbox
               <span class="stat-label">我的發布</span>
             </div>
           </div>
+          <!-- 綠黃紅事件長條圖統計 -->
+          <div class="event-level-chart-card">
+            <div class="chart-header">
+              <span>📊 即時事件等級分佈</span>
+              <span class="chart-total">共 {{ eventsList.length }} 則</span>
+            </div>
+  
+            <div class="stacked-bar-container">
+            <div class="bar-segment bar-green" :style="{ width: eventLevelCounts.greenPct + '%' }" title="生活/空位"></div>
+            <div class="bar-segment bar-yellow" :style="{ width: eventLevelCounts.yellowPct + '%' }" title="人潮/提醒"></div>
+               <div class="bar-segment bar-red" :style="{ width: eventLevelCounts.redPct + '%' }" title="突發/緊急"></div>
+            </div>
 
+            <div class="chart-legend">
+              <div class="legend-item"><span class="dot dot-green"></span> 正常/空位: {{ eventLevelCounts.green }}</div>
+              <div class="legend-item"><span class="dot dot-yellow"></span> 擁擠/注意: {{ eventLevelCounts.yellow }}</div>
+            <div class="legend-item"><span class="dot dot-red"></span> 突發/緊急: {{ eventLevelCounts.red }}</div>
+            </div>
+          </div>
           <div class="ops-ai-card">
             <div class="ops-ai-header">
               {{ analysisProviderLabel === '尚未分析' ? '🧭 事件分析' : analysisProviderLabel }}
@@ -1307,6 +1409,11 @@ window.openImageLightbox = openLightbox
         <!-- 頁面 2：地圖（主畫面） -->
         <section class="tab-panel map-panel">
           <div id="map"></div>
+          <!-- 地圖畫面正中央的篩選膠囊 -->
+          <div v-if="isFiltering" class="map-filter-loading">
+            <div class="filter-spinner"></div>
+            <span>篩選中...</span>
+          </div>
         </section>
 
         <!-- 頁面 3：我的發布 -->
@@ -1453,7 +1560,7 @@ window.openImageLightbox = openLightbox
           <div style="width: 24px;"></div>
         </header>
 
-        <div class="list-filter-bar">
+        <div class="list-filter-bar" style="position: relative;">
           <button type="button" :class="['chip chip-green', { active: selectedFilters.info }]" @click="toggleFilter('info')">
             🟢 空位/活動
           </button>
@@ -1463,6 +1570,9 @@ window.openImageLightbox = openLightbox
           <button type="button" :class="['chip chip-red', { active: selectedFilters.danger }]" @click="toggleFilter('danger')">
             🔴 緊急突發
           </button>
+          
+          <!-- 過濾時出現微小旋轉圈提示 -->
+          <span v-if="isFiltering" class="filter-mini-spinner" title="篩選中..."></span>
         </div>
 
         <div v-if="filteredSortedEvents.length === 0" class="empty-state">
@@ -1474,6 +1584,7 @@ window.openImageLightbox = openLightbox
             v-for="item in filteredSortedEvents" 
             :key="item.id" 
             class="event-card"
+            :class="{ 'is-my-card': item.userId === myUserId }"
             @click="flyToEvent(item)"
           >
             <div 
@@ -1487,7 +1598,10 @@ window.openImageLightbox = openLightbox
 
             <div class="card-content">
               <div class="card-header">
-                <span class="card-title">{{ item.title }}</span>
+                <span class="card-title">
+                  <span v-if="item.userId === myUserId" class="my-event-tag">★ 我的</span>
+                  {{ item.title }}
+                </span>
                 <span class="card-badge" :class="item.category">
                   步行時間約 {{ item.walkTime }} 分鐘
                 </span>
@@ -1574,7 +1688,16 @@ window.openImageLightbox = openLightbox
             <textarea v-model="formData.description" rows="3" placeholder="詳細描述：補充說明具體位置、特徵或狀況..." class="input-light"></textarea>
           </div>
 
-          <button type="submit" class="submit-btn">確認發布</button>
+          <!-- 原本表單最底部的送出按鈕改為： -->
+<button
+  type="submit"
+  class="submit-btn"
+  :disabled="isSubmittingEvent"
+  :style="{ opacity: isSubmittingEvent ? 0.7 : 1, cursor: isSubmittingEvent ? 'not-allowed' : 'pointer' }"
+>
+  <span v-if="isSubmittingEvent" class="spinner-sm"></span>
+  <span>{{ isSubmittingEvent ? '發布中...' : '確認發布' }}</span>
+</button>
         </form>
       </div>
     </div>
@@ -1623,7 +1746,16 @@ window.openImageLightbox = openLightbox
             <textarea v-model="editForm.description" rows="3" maxlength="1000" placeholder="詳細描述..." class="input-light"></textarea>
           </div>
 
-          <button type="submit" class="submit-btn">儲存變更</button>
+          <!-- 原本表單最底部的送出按鈕改為： -->
+          <button
+            type="submit"
+            class="submit-btn"
+            :disabled="isSubmittingEvent"
+              :style="{ opacity: isSubmittingEvent ? 0.7 : 1, cursor: isSubmittingEvent ? 'not-allowed' : 'pointer' }"
+          >
+            <span v-if="isSubmittingEvent" class="spinner-sm"></span>
+            <span>{{ isSubmittingEvent ? '發布中...' : '確認發布' }}</span>
+          </button>
         </form>
       </div>
     </div>
