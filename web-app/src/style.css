@@ -1353,3 +1353,203 @@ body, html { width: 100vw; height: 100vh; overflow: hidden; font-family: -apple-
   border-color: #5a5a62 !important;
   color: #ffffff !important;
 }
+/* ========================================== */
+/* 清單卡片：自己發布的金色邊框與專屬標籤       */
+/* ========================================== */
+.event-card.is-my-card {
+  border-left: 4px solid #ffd700 !important;
+  background-color: rgba(255, 215, 0, 0.04) !important;
+}
+
+.dark-mode .event-card.is-my-card {
+  background-color: rgba(255, 215, 0, 0.08) !important;
+  border-left: 4px solid #ffd700 !important;
+}
+
+.my-event-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #b8860b;
+  background: #fff3bf;
+  border: 1px solid #ffd700;
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-right: 4px;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+
+.dark-mode .my-event-tag {
+  color: #ffe066;
+  background: rgba(255, 215, 0, 0.2);
+  border-color: #ffd700;
+}
+
+/* 過濾篩選列旁的小轉圈 */
+.filter-mini-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin-left: 6px;
+  align-self: center;
+}
+
+.dark-mode .filter-mini-spinner {
+  border-color: rgba(255, 255, 255, 0.2);
+  border-top-color: #60a5fa;
+}
+/* ======================================================== */
+/* 1. 事件等級分佈長條圖 (美化與排版)                        */
+/* ======================================================== */
+.event-level-chart-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 12px 0 16px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  box-sizing: border-box;
+  width: 100%;
+}
+.dark-mode .event-level-chart-card {
+  background: #222226 !important;
+  border: 1px solid #333338 !important;
+}
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.chart-total {
+  font-size: 12px;
+  color: #888;
+}
+.stacked-bar-container {
+  display: flex;
+  width: 100%;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: #e5e5ea;
+  margin-bottom: 12px;
+}
+.dark-mode .stacked-bar-container {
+  background: #3a3a3c;
+}
+.bar-segment {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+.bar-green { background-color: #34c759; }
+.bar-yellow { background-color: #ff9f0a; }
+.bar-red { background-color: #ff3b30; }
+
+.chart-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #666;
+}
+.dark-mode .chart-legend { color: #bbb; }
+.legend-item { display: flex; align-items: center; gap: 4px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot-green { background: #34c759; }
+.dot-yellow { background: #ff9f0a; }
+.dot-red { background: #ff3b30; }
+
+/* ======================================================== */
+/* 2. 我的發布：地圖圖釘 (青色發光)                  */
+/* ======================================================== */
+.custom-pin-container.is-my-pin {
+  z-index: 1000 !important; /* 確保自己的圖釘永遠浮在最上面 */
+}
+
+/* ======================================================== */
+/* 3. 我的發布：彈出氣泡特別化 (金色頂條 + 專屬標籤)        */
+/* ======================================================== */
+.leaflet-popup-content-wrapper {
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+/* 如果是自己的事件，氣泡頂部加金色光條與金色外框 */
+.my-event-popup {
+  border-top: 4px solid #ffd700;
+  padding-top: 4px;
+}
+
+.popup-my-badge {
+  background: linear-gradient(135deg, #ffd700, #ffb300);
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+/* 自己發布的圖釘：乾淨青藍色邊框*/
+.custom-pin-container.is-my-pin .pin-body {
+  border: 3px solid #00d2ff !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 關閉所有舊外層濾鏡 */
+.leaflet-marker-icon.is-my-pin,
+.custom-pin-container.is-my-pin {
+  filter: none !important;
+}
+/* ========================================== */
+/* 過濾時：按鈕旁微型轉圈圈                   */
+/* ========================================== */
+.filter-mini-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 210, 255, 0.2);
+  border-top-color: #00d2ff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+}
+
+/* ========================================== */
+/* 過濾時：地圖中央膠囊提示卡片               */
+/* ========================================== */
+.map-filter-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2000; /* 確保浮在地圖與所有圖釘最上層 */
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  color: #ffffff;
+  padding: 8px 16px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.filter-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #00d2ff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
