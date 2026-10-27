@@ -57,6 +57,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          pull: true   # 每次建置都拉取最新基礎映像（含安全修補）
           file: backend/${{ matrix.service }}/Dockerfile
           # 只有 main/dev 的 push 才推送映像到 GHCR，其他分支與 PR 只建置驗證
           push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}
