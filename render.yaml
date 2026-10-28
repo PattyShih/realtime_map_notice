@@ -3,7 +3,7 @@
 # sync: false 的環境變數會在建立時要求手動填入，詳細步驟與前端部署見 DEPLOY.md。
 services:
   - type: web
-    name: rmn-location
+    name: rmn2-location
     runtime: docker
     dockerfilePath: ./backend/location-service/Dockerfile
     plan: free
@@ -12,13 +12,13 @@ services:
       - key: REDIS_URL
         fromService:
           type: redis
-          name: rmn-redis
+          name: rmn2-redis
           property: connectionString
       - key: CORS_ALLOW_ORIGINS
         sync: false   # 填前端網址，例如 https://xxx.vercel.app
 
   - type: web
-    name: rmn-event
+    name: rmn2-event
     runtime: docker
     dockerfilePath: ./backend/event-service/Dockerfile
     plan: free
@@ -27,12 +27,12 @@ services:
       - key: REDIS_URL
         fromService:
           type: redis
-          name: rmn-redis
+          name: rmn2-redis
           property: connectionString
       - key: NOTIFICATION_SERVICE_URL
-        value: https://rmn-notification.onrender.com
+        value: https://rmn2-notification.onrender.com
       - key: AI_SERVICE_URL
-        value: https://rmn-ai.onrender.com
+        value: https://rmn2-ai.onrender.com
       - key: GOOGLE_CLIENT_ID   # Google 登入：與前端 VITE_GOOGLE_CLIENT_ID 同一個（見 DEPLOY.md）
         sync: false
       - key: JWT_SECRET   # 系統 JWT 簽章金鑰：openssl rand -hex 32 產生隨機長字串
@@ -41,7 +41,7 @@ services:
         sync: false
 
   - type: web
-    name: rmn-notification
+    name: rmn2-notification
     runtime: docker
     dockerfilePath: ./backend/notification-service/Dockerfile
     plan: free
@@ -50,7 +50,7 @@ services:
       - key: REDIS_URL
         fromService:
           type: redis
-          name: rmn-redis
+          name: rmn2-redis
           property: connectionString
       - key: VAPID_PUBLIC_KEY
         sync: false   # 手機推播用，npx web-push generate-vapid-keys 產生；留空僅停用 Web Push
@@ -62,7 +62,7 @@ services:
         sync: false
 
   - type: web
-    name: rmn-ai
+    name: rmn2-ai
     runtime: docker
     dockerfilePath: ./backend/ai-service/Dockerfile
     plan: free
@@ -86,7 +86,7 @@ services:
         sync: false
 
   - type: redis
-    name: rmn-redis
+    name: rmn2-redis
     plan: free
     maxmemoryPolicy: noeviction
     ipAllowList: []   # 僅允許同專案內部服務連線
