@@ -18,9 +18,9 @@ services:
           name: rmn-redis
           property: connectionString
       - key: NOTIFICATION_SERVICE_URL
-        value: https://rmn-api.onrender.com/notify
+        value: http://localhost:8000/notify
       - key: AI_SERVICE_URL
-        value: https://rmn-api.onrender.com/ai
+        value: http://localhost:8000/ai
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: JWT_SECRET

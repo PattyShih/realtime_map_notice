@@ -38,6 +38,13 @@ def _load(rel: str, name: str):
     return module
 
 
+# 單實例內部呼叫走 localhost（不出容器、不受對外網址異動影響）；
+# 若環境已明確設定（如分離部署），則尊重既有值
+import os
+
+os.environ.setdefault("AI_SERVICE_URL", "http://localhost:8000/ai")
+os.environ.setdefault("NOTIFICATION_SERVICE_URL", "http://localhost:8000/notify")
+
 location = _load("backend/location-service/app/main.py", "unified_location")
 event = _load("backend/event-service/app/main.py", "unified_event")
 notification = _load("backend/notification-service/app/main.py", "unified_notification")
