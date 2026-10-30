@@ -21,9 +21,20 @@ spec:
             - containerPort: 8000
           env:
             - name: REDIS_URL
-              value: redis://redis:6379/0
+              value: redis://redis.realtime-map-notice.svc.cluster.local:6379/0
             - name: NOTIFICATION_SERVICE_URL
-              value: http://notification-service:8000
+              value: http://notification-service.realtime-map-notice.svc.cluster.local:8000
+            - name: AI_SERVICE_URL
+              value: http://ai-service.realtime-map-notice.svc.cluster.local:8000
+            # Google 登入：與前端相同的 Client ID（申請後填入）
+            - name: GOOGLE_CLIENT_ID
+              value: ""
+            # 系統 JWT 簽章金鑰：換成隨機長字串（openssl rand -hex 32）
+            - name: JWT_SECRET
+              value: dev-insecure-secret-change-me
+            # 內部服務金鑰：與 event-gen-job.yaml 一致
+            - name: INTERNAL_API_KEY
+              value: dev-internal-key
           resources:
             requests:
               cpu: 100m
@@ -37,6 +48,12 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service

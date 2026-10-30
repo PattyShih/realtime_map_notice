@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-service
+  namespace: realtime-map-notice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-service
+  template:
+    metadata:
+      labels:
+        app: ai-service
+    spec:
+      containers:
+        - name: ai-service
+          image: realtime-map-notice/ai-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: AI_PROVIDER
+              value: "gemini"
+            - name: ANALYSIS_PROVIDER
+              value: "llm"
+            - name: MODERATION_PROVIDER
+              value: "keyword"
+            - name: GEMINI_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: gemini-key
+                  key: keys
+            - name: GEMINI_BASE_URL
+              value: "https://generativelanguage.googleapis.com/v1beta"
+            - name: GEMINI_MODEL
+              value: "gemini-3.5-flash-lite"
+            - name: LLM_TIMEOUT_SECONDS
+              value: "30"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-service
+  namespace: realtime-map-notice
+spec:
+  selector:
+    app: ai-service
+  ports:
+    - port: 8000
+      targetPort: 8000

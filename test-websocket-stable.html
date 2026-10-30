@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket 心跳與重連測試</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+            padding: 40px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 36px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 18px;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .status-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+        }
+        .status-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .status-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+        }
+        .log-container {
+            background: #1e1e1e;
+            border-radius: 12px;
+            padding: 20px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 15px;
+            color: #d4d4d4;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        .log-info { background: #264f78; }
+        .log-success { background: #2d5a2d; }
+        .log-warning { background: #5a4a00; }
+        .log-error { background: #5a1a1a; }
+        .log-ping { background: #3a3a3a; color: #888; }
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 14px 28px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .test-info {
+            background: #f0f7ff;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196F3;
+        }
+        .test-info h3 {
+            color: #1976D2;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+        .test-info ul {
+            margin-left: 20px;
+            color: #555;
+        }
+        .test-info li {
+            margin-bottom: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket 心跳與重連測試</h1>
+        <p class="subtitle">階段四：成員C 即時通訊優化檢核</p>
+
+        <div class="test-info">
+            <h3>📋 測試項目</h3>
+            <ul>
+                <li>✅ WebSocket 連線建立與 Hello 握手</li>
+                <li>✅ Ping/Pong 心跳機制 (每30秒一次)</li>
+                <li>✅ Pong 超時檢測 (10秒無回應則斷線)</li>
+                <li>✅ Exponential Backoff 重連策略 (1s → 2s → 4s → 8s → ... → 30s)</li>
+                <li>✅ 強制中斷後自動重連且不漏掉新通知</li>
+            </ul>
+        </div>
+
+        <div class="status-grid">
+            <div class="status-card" id="connectionStatus">
+                <div class="status-label">連線狀態</div>
+                <div class="status-value" id="statusText">未連線</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">重連次數</div>
+                <div class="status-value" id="reconnectCount">0</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">下次重連倒數</div>
+                <div class="status-value" id="reconnectCountdown">-</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">Ping/Pong</div>
+                <div class="status-value" id="pingStatus">-</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">收到訊息</div>
+                <div class="status-value" id="messageCount">0</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button onclick="connect()">🔗 建立連線</button>
+            <button onclick="disconnect()">🔌 中斷連線</button>
+            <button onclick="simulateContinuousFailures()">🔥 模擬連續失敗 (展示重連策略)</button>
+            <button onclick="simulateNetworkIssue()">🌐 模擬網路異常</button>
+            <button onclick="testNotification()">📨 測試推播通知</button>
+            <button onclick="clearLog()">🧹 清除日誌</button>
+        </div>
+
+        <div class="log-container" id="logContainer"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectAttempts = 0;
+        let messageCount = 0;
+        let lastPongTime = Date.now();
+        const MAX_RECONNECT_DELAY = 30;
+        const BASE_RECONNECT_DELAY = 1000;
+
+        // 生成測試用的 User ID
+        const userId = 'test_user_' + Math.random().toString(36).substring(2, 9);
+
+        function log(message, type = 'info') {
+            const container = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateStatus(status, color) {
+            document.getElementById('statusText').textContent = status;
+            document.getElementById('connectionStatus').style.borderLeftColor = color;
+        }
+
+        function connect() {
+            if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+                log('⚠️ 已經建立連線中', 'warning');
+                return;
+            }
+
+            log(`🔗 正在建立連線... (User ID: ${userId})`, 'info');
+            updateStatus('連線中...', '#ff9800');
+
+            ws = new WebSocket(`ws://127.0.0.1:8003/ws/${userId}`);
+
+            ws.onopen = () => {
+                log('✅ WebSocket 連線成功！', 'success');
+                updateStatus('已連線', '#4caf50');
+                reconnectAttempts = 0;
+                document.getElementById('reconnectCount').textContent = '0';
+                document.getElementById('reconnectCountdown').textContent = '-';
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'hello') {
+                        log(`👋 收到握手訊息: ${data.message}`, 'success');
+                    } else if (data.type === 'ping') {
+                        log('📡 收到 Ping，回應 Pong...', 'ping');
+                        document.getElementById('pingStatus').textContent = '📡→📢';
+
+                        // 回應 Pong
+                        ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+                        lastPongTime = Date.now();
+                    } else {
+                        // 一般通知訊息
+                        messageCount++;
+                        document.getElementById('messageCount').textContent = messageCount;
+                        log(`📩 收到通知: ${JSON.stringify(data)}`, 'success');
+                        document.getElementById('pingStatus').textContent = '✅';
+                    }
+                } catch (err) {
+                    log(`📨 收到非 JSON 訊息: ${event.data}`, 'info');
+                }
+            };
+
+            ws.onerror = (error) => {
+                log(`❌ WebSocket 連線異常`, 'error');
+                updateStatus('連線錯誤', '#f44336');
+            };
+
+            ws.onclose = () => {
+                log('🔌 WebSocket 連線已關閉', 'warning');
+                updateStatus('已中斷', '#f44336');
+                document.getElementById('pingStatus').textContent = '❌';
+
+                // Exponential backoff 重連
+                reconnectAttempts++;
+                document.getElementById('reconnectCount').textContent = reconnectAttempts;
+
+                const delay = Math.min(
+                    BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts - 1),
+                    MAX_RECONNECT_DELAY * 1000
+                );
+
+                log(`⏳ ${delay / 1000} 秒後嘗試重連... (第 ${reconnectAttempts} 次嘗試)`, 'warning');
+
+                // 顯示重連倒數
+                let countdown = delay / 1000;
+                document.getElementById('reconnectCountdown').textContent = `${countdown.toFixed(1)}秒`;
+
+                const countdownInterval = setInterval(() => {
+                    countdown -= 0.1;
+                    if (countdown > 0) {
+                        document.getElementById('reconnectCountdown').textContent = `${countdown.toFixed(1)}秒`;
+                    } else {
+                        clearInterval(countdownInterval);
+                        document.getElementById('reconnectCountdown').textContent = '重連中...';
+                        log(`🔄 開始第 ${reconnectAttempts} 次重連嘗試`, 'info');
+                    }
+                }, 100);
+
+                setTimeout(() => {
+                    clearInterval(countdownInterval);
+                    connect();
+                }, delay);
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                log('🔌 手動中斷連線', 'warning');
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function simulateContinuousFailures() {
+            log('🔥 開始模擬連續失敗，展示 exponential backoff 重連策略...', 'warning');
+
+            // 停止當前連線
+            if (ws) {
+                ws.close();
+            }
+
+            // 暫時修改連線函數，讓它連續失敗 5 次
+            let failureCount = 0;
+            const maxFailures = 5;
+
+            // 保存原始的 connect 函數
+            const originalConnect = connect;
+
+            // 創建一個會失敗的連線函數
+            window.failingConnect = function() {
+                failureCount++;
+
+                if (failureCount <= maxFailures) {
+                    // 建立會立即失敗的連線
+                    const failingWs = new WebSocket('ws://127.0.0.1:9999/ws/fail_user'); // 使用錯誤的 port
+
+                    failingWs.onerror = () => {
+                        log(`❌ 第 ${failureCount} 次連線失敗 (預期失敗)`, 'error');
+                    };
+
+                    failingWs.onclose = () => {
+                        // 模擬重連邏輯
+                        const delay = Math.min(
+                            BASE_RECONNECT_DELAY * Math.pow(2, failureCount - 1),
+                            MAX_RECONNECT_DELAY * 1000
+                        );
+
+                        log(`⏳ ${delay / 1000} 秒後嘗試重連... (第 ${failureCount} 次嘗試)`, 'warning');
+
+                        // 顯示重連倒數
+                        let countdown = delay / 1000;
+                        document.getElementById('reconnectCountdown').textContent = `${countdown.toFixed(1)}秒`;
+
+                        const countdownInterval = setInterval(() => {
+                            countdown -= 0.1;
+                            if (countdown > 0) {
+                                document.getElementById('reconnectCountdown').textContent = `${countdown.toFixed(1)}秒`;
+                            } else {
+                                clearInterval(countdownInterval);
+                                document.getElementById('reconnectCountdown').textContent = '重連中...';
+                            }
+                        }, 100);
+
+                        setTimeout(() => {
+                            clearInterval(countdownInterval);
+                            document.getElementById('reconnectCount').textContent = failureCount;
+                            window.failingConnect();
+                        }, delay);
+                    };
+                } else {
+                    log('✅ 模擬完成！exponential backoff 重連策略展示完畢', 'success');
+                    log('💡 現在可以點擊「建立連線」恢復正常連線', 'info');
+
+                    // 恢復正常的連線函數
+                    window.connect = originalConnect;
+                    document.getElementById('reconnectCountdown').textContent = '-';
+                    reconnectAttempts = 0;
+                }
+            };
+
+            // 開始模擬
+            reconnectAttempts = 0;
+            document.getElementById('reconnectCount').textContent = '0';
+            window.failingConnect();
+        }
+
+        function simulateNetworkIssue() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('🌐 模擬網路異常：傳送無效資料', 'error');
+                try {
+                    ws.send('invalid data that should cause error');
+                } catch (e) {
+                    log(`❌ 錯誤: ${e.message}`, 'error');
+                }
+            } else {
+                log('⚠️ 需要先建立連線', 'warning');
+            }
+        }
+
+        function testNotification() {
+            // 這個功能需要後端 API 支援，這裡只是模擬
+            log('📨 測試推播通知功能 (需要配合後端 API)', 'info');
+
+            // 可以透過 curl 或其他工具觸發通知
+            fetch('http://localhost:8002/events', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: '測試通知',
+                    message: '這是一個測試訊息',
+                    latitude: 25.0478,
+                    longitude: 121.5170,
+                    severity: 'info',
+                    radius_meters: 500
+                })
+            }).then(response => {
+                if (response.ok) {
+                    log('📨 已觸發測試通知，檢查是否收到 WebSocket 推播', 'success');
+                } else {
+                    log('⚠️ 測試通知觸發失敗', 'warning');
+                }
+            }).catch(err => {
+                log(`❌ 測試通知錯誤: ${err.message}`, 'error');
+            });
+        }
+
+        function clearLog() {
+            document.getElementById('logContainer').innerHTML = '';
+            log('🧹 日誌已清除', 'info');
+        }
+
+        // 頁面載入時自動連線
+        window.onload = () => {
+            log('🚀 WebSocket 心跳與重連測試工具已啟動', 'info');
+            log('💡 點擊「建立連線」開始測試', 'info');
+        };
+    </script>
+</body>
+</html>

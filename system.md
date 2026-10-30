@@ -21,6 +21,7 @@ flowchart LR
     App["Web App - Browser Geolocation and Map UI"] -->|"POST /locations"| Location["Location Service"]
     Location -->|"GEOADD"| RedisGeo["Redis GEO"]
     App -->|"POST /events"| Event["Event Service"]
+    Event -->|"POST /moderate"| AI["AI Service - 內容審核"]
     Event -->|"GEOSEARCH 500m"| RedisGeo
     Event -->|"POST /notify user_id"| Notify["Notification Service"]
     Notify -->|"PUBLISH user channel"| RedisPubSub["Redis Pub/Sub"]
@@ -42,8 +43,9 @@ Redis GEO 與 Redis Pub/Sub 可以是同一個 Redis instance，但在架構圖�
 |------|------|--------|
 | Web App | 地圖、定位、事件表單、通知展示 | 直接查 Redis、K8s 操作 |
 | Location Service | 接收座標、更新 Redis GEO、附近查詢 | 事件建立、通知推播 |
-| Event Service | 事件建立、半徑查詢、通知觸發 | WebSocket 連線管理 |
-| Notification Service | WebSocket、Redis Pub/Sub、指定使用者通知 | 判斷事件半徑、儲存位置 |
+| Event Service | 事件建立、事件查詢、通知觸發 | WebSocket 連線管理、使用者 GEO 查詢 |
+| AI Service | 事件內容審核（垃圾訊息偵測） | 事件儲存、頻率限制、通知推播 |
+| Notification Service | WebSocket、Redis Pub/Sub、附近 GEO 查詢、指定使用者通知 | 事件資料長期儲存 |
 | Redis | 即時位置、last_seen、Pub/Sub channel | 長期報表、正式使用者資料 |
 
 ## 系統元件
@@ -147,12 +149,15 @@ Request:
 
 ```json
 {
+  "user_id": "u-0001",
   "title": "Library seats",
   "message": "3F has seats near windows",
   "latitude": 25.0173,
   "longitude": 121.5397,
   "severity": "info",
-  "radius_meters": 500
+  "radius_meters": 500,
+  "duration_minutes": 60,
+  "image_url": "https://example.com/library.jpg"
 }
 ```
 
@@ -310,6 +315,58 @@ Event Service -> Notification Service -> Redis Pub/Sub -> WebSocket -> Web App
 3. Event Service 對每個附近使用者呼叫 Notification Service。
 4. Notification Service 將通知發布到該使用者的 Redis Pub/Sub channel。
 5. 持有該使用者 WebSocket 連線的 Notification Service Pod 收到訊息並推送到 Web App。
+
+## 反垃圾訊息機制（Event Service）
+
+針對「使用者不斷洗訊息」的行為式過濾，實作在 `backend/shared/antispam.py`，於 `POST /events` 入口執行，全部以 Redis 計數達成，不需外部 AI 服務。
+
+四道檢查（依序執行）：
+
+| 檢查 | 預設值 | 拒絕時回應 |
+|------|--------|-----------|
+| 重複內容偵測（title+message 雜湊，時間窗內只能出現一次） | 300 秒 | 409 Conflict |
+| 同一使用者兩則事件最小間隔 | 30 秒 | 429 |
+| 同一使用者每分鐘頻率上限 | 3 則 | 429 |
+| 同一使用者同時存在的事件數上限（ZSET，score 為事件過期時間） | 5 則 | 429 |
+
+設計重點：
+
+- 事件必須帶 `user_id`（`EventCreate` 必填），所有頻率管制以它為依據；`title` 上限 100 字、`message` 上限 1000 字。
+- 管制 key 皆帶 TTL 自動過期；活躍事件清單以事件本身的 Redis TTL 對齊，不需手動清理。
+- Redis 故障時 fail-open（放行並記 log），過濾器不會成為服務中斷點。
+- 各項上限可用環境變數調整：`EVENT_RATE_LIMIT_PER_MINUTE`、`EVENT_MIN_INTERVAL_SECONDS`、`EVENT_DUPLICATE_WINDOW_SECONDS`、`EVENT_MAX_ACTIVE_PER_USER`；設為 0 表示停用該規則。
+- 前端發布失敗時會顯示後端回傳的具體原因（重複/太快/超量）。
+- 內容語意的垃圾訊息（廣告、辱罵等「每則內容都不同」的情境）由 **AI Service** 處理（見下一節）。
+
+### AI Service（內容審核）
+
+獨立的第四個微服務（`backend/ai-service/`，port 8004），Event Service 在寫入事件前呼叫 `POST /moderate` 判斷內容是否為垃圾訊息；判定為垃圾時以 422 拒絕發布。
+
+AI provider 由環境變數 `AI_PROVIDER` 切換：
+
+| Provider | 說明 |
+|----------|------|
+| `openai` | OpenAI 相容 API，使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` |
+| `gemini` | Google Gemini API，使用 `GEMINI_API_KEY` 或逗號分隔的 `GEMINI_API_KEYS`、`GEMINI_BASE_URL`、`GEMINI_MODEL` |
+
+內容審核 provider 由環境變數 `MODERATION_PROVIDER` 切換：
+
+| Provider | 說明 | 適用場景 |
+|----------|------|---------|
+| `off` | 一律放行 | 停用審核 |
+| `keyword`（預設） | 本機關鍵字比對，不需要 API key | Demo、離線環境 |
+| `llm` | 使用 `AI_PROVIDER` 指定的模型做語意判斷 | 正式語意審核 |
+
+設計重點：
+
+- 與 antispam 分工：antispam 擋「行為」（洗頻、重複貼文），AI Service 擋「內容」（廣告、詐騙、辱罵）。
+- 事件發布審核採 fail-closed：AI 服務不可用、逾時或回傳無效結果時，不寫入 Redis、不推播，回傳 503 要求稍後重試。
+- AI 服務內部的 LLM 審核仍可依 provider 設定使用關鍵字 fallback；但事件服務只接受完整的 `evaluate-event` 結果後才發布。
+- 審核發生在 antispam 之後、寫入 Redis 之前，被拒絕的事件不留任何儲存痕跡。
+- LLM 輸出要求嚴格 JSON（`response_format: json_object`），並對 markdown code fence 做容錯解析。
+- 事件分析另外由 `ANALYSIS_PROVIDER` 控制，可使用關鍵字分析或 LLM 分析；LLM 無法使用時會回落到關鍵字分析。
+- Gemini 預設模型為 `gemini-3.5-flash-lite`，LLM 呼叫逾時預設為 30 秒（`LLM_TIMEOUT_SECONDS`）。事件服務等待分析的預設逾時為 35 秒（`AI_ANALYSIS_TIMEOUT_SECONDS`），需大於 LLM 逾時，讓 AI 服務有機會回傳關鍵字 fallback。
+- 可在 `GEMINI_API_KEYS` 放置多把以逗號分隔的 key；遇到 403/429 配額類錯誤時會自動換下一把重試，所有 key 都失敗才回落到關鍵字分析。
 
 ## Kubernetes 展示點
 

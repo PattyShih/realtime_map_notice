@@ -89,6 +89,21 @@ kubectl -n realtime-map-notice top pods
 kubectl -n realtime-map-notice describe hpa location-service-hpa
 ```
 
+### 叢集內壓測（建議）
+
+壓測請從**叢集內部**對 service 發起；從主機經 `kubectl port-forward` 打會被單一通道卡住，流量根本進不了 pod。負載產生器以 Kubernetes Job 執行，模擬腳本掛 ConfigMap：
+
+```bash
+kubectl -n realtime-map-notice create configmap simulator-code \
+  --from-file=simulate_users.py=simulator/simulate_users.py --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n realtime-map-notice delete job load-generator --ignore-not-found
+kubectl apply -f k8s/load-generator-job.yaml
+kubectl -n realtime-map-notice get hpa -w   # 觀察 location-service 1 → N 副本
+kubectl -n realtime-map-notice delete job load-generator   # 停止壓測
+```
+
+注意：單一 Python asyncio 程序大約在 1500-3000 人後會先成為瓶頸（事件循環飽和、有效請求數不增反減），這是壓測工具本身的極限；正式分散式壓測應改用 k6 / Locust 多 worker。
+
 ## Pod 容錯 Demo
 
 刪除一個 Notification Service Pod：
