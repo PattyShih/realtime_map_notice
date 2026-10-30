@@ -2,6 +2,42 @@
 # 使用方式：Render Dashboard → New + → Blueprint → 選擇本 repo 與分支 → Apply。
 # sync: false 的環境變數會在建立時要求手動填入，詳細步驟與前端部署見 DEPLOY.md。
 services:
+  # Unified API：單一 Starter 執行個體掛載四個微服務（每月 7 美元）。
+  # 啟用後請於 Vercel 更新四個 VITE_ 服務網址指向 rmn-api，並暫停下列
+  # 四個免費服務（免費層每月 750 執行個體小時，四服務不敷使用）。
+  - type: web
+    name: rmn-api
+    runtime: docker
+    dockerfilePath: ./backend/unified-service/Dockerfile
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rmn-redis
+          property: connectionString
+      - key: NOTIFICATION_SERVICE_URL
+        value: https://rmn-api.onrender.com/notify
+      - key: AI_SERVICE_URL
+        value: https://rmn-api.onrender.com/ai
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: INTERNAL_API_KEY
+        value: dev-internal-key
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:admin@example.com
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+
   - type: web
     name: rmn-location
     runtime: docker
