@@ -17,11 +17,21 @@ def jitter_coordinate(latitude: float, longitude: float) -> tuple[float, float]:
     )
 
 
+# K8s Service（kube-proxy）只在建立新 TCP 連線時分流；keep-alive 連線會一直黏在
+# 同一個 Pod，HPA 擴出的新 Pod 分不到流量、負載嚴重不均。每位虛擬使用者每隔
+# 約 ROTATE_EVERY 次請求帶一次 Connection: close，讓連線輪替、重新分流到所有 Pod。
+ROTATE_EVERY = 20
+
+
 async def virtual_user(client: httpx.AsyncClient, user_id: str, target: str, interval: float) -> None:
     latitude, longitude = jitter_coordinate(*NTU_CENTER)
+    # 起始計數錯開，避免所有使用者同一瞬間一起斷線重連
+    sent = random.randrange(ROTATE_EVERY)
     while True:
         latitude += random.uniform(-0.00008, 0.00008)
         longitude += random.uniform(-0.00008, 0.00008)
+        sent += 1
+        headers = {"Connection": "close"} if sent % ROTATE_EVERY == 0 else None
         try:
             await client.post(
                 f"{target}/locations",
@@ -30,6 +40,7 @@ async def virtual_user(client: httpx.AsyncClient, user_id: str, target: str, int
                     "latitude": latitude,
                     "longitude": longitude,
                 },
+                headers=headers,
             )
         except httpx.HTTPError:
             pass
