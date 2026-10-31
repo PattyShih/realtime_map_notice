@@ -366,7 +366,7 @@ async function startLoadK8s(users) {
   fs.unlinkSync(cmFile);
   const jobFile = tmp('load-generator');
   fs.writeFileSync(jobFile, fs.readFileSync(JOB_YAML, 'utf8').replace(/--users \d+/, `--users ${users}`));
-  await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'load-generator', '--ignore-not-found']);
+  await killJobK8s('load-generator', true);
   const r = await sh('kubectl', ['apply', '-f', jobFile]);
   fs.unlinkSync(jobFile);
   state.load = { running: r.ok, users: r.ok ? users : 0 };
@@ -395,27 +395,57 @@ async function startEventGenK8s() {
   fs.writeFileSync(cmFile, cm.out);
   await sh('kubectl', ['apply', '-f', cmFile]);
   fs.unlinkSync(cmFile);
-  await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'event-gen', '--ignore-not-found']);
+  await killJobK8s('event-gen', true);
   const r = await sh('kubectl', ['apply', '-f', path.join(__dirname, '..', 'k8s', 'event-gen-job.yaml')]);
   state.eventGen = { running: r.ok };
   logEvent(r.ok ? '📢 K8s 事件模式：Job event-gen 已建立（持續發布輔大校園事件）' : `⚠️ Job 建立失敗：${r.err}`);
 }
 
+// 刪 Job 後立刻強制刪掉它的 Pod：不等 30 秒寬限期，流量與事件馬上斷
+// waitGone：重新建立同名 Job 前要等舊的真正刪除，否則 apply 會撞到「正在刪除」
+async function killJobK8s(name, waitGone = false) {
+  const r = await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', name, '--ignore-not-found', '--wait=false']);
+  await sh('kubectl', ['-n', K8S_NS, 'delete', 'pod', '-l', `app=${name}`,
+    '--grace-period=0', '--force', '--ignore-not-found']);
+  if (waitGone) {
+    await sh('kubectl', ['-n', K8S_NS, 'wait', '--for=delete', `job/${name}`, '--timeout=20s']);
+  }
+  return r;
+}
+
+// 與 compose 版 purgeSimUsers 相同：清掉模擬使用者（u-*）讓在線人數立即回落
+async function purgeSimUsersK8s() {
+  const script = [
+    "members=$(redis-cli --scan --pattern 'realtime_map_notice:user:last_seen:u-*' | sed 's/.*last_seen://')",
+    '{ [ -z "$members" ] || redis-cli zrem realtime_map_notice:user:locations $members; }',
+    "redis-cli --scan --pattern 'realtime_map_notice:user:last_seen:u-*' | xargs -r redis-cli del",
+    'echo purged',
+  ].join(' && ');
+  return sh('kubectl', ['-n', K8S_NS, 'exec', 'deploy/redis', '--', 'sh', '-c', script]);
+}
+
 async function stopEventGenK8s() {
-  const r = await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'event-gen', '--ignore-not-found']);
+  const r = await killJobK8s('event-gen');
   if (state.eventGen.running) logEvent('⏹ K8s 事件模式：Job 已刪除');
   state.eventGen = { running: false };
   if (!r.ok) logEvent(`⚠️ Job 刪除失敗：${r.err}`);
 }
 
 async function stopLoadK8s() {
-  await stopEventGenK8s();
-  const r = await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'load-generator', '--ignore-not-found']);
+  // 流量與事件兩個 Job 同時砍，再清資料
+  const [, r] = await Promise.all([stopEventGenK8s(), killJobK8s('load-generator')]);
   if (state.load.running) logEvent('⏹ K8s 模擬：Job 已刪除');
   state.load = { running: false, users: 0 };
   if (!r.ok) logEvent(`⚠️ Job 刪除失敗：${r.err}`);
+  const purged = await purgeSimUsersK8s();
+  logEvent(purged.ok ? '🧹 已清除模擬使用者在線紀錄（在線人數即時回落）' : `⚠️ 清除模擬使用者失敗：${purged.err}`);
   await clearEventsK8s();
   logEvent('🗺️ 地圖已清空（所有事件與數據歸零）');
+  // 二次清空：捕捉 Pod 被砍當下仍在途中的最後幾筆請求
+  setTimeout(() => {
+    Promise.all([purgeSimUsersK8s(), clearEventsK8s()])
+      .then(() => logEvent('🧹 二次清空完成（確認無殘留）'));
+  }, 2500);
 }
 
 // kubectl 的 CPU 數量：'104m' → 104、'0.5' → 500、'1' → 1000
