@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import contextlib
 import random
 import socket
 import time
@@ -21,6 +22,11 @@ def jitter_coordinate(latitude: float, longitude: float) -> tuple[float, float]:
 # 同一個 Pod，HPA 擴出的新 Pod 分不到流量、負載嚴重不均。每位虛擬使用者每隔
 # 約 ROTATE_EVERY 次請求帶一次 Connection: close，讓連線輪替、重新分流到所有 Pod。
 ROTATE_EVERY = 20
+
+# httpx 每次請求都會掃過整個連線池，連線數一多 CPU 成本急遽上升：
+# 單一 client 開 600 條連線時吞吐量崩到不到 100 req/s（300 條時還有近 600）。
+# 改成每 USERS_PER_CLIENT 位使用者共用一個 client，各自的連線池保持小而快。
+USERS_PER_CLIENT = 50
 
 # 每 5 秒輸出一次的請求統計（成功／逾時／其他錯誤／非 2xx），用來判斷瓶頸在哪
 stats = {"ok": 0, "timeout": 0, "error": 0, "bad_status": 0}
@@ -58,11 +64,20 @@ async def run(users: int, target: str, interval: float) -> None:
     # 不加前綴會互相覆蓋（800 人拆兩個 worker 只剩 400 個唯一使用者）
     # 取 hostname 最後一段：K8s Job 的 Pod 名稱都是 load-generator-<亂碼>，取開頭會全部撞成 "load-gen"
     worker_id = socket.gethostname().rsplit("-", 1)[-1][-8:]
-    limits = httpx.Limits(max_connections=users, max_keepalive_connections=users)
-    async with httpx.AsyncClient(timeout=2.0, limits=limits) as client:
+    limits = httpx.Limits(max_connections=USERS_PER_CLIENT, max_keepalive_connections=USERS_PER_CLIENT)
+    async with contextlib.AsyncExitStack() as stack:
+        clients = [
+            await stack.enter_async_context(httpx.AsyncClient(timeout=2.0, limits=limits))
+            for _ in range(-(-users // USERS_PER_CLIENT))
+        ]
         tasks = [
             asyncio.create_task(
-                virtual_user(client, f"u-{worker_id}-{index:04d}", target, interval)
+                virtual_user(
+                    clients[index // USERS_PER_CLIENT],
+                    f"u-{worker_id}-{index:04d}",
+                    target,
+                    interval,
+                )
             )
             for index in range(users)
         ]
