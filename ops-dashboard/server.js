@@ -30,6 +30,8 @@ const MAX_REPLICAS = 1 + REPLICA_PORTS.length;
 const SCALE_UP_CPU = Number(process.env.OPS_SCALE_UP_CPU || 25); // 平均 CPU 高於此值 → 擴展
 const SCALE_UP_TICKS = 2; // CPU 連續超標秒數：滿 2 秒才擴，避免瞬間雜訊誤觸
 const CHECK_MS = 1000;
+// 模擬使用者回報位置的間隔（秒）：流量 ≈ 人數 ÷ 間隔，可在儀表板上調整
+const DEFAULT_SIM_INTERVAL = Number(process.env.OPS_SIM_INTERVAL || 10);
 // 單一模擬程序約 400 人後自身飽和（Python 事件迴圈先成為瓶頸，服務端 CPU 反而測不高），
 // 每個 worker 控制在 400 人內，確保壓力真實落在 location-service 上
 const LOAD_WORKERS = [
@@ -161,7 +163,7 @@ async function purgeSimUsers() {
   ]);
 }
 
-async function startLoadCompose(users) {
+async function startLoadCompose(users, interval) {
   await stopLoadCompose();
   const count = LOAD_WORKERS.find((w) => users <= w.max).count;
   const perWorker = Math.ceil(users / count);
@@ -173,10 +175,10 @@ async function startLoadCompose(users) {
       '-v', `${SIMULATOR_SCRIPT}:/code/simulate_users.py:ro`,
       'python:3.12-slim',
       'sh', '-c',
-      `pip install -q httpx==0.28.1 && python /code/simulate_users.py --users ${perWorker} --target ${target} --interval 0.5`,
+      `pip install -q httpx==0.28.1 && python /code/simulate_users.py --users ${perWorker} --target ${target} --interval ${interval}`,
     ]);
   }
-  state.load = { running: true, users };
+  state.load = { running: true, users, interval };
   state.upTicks = 0;
   state.maxWarned = false;
 
@@ -356,7 +358,7 @@ async function autoscalerTick() {
 
 const tmp = (name) => path.join(require('os').tmpdir(), `${name}-${Date.now()}.yaml`);
 
-async function startLoadK8s(users) {
+async function startLoadK8s(users, interval) {
   const cmFile = tmp('simulator-cm');
   const cm = await sh('kubectl', ['-n', K8S_NS, 'create', 'configmap', 'simulator-code',
     '--from-file', `simulate_users.py=${SIMULATOR_SCRIPT}`, '--dry-run=client', '-o', 'yaml']);
@@ -374,15 +376,16 @@ async function startLoadK8s(users) {
   const jobFile = tmp('load-generator');
   fs.writeFileSync(jobFile, fs.readFileSync(JOB_YAML, 'utf8')
     .replace(/--users \d+/, `--users $((${base} + (JOB_COMPLETION_INDEX < ${rem})))`)
+    .replace(/--interval [\d.]+/, `--interval ${interval}`)
     .replace(/^(\s*)backoffLimit:.*$/m,
       `$1backoffLimit: 0\n$1completionMode: Indexed\n$1parallelism: ${workers}\n$1completions: ${workers}`));
   await killJobK8s('load-generator', true);
   const r = await sh('kubectl', ['apply', '-f', jobFile]);
   fs.unlinkSync(jobFile);
-  state.load = { running: r.ok, users: r.ok ? users : 0, workers: r.ok ? workers : 0 };
+  state.load = { running: r.ok, users: r.ok ? users : 0, workers: r.ok ? workers : 0, interval };
   await startEventGenK8s(); // 事件流跟著人數一起啟動
   logEvent(r.ok
-    ? `⚡ K8s 模擬：Job load-generator 已建立（${users} 人 = ${workers} 個模擬 Pod × ${perWorker} 人）＋ 事件流`
+    ? `⚡ K8s 模擬：${users} 人、每 ${interval} 秒回報（約 ${Math.round(users / interval)} 次/秒）＝ ${workers} 個模擬 Pod × ${perWorker} 人 ＋ 事件流`
     : `⚠️ Job 建立失敗：${r.err}`);
 }
 
@@ -528,7 +531,7 @@ async function k8sStatus() {
   let load = { running: false, users: state.load.users };
   if (job.ok) {
     const j = JSON.parse(job.out);
-    load = { running: (j.status.active || 0) > 0, users: state.load.users, workers: state.load.workers };
+    load = { running: (j.status.active || 0) > 0, users: state.load.users, workers: state.load.workers, interval: state.load.interval };
   }
   let eventGen = { running: false };
   if (evtJob.ok) {
@@ -601,8 +604,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/load/start' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
       const users = Math.min(3000, Math.max(10, Number(body.users) || 500));
-      if (state.mode === 'k8s') await startLoadK8s(users);
-      else await startLoadCompose(users);
+      const interval = Math.min(30, Math.max(0.5, Number(body.interval) || DEFAULT_SIM_INTERVAL));
+      if (state.mode === 'k8s') await startLoadK8s(users, interval);
+      else await startLoadCompose(users, interval);
       return sendJson(res, 200, { ok: true, users });
     }
 
