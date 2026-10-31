@@ -364,14 +364,21 @@ async function startLoadK8s(users) {
   fs.writeFileSync(cmFile, cm.out);
   await sh('kubectl', ['apply', '-f', cmFile]);
   fs.unlinkSync(cmFile);
+  // 與 compose 模式相同：單一模擬程序約 400 人就飽和，人多時用 Job 平行跑多個 Pod 分攤
+  const workers = Math.min(8, Math.ceil(users / 400));
+  const perWorker = Math.ceil(users / workers);
   const jobFile = tmp('load-generator');
-  fs.writeFileSync(jobFile, fs.readFileSync(JOB_YAML, 'utf8').replace(/--users \d+/, `--users ${users}`));
+  fs.writeFileSync(jobFile, fs.readFileSync(JOB_YAML, 'utf8')
+    .replace(/--users \d+/, `--users ${perWorker}`)
+    .replace(/^(\s*)backoffLimit:.*$/m, `$1backoffLimit: 0\n$1parallelism: ${workers}\n$1completions: ${workers}`));
   await killJobK8s('load-generator', true);
   const r = await sh('kubectl', ['apply', '-f', jobFile]);
   fs.unlinkSync(jobFile);
-  state.load = { running: r.ok, users: r.ok ? users : 0 };
+  state.load = { running: r.ok, users: r.ok ? users : 0, workers: r.ok ? workers : 0 };
   await startEventGenK8s(); // 事件流跟著人數一起啟動
-  logEvent(r.ok ? `⚡ K8s 模擬：Job load-generator 已建立（${users} 人）＋ 事件流` : `⚠️ Job 建立失敗：${r.err}`);
+  logEvent(r.ok
+    ? `⚡ K8s 模擬：Job load-generator 已建立（${users} 人 = ${workers} 個模擬 Pod × ${perWorker} 人）＋ 事件流`
+    : `⚠️ Job 建立失敗：${r.err}`);
 }
 
 async function clearEventsK8s() {
@@ -516,7 +523,7 @@ async function k8sStatus() {
   let load = { running: false, users: state.load.users };
   if (job.ok) {
     const j = JSON.parse(job.out);
-    load = { running: (j.status.active || 0) > 0, users: state.load.users };
+    load = { running: (j.status.active || 0) > 0, users: state.load.users, workers: state.load.workers };
   }
   let eventGen = { running: false };
   if (evtJob.ok) {

@@ -56,7 +56,8 @@ async def virtual_user(client: httpx.AsyncClient, user_id: str, target: str, int
 async def run(users: int, target: str, interval: float) -> None:
     # 使用者 ID 帶上容器 hostname：多 worker 拆分時各自編號從 0 開始，
     # 不加前綴會互相覆蓋（800 人拆兩個 worker 只剩 400 個唯一使用者）
-    worker_id = socket.gethostname()[:8]
+    # 取 hostname 最後一段：K8s Job 的 Pod 名稱都是 load-generator-<亂碼>，取開頭會全部撞成 "load-gen"
+    worker_id = socket.gethostname().rsplit("-", 1)[-1][-8:]
     limits = httpx.Limits(max_connections=users, max_keepalive_connections=users)
     async with httpx.AsyncClient(timeout=2.0, limits=limits) as client:
         tasks = [
