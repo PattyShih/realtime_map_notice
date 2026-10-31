@@ -22,6 +22,9 @@ def jitter_coordinate(latitude: float, longitude: float) -> tuple[float, float]:
 # 約 ROTATE_EVERY 次請求帶一次 Connection: close，讓連線輪替、重新分流到所有 Pod。
 ROTATE_EVERY = 20
 
+# 每 5 秒輸出一次的請求統計（成功／逾時／其他錯誤／非 2xx），用來判斷瓶頸在哪
+stats = {"ok": 0, "timeout": 0, "error": 0, "bad_status": 0}
+
 
 async def virtual_user(client: httpx.AsyncClient, user_id: str, target: str, interval: float) -> None:
     latitude, longitude = jitter_coordinate(*NTU_CENTER)
@@ -33,7 +36,7 @@ async def virtual_user(client: httpx.AsyncClient, user_id: str, target: str, int
         sent += 1
         headers = {"Connection": "close"} if sent % ROTATE_EVERY == 0 else None
         try:
-            await client.post(
+            response = await client.post(
                 f"{target}/locations",
                 json={
                     "user_id": user_id,
@@ -42,8 +45,11 @@ async def virtual_user(client: httpx.AsyncClient, user_id: str, target: str, int
                 },
                 headers=headers,
             )
+            stats["ok" if response.is_success else "bad_status"] += 1
+        except httpx.TimeoutException:
+            stats["timeout"] += 1
         except httpx.HTTPError:
-            pass
+            stats["error"] += 1
         await asyncio.sleep(interval)
 
 
@@ -62,7 +68,15 @@ async def run(users: int, target: str, interval: float) -> None:
         started = time.time()
         while True:
             elapsed = int(time.time() - started)
-            print(f"simulating users={users} elapsed={elapsed}s target={target}")
+            total = sum(stats.values()) or 1
+            print(
+                f"simulating users={users} elapsed={elapsed}s target={target} "
+                f"req/s={total / 5:.0f} ok={stats['ok'] * 100 // total}% "
+                f"timeout={stats['timeout']} error={stats['error']} bad_status={stats['bad_status']}",
+                flush=True,
+            )
+            for key in stats:
+                stats[key] = 0
             await asyncio.sleep(5)
             for task in tasks:
                 if task.done():
