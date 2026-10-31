@@ -372,8 +372,8 @@ function resetButtons(loadRunning) {
   btnStop.classList.remove('busy');
   btnStart.innerHTML = '⚡ 開始模擬';
   btnStop.innerHTML = '⏹ 停止並清空';
-  stopBtn.disabled = !loadRunning;
-  startBtn.disabled = loadRunning;
+  btnStop.disabled = !loadRunning;
+  btnStart.disabled = loadRunning;
 }
 
 btnStart.onclick = async () => {
