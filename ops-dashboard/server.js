@@ -366,11 +366,16 @@ async function startLoadK8s(users) {
   fs.unlinkSync(cmFile);
   // 與 compose 模式相同：單一模擬程序約 400 人就飽和，人多時用 Job 平行跑多個 Pod 分攤
   const workers = Math.min(8, Math.ceil(users / 400));
-  const perWorker = Math.ceil(users / workers);
+  // 人數平均分給各 Pod，總和剛好等於輸入值（1000 = 334 + 333 + 333）：
+  // Indexed Job 會給每個 Pod 一個 JOB_COMPLETION_INDEX，前 rem 個多分 1 人
+  const base = Math.floor(users / workers);
+  const rem = users % workers;
+  const perWorker = rem ? `${base}–${base + 1}` : `${base}`;
   const jobFile = tmp('load-generator');
   fs.writeFileSync(jobFile, fs.readFileSync(JOB_YAML, 'utf8')
-    .replace(/--users \d+/, `--users ${perWorker}`)
-    .replace(/^(\s*)backoffLimit:.*$/m, `$1backoffLimit: 0\n$1parallelism: ${workers}\n$1completions: ${workers}`));
+    .replace(/--users \d+/, `--users $((${base} + (JOB_COMPLETION_INDEX < ${rem})))`)
+    .replace(/^(\s*)backoffLimit:.*$/m,
+      `$1backoffLimit: 0\n$1completionMode: Indexed\n$1parallelism: ${workers}\n$1completions: ${workers}`));
   await killJobK8s('load-generator', true);
   const r = await sh('kubectl', ['apply', '-f', jobFile]);
   fs.unlinkSync(jobFile);
