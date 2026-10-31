@@ -47,6 +47,7 @@ const state = {
   maxWarned: false,
   scaling: false,
   events: [], // { t: 'HH:MM:SS', msg }
+  k8sReplicas: null, // k8s 模式上一輪的 HPA 副本數，用來偵測擴縮
   eventGen: { running: false },
 };
 
@@ -417,6 +418,15 @@ async function stopLoadK8s() {
   logEvent('🗺️ 地圖已清空（所有事件與數據歸零）');
 }
 
+// kubectl 的 CPU 數量：'104m' → 104、'0.5' → 500、'1' → 1000
+function toMilli(v) {
+  if (v == null || v === '?') return null;
+  const s = String(v);
+  const n = parseFloat(s);
+  if (Number.isNaN(n)) return null;
+  return s.endsWith('m') ? n : n * 1000;
+}
+
 async function k8sStatus() {
   const [pods, top, hpa, job, evtJob] = await Promise.all([
     sh('kubectl', ['-n', K8S_NS, 'get', 'pods', '-o', 'json']),
@@ -436,11 +446,15 @@ async function k8sStatus() {
     for (const item of JSON.parse(pods.out).items) {
       const name = item.metadata.name;
       const labels = item.metadata.labels || {};
+      const reqMilli = toMilli(item.spec.containers?.[0]?.resources?.requests?.cpu);
+      const useMilli = toMilli(cpuByPod[name]);
       services.push({
         name,
         short: labels.app || name,
         phase: item.status.phase,
         cpu: cpuByPod[name] || '?',
+        // 與 HPA 同基準：用量 ÷ requests，方便和門檻直接比較
+        cpuPct: reqMilli && useMilli != null ? Math.round((useMilli / reqMilli) * 100) : null,
         replica: false,
       });
     }
@@ -459,6 +473,16 @@ async function k8sStatus() {
       };
     }
   }
+  // 真 HPA 的擴縮由叢集決定，ops 只觀察副本數變化並寫進事件紀錄
+  if (hpaInfo && hpaInfo.current != null) {
+    const prev = state.k8sReplicas;
+    if (prev != null && hpaInfo.current > prev) {
+      logEvent(`📈 HPA 擴展：location-service ${prev} → ${hpaInfo.current} 副本（CPU ${hpaInfo.cpu ?? '?'}% ≥ 門檻 ${hpaInfo.targetCpu}%）`);
+    } else if (prev != null && hpaInfo.current < prev) {
+      logEvent(`📉 HPA 縮減：location-service ${prev} → ${hpaInfo.current} 副本`);
+    }
+    state.k8sReplicas = hpaInfo.current;
+  }
   let load = { running: false, users: state.load.users };
   if (job.ok) {
     const j = JSON.parse(job.out);
@@ -476,7 +500,7 @@ async function k8sStatus() {
     pool: [],
     pods: services
       .filter((s) => s.short === 'location-service')
-      .map((s) => ({ id: s.name, label: s.name.replace(/-location-service.*/, ''), cpu: s.cpu })),
+      .map((s) => ({ id: s.name, label: s.name.replace(/^location-service-/, ''), cpu: s.cpu, cpuPct: s.cpuPct, phase: s.phase })),
     chart: {
       series: [{ label: 'HPA CPU%', value: hpaInfo ? hpaInfo.cpu : null }],
       guide: hpaInfo ? hpaInfo.targetCpu : null,
@@ -582,7 +606,7 @@ const server = http.createServer(async (req, res) => {
 async function main() {
   const k8s = await sh('kubectl', ['-n', K8S_NS, 'get', 'ns', K8S_NS]);
   state.mode = k8s.ok ? 'k8s' : 'compose';
-  const exists = await sh('docker', ['inspect', PRIMARY_CONTAINER]);
+  const exists = state.mode === 'compose' ? await sh('docker', ['inspect', PRIMARY_CONTAINER]) : { ok: true };
   if (!exists.ok) logEvent(`⚠️ 找不到 ${PRIMARY_CONTAINER}，請先 docker compose up -d`);
   logEvent(state.mode === 'k8s'
     ? `偵測到 K8s 命名空間 ${K8S_NS} → k8s 模式（真 HPA）`
