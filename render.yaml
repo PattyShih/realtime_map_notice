@@ -29,6 +29,15 @@ services:
         value: dev-internal-key
       - key: GEMINI_API_KEY
         sync: false
+      # LLM 審核與語意分析（與舊 rmn-ai 相同設定）
+      - key: MODERATION_PROVIDER
+        value: llm
+      - key: ANALYSIS_PROVIDER
+        value: llm
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
       - key: VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY
