@@ -79,7 +79,21 @@ function parseCpu(pct) {
   return Number.isFinite(n) ? n : null;
 }
 
-async function composeStats() {
+// docker stats 一次約需 1–2 秒；自動擴展迴圈與儀表板輪詢共用同一次查詢結果，
+// 避免每秒同時跑好幾個 docker stats 拖慢主機
+let statsInflight = null;
+let statsCache = { at: 0, data: [] };
+function composeStats() {
+  if (Date.now() - statsCache.at < 700) return Promise.resolve(statsCache.data);
+  if (!statsInflight) {
+    statsInflight = composeStatsRaw()
+      .then((data) => { statsCache = { at: Date.now(), data }; return data; })
+      .finally(() => { statsInflight = null; });
+  }
+  return statsInflight;
+}
+
+async function composeStatsRaw() {
   const r = await sh('docker', [
     'stats', '--no-stream',
     '--format', '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}',

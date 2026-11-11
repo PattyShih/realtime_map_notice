@@ -266,6 +266,7 @@
 </details>
 
 <script>
+// 圖表保留最近 60 筆；每秒輪詢一次 → 約 1 分鐘的時間窗，曲線推進較快
 const MAX_POINTS = 60;
 // k8s 模式下 location-service 每個 Pod 的 CPU requests（毫核心），用來把 kubectl top 的 m 換算成 %
 const LOCATION_CPU_REQUEST_M = 100;
@@ -456,7 +457,10 @@ function renderButtons(status) {
   if (!btnStart.classList.contains('busy')) btnStart.disabled = false;
 }
 
+let polling = false;
 async function poll() {
+  if (polling) return; // 上一輪還沒回來就跳過，避免請求堆積
+  polling = true;
   try {
     const status = await (await fetch('/api/status')).json();
     const isK8s = status.mode === 'k8s';
@@ -481,7 +485,7 @@ async function poll() {
       while (chart.data.labels.length > MAX_POINTS) chart.data.labels.shift();
       chart.update('none');
     }
-  } catch { /* ops 服務未就緒，下一輪再試 */ }
+  } catch { /* ops 服務未就緒，下一輪再試 */ } finally { polling = false; }
 }
 
 // 開始/停止都需要數秒（清理、建容器），按鈕顯示轉圈並鎖定，輪詢確認狀態變化後解鎖
@@ -520,7 +524,7 @@ btnStop.onclick = async () => {
 };
 
 poll();
-setInterval(poll, 2000);
+setInterval(poll, 1000);
 </script>
 </body>
 </html>
