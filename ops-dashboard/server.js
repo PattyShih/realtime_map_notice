@@ -360,8 +360,10 @@ async function autoscalerTick() {
 
 // ---------- k8s 模式 ----------
 
+// 暫存 YAML 路徑（startLoadK8s 與 startEventGenK8s 共用）
+const tmp = (name) => path.join(require('os').tmpdir(), `${name}-${Date.now()}.yaml`);
+
 async function startLoadK8s(users) {
-  const tmp = (name) => path.join(require('os').tmpdir(), `${name}-${Date.now()}.yaml`);
   const cmFile = tmp('simulator-cm');
   const cm = await sh('kubectl', ['-n', K8S_NS, 'create', 'configmap', 'simulator-code',
     '--from-file', `simulate_users.py=${SIMULATOR_SCRIPT}`, '--dry-run=client', '-o', 'yaml']);
