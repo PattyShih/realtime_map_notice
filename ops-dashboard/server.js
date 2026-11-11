@@ -166,11 +166,11 @@ async function purgeSimUsers() {
   ]);
 }
 
-async function startLoadCompose(users) {
+async function startLoadCompose(users, intervalOverride) {
   await stopLoadCompose();
   const count = LOAD_WORKERS.find((w) => users <= w.max).count;
   const perWorker = Math.ceil(users / count);
-  const interval = users > LOAD_INTERVAL_THRESHOLD ? 2 : 0.5;
+  const interval = intervalOverride || (users > LOAD_INTERVAL_THRESHOLD ? 2 : 0.5);
   const target = 'http://host.docker.internal:8090/fwd/location';
   for (const name of loadWorkerNames(count)) {
     await sh('docker', [
@@ -182,7 +182,7 @@ async function startLoadCompose(users) {
       `pip install -q httpx==0.28.1 && python /code/simulate_users.py --users ${perWorker} --target ${target} --interval ${interval}`,
     ]);
   }
-  state.load = { running: true, users };
+  state.load = { running: true, users, interval };
   state.upTicks = 0;
   state.maxWarned = false;
 
@@ -363,7 +363,7 @@ async function autoscalerTick() {
 // 暫存 YAML 路徑（startLoadK8s 與 startEventGenK8s 共用）
 const tmp = (name) => path.join(require('os').tmpdir(), `${name}-${Date.now()}.yaml`);
 
-async function startLoadK8s(users) {
+async function startLoadK8s(users, intervalOverride) {
   const cmFile = tmp('simulator-cm');
   const cm = await sh('kubectl', ['-n', K8S_NS, 'create', 'configmap', 'simulator-code',
     '--from-file', `simulate_users.py=${SIMULATOR_SCRIPT}`, '--dry-run=client', '-o', 'yaml']);
@@ -372,11 +372,13 @@ async function startLoadK8s(users) {
   await sh('kubectl', ['apply', '-f', cmFile]);
   fs.unlinkSync(cmFile);
   const jobFile = tmp('load-generator');
-  fs.writeFileSync(jobFile, fs.readFileSync(JOB_YAML, 'utf8').replace(/--users \d+/, `--users ${users}`));
+  let jobYaml = fs.readFileSync(JOB_YAML, 'utf8').replace(/--users \d+/, `--users ${users}`);
+  if (intervalOverride) jobYaml = jobYaml.replace(/--interval [\d.]+/, `--interval ${intervalOverride}`);
+  fs.writeFileSync(jobFile, jobYaml);
   await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'load-generator', '--ignore-not-found']);
   const r = await sh('kubectl', ['apply', '-f', jobFile]);
   fs.unlinkSync(jobFile);
-  state.load = { running: r.ok, users: r.ok ? users : 0 };
+  state.load = { running: r.ok, users: r.ok ? users : 0, interval: intervalOverride || 0.5 };
   await startEventGenK8s(); // 事件流跟著人數一起啟動
   logEvent(r.ok ? `⚡ K8s 模擬：Job load-generator 已建立（${users} 人）＋ 事件流` : `⚠️ Job 建立失敗：${r.err}`);
 }
@@ -465,10 +467,10 @@ async function k8sStatus() {
       };
     }
   }
-  let load = { running: false, users: state.load.users };
+  let load = { running: false, users: state.load.users, interval: state.load.interval };
   if (job.ok) {
     const j = JSON.parse(job.out);
-    load = { running: (j.status.active || 0) > 0, users: state.load.users };
+    load = { running: (j.status.active || 0) > 0, users: state.load.users, interval: state.load.interval };
   }
   let eventGen = { running: false };
   if (evtJob.ok) {
@@ -550,9 +552,12 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/load/start' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
       const users = Math.min(3000, Math.max(10, Number(body.users) || 500));
-      if (state.mode === 'k8s') await startLoadK8s(users);
-      else await startLoadCompose(users);
-      return sendJson(res, 200, { ok: true, users });
+      // 回報間隔（秒）：未填則依人數自動決定
+      const iv = Number(body.interval);
+      const interval = Number.isFinite(iv) && iv > 0 ? Math.min(60, Math.max(0.2, iv)) : null;
+      if (state.mode === 'k8s') await startLoadK8s(users, interval);
+      else await startLoadCompose(users, interval);
+      return sendJson(res, 200, { ok: true, users, interval });
     }
 
     if (url.pathname === '/api/events/clear' && req.method === 'POST') {
