@@ -9,7 +9,7 @@
   :root {
     --bg: #0b1220; --panel: #111a2c; --line: #1f2b45; --text: #e2e8f0;
     --muted: #7d8db1; --accent: #38bdf8; --green: #34d399; --amber: #fbbf24; --red: #f87171;
-    --gap: 10px;
+    --gap: clamp(6px, 1.2vh, 10px);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -17,8 +17,9 @@
   body {
     background: var(--bg); color: var(--text);
     font-family: "Segoe UI", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
-    padding: 12px 14px; display: flex; flex-direction: column; gap: var(--gap);
-    overflow: hidden;
+    padding: clamp(6px, 1.4vh, 12px) clamp(8px, 1.4vw, 14px);
+    display: flex; flex-direction: column; gap: var(--gap);
+    overflow: auto; /* 視窗極小時退為捲動，避免區塊互相重疊 */
   }
   header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 0 0 auto; }
   header h1 { font-size: 16px; font-weight: 600; margin-right: auto; white-space: nowrap; }
@@ -31,7 +32,7 @@
   .badge.compose { color: var(--amber); border-color: var(--amber); }
   .panel {
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: 10px; padding: 10px 12px; min-height: 0;
+    border-radius: 10px; padding: clamp(6px, 1.2vh, 10px) 12px; min-height: 0; overflow: hidden;
   }
   .panel h2 { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
 
@@ -71,19 +72,21 @@
   .area-chart { grid-area: chart; display: flex; flex-direction: column; }
   .area-chart .chart-wrap { flex: 1 1 auto; height: auto; min-height: 160px; }
   .area-events { grid-area: events; display: flex; flex-direction: column; }
-  @media (max-width: 900px) {
+  @media (max-width: 1100px) {
     .main {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: auto auto minmax(0, 1fr);
+      /* 單欄：Pod 區依內容；剩餘高度由圖表與事件紀錄按 3:2 分配，各保有最小高度 */
+      grid-template-rows: auto minmax(110px, 3fr) minmax(90px, 2fr);
       grid-template-areas: "pods" "chart" "events";
     }
-    .area-chart .chart-wrap { flex: 0 0 auto; height: clamp(140px, 26vh, 240px); min-height: 0; }
+    .area-chart .chart-wrap { min-height: 0; }
   }
 
   /* 容器擴展現場 */
   .banner {
-    font-size: 14px; font-weight: 700; padding: 7px 12px; border-radius: 8px;
-    margin-bottom: 10px; border: 1px solid var(--line); background: var(--bg);
+    font-size: clamp(12px, 1.2vw + 4px, 15px); font-weight: 700;
+    padding: clamp(4px, .8vh, 7px) 12px; border-radius: 8px;
+    margin-bottom: clamp(6px, 1vh, 10px); border: 1px solid var(--line); background: var(--bg);
     transition: all .3s ease;
   }
   .banner.ok { color: var(--green); border-color: rgba(52, 211, 153, .5); }
@@ -105,13 +108,13 @@
   /* Pod 方塊橫排：5 格一列，擴展時一格一格亮起 */
   #podRow {
     flex: 1 1 auto; display: grid; gap: 6px;
-    grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
   }
-  .pod, .slot { border-radius: 9px; padding: 6px 8px; text-align: center; min-width: 0; }
+  .pod, .slot { border-radius: 9px; padding: clamp(3px, .6vh, 6px) 8px; text-align: center; min-width: 0; }
   .pod { border: 2px solid var(--green); background: rgba(52, 211, 153, .08); }
   .pod.new { animation: pop .45s ease-out; }
   .pod .pname { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pod .pcpu { font-size: 18px; font-weight: 700; color: var(--green); }
+  .pod .pcpu { font-size: clamp(14px, 1vw + 8px, 18px); font-weight: 700; color: var(--green); }
   .pod.hot { border-color: var(--amber); background: rgba(251, 191, 36, .08); }
   .pod.hot .pcpu { color: var(--amber); }
   @keyframes pop {
@@ -125,23 +128,22 @@
   }
   .slot b { font-size: 16px; color: var(--line); }
 
-  /* 服務卡片：小型橫排 */
-  .cards { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  /* 各服務 CPU：一行小標籤，視窗窄時自動換行 */
+  .cards { display: flex; flex-wrap: wrap; gap: 5px; margin-top: clamp(6px, 1vh, 10px); }
   .svc {
-    flex: 1 1 120px; background: var(--bg); border: 1px solid var(--line);
-    border-radius: 8px; padding: 6px 10px;
+    display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 999px;
+    padding: 2px 10px; font-size: 11px; color: var(--muted);
   }
-  .svc .name { font-size: 11px; color: var(--muted); }
-  .svc .cpu { font-size: 18px; font-weight: 700; }
-  .svc .meta { font-size: 10px; color: var(--muted); }
+  .svc b { font-size: 13px; }
   .replica-tag {
-    display: inline-block; margin-left: 4px; padding: 0 6px; font-size: 10px;
+    padding: 0 6px; font-size: 10px;
     border-radius: 999px; background: rgba(56,189,248,.15); color: var(--accent);
   }
   .other-line { font-size: 11px; color: var(--muted); margin-top: 6px; }
 
-  .chart-wrap { position: relative; height: clamp(140px, 26vh, 240px); }
-  #events { list-style: none; font-size: 12px; overflow-y: auto; flex: 1 1 auto; min-height: 60px; }
+  .chart-wrap { position: relative; }
+  #events { list-style: none; font-size: 12px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
   #events li { padding: 3px 0; border-bottom: 1px dashed var(--line); color: var(--muted); }
   #events li b { color: var(--text); font-weight: 500; margin-right: 6px; }
 
@@ -175,7 +177,6 @@
       <div id="podRow"></div>
     </div>
     <div class="cards" id="cards"></div>
-    <div id="otherLine" class="other-line"></div>
   </div>
 
   <div class="panel area-chart">
@@ -190,7 +191,7 @@
 </div>
 
 <details class="foot">
-  <summary>說明（人數 10–3000；事件流每 50 人約 1 則/秒；停止會清空地圖上所有事件）</summary>
+  <summary>說明</summary>
   <p>
     compose 模式：HPA 由 ops 服務模擬——與真 HPA 相同，平均 CPU 超過門檻連續 2 秒才擴展
     （最多 5 副本；門檻可用環境變數調整），壓測進行中不縮減，停止壓測後自動縮回 1 副本並
@@ -215,7 +216,7 @@ const chart = window.Chart
           y: { min: 0, max: 100, ticks: { color: '#7d8db1' }, grid: { color: '#1f2b45' } },
           x: { ticks: { color: '#7d8db1', maxTicksLimit: 8 }, grid: { display: false } },
         },
-        plugins: { legend: { labels: { color: '#e2e8f0', boxWidth: 12 } } },
+        plugins: { legend: { labels: { color: '#e2e8f0', boxWidth: 10, font: { size: 11 } } } },
       },
     })
   : null;
@@ -235,37 +236,28 @@ function ensureDataset(key, label, extra = {}) {
   return ds;
 }
 
-// 服務卡片的繁中說明
+// 服務標籤的繁中簡稱
 const ZH_NAMES = {
-  'location-service': '定位服務',
-  'event-service': '事件服務',
-  'notification-service': '通知服務',
-  'ai-service': 'AI 審核服務',
-  'redis': '快取資料庫',
+  'location-service': '定位',
+  'event-service': '事件',
+  'notification-service': '通知',
+  'ai-service': 'AI 審核',
+  'redis': 'Redis',
 };
-
-// 主角卡片只留定位與事件服務，其餘容器收進一行小字
-const MAIN_CARDS = ['location-service', 'event-service'];
+const CARD_ORDER = ['location-service', 'event-service', 'notification-service', 'ai-service', 'redis'];
 
 function renderCards(status) {
-  const el = document.getElementById('cards');
-  const shown = status.services.filter((s) => MAIN_CARDS.includes(s.short));
-  const others = status.services.filter((s) => !MAIN_CARDS.includes(s.short));
-  el.innerHTML = shown.map((s) => {
+  const rank = (s) => { const i = CARD_ORDER.indexOf(s.short); return i < 0 ? 99 : i; };
+  const services = [...status.services].sort((x, y) => rank(x) - rank(y));
+  document.getElementById('cards').innerHTML = services.map((s) => {
     const cpu = s.cpu == null ? '?' : s.cpu;
-    const zh = ZH_NAMES[s.short] ? `（${ZH_NAMES[s.short]}）` : '';
     const replicaTag = s.replicas && s.replicas > 1
-      ? `<span class="replica-tag">× ${s.replicas} 副本</span>` : '';
-    const mem = s.mem ? ` · ${s.mem.replace(/[^0-9.]*MiB.*/, '').trim()}MiB` : '';
-    return `<div class="svc">
-      <div class="name">${s.short}${zh}${replicaTag}</div>
-      <div class="cpu" style="color:${cpu > 50 ? '#fbbf24' : '#34d399'}">${cpu}%</div>
-      <div class="meta">${s.phase || 'running'}${mem}</div>
-    </div>`;
+      ? `<span class="replica-tag">×${s.replicas}</span>` : '';
+    return `<span class="svc" title="${s.short}${s.mem ? ' · ' + s.mem : ''}">
+      ${ZH_NAMES[s.short] || s.short}
+      <b style="color:${cpu > 50 ? '#fbbf24' : '#34d399'}">${cpu}%</b>${replicaTag}
+    </span>`;
   }).join('');
-  document.getElementById('otherLine').textContent = others.length
-    ? `其他容器：${others.map((o) => `${o.short} ${o.cpu == null ? '?' : o.cpu}%`).join(' · ')}`
-    : '';
 }
 
 // 容器擴展現場：大字狀態橫幅 + Pod 方塊 + 流量流線動畫
@@ -316,7 +308,7 @@ function renderPods(status) {
       nextIds.add(p.id);
       const hot = Number.parseFloat(p.cpu) >= up;
       html += `<div class="pod ${isNew ? 'new' : ''} ${hot ? 'hot' : ''}" title="${p.label}">
-          <div class="pname">Pod ${i + 1}${isK8s ? '' : ` · ${p.label}`}</div>
+          <div class="pname">Pod ${i + 1}</div>
           <div class="pcpu">${p.cpu == null ? '?' : (isK8s ? p.cpu : `${p.cpu}%`)}</div>
         </div>`;
     } else {
