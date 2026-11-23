@@ -31,12 +31,18 @@ const SCALE_UP_CPU = Number(process.env.OPS_SCALE_UP_CPU || 25); // 平均 CPU �
 const SCALE_UP_TICKS = 2; // CPU 連續超標秒數：滿 2 秒才擴，避免瞬間雜訊誤觸
 const CHECK_MS = 1000;
 // 單一模擬程序約 400 人後自身飽和（Python 事件迴圈先成為瓶頸，服務端 CPU 反而測不高），
-// 每個 worker 控制在 400 人內，確保壓力真實落在 location-service 上
+// 每個 worker 控制在 350 人內，確保壓力真實落在 location-service 上
 const LOAD_WORKERS = [
-  { max: 400, count: 1 },
-  { max: 800, count: 2 },
-  { max: Infinity, count: 3 },
+  { max: 350, count: 1 },
+  { max: 700, count: 2 },
+  { max: 1400, count: 4 },
+  { max: 2800, count: 8 },
+  { max: Infinity, count: 10 },
 ];
+// 人數 > 800（在線人數展示場景）時上報間隔放寬為 2 秒：在線判定只需 60 秒內報到一次，
+// 0.5 秒的高頻是給 HPA 擴展 demo 用的；大人群用高頻只會把模擬 worker 自己推到飽和，
+// 實際送達率反而崩掉（3000 人實測只送達約 14 req/s，在線人數衰減至百餘人）
+const LOAD_INTERVAL_THRESHOLD = 800;
 
 const state = {
   mode: 'compose',
@@ -73,7 +79,21 @@ function parseCpu(pct) {
   return Number.isFinite(n) ? n : null;
 }
 
-async function composeStats() {
+// docker stats 一次約需 1–2 秒；自動擴展迴圈與儀表板輪詢共用同一次查詢結果，
+// 避免每秒同時跑好幾個 docker stats 拖慢主機
+let statsInflight = null;
+let statsCache = { at: 0, data: [] };
+function composeStats() {
+  if (Date.now() - statsCache.at < 700) return Promise.resolve(statsCache.data);
+  if (!statsInflight) {
+    statsInflight = composeStatsRaw()
+      .then((data) => { statsCache = { at: Date.now(), data }; return data; })
+      .finally(() => { statsInflight = null; });
+  }
+  return statsInflight;
+}
+
+async function composeStatsRaw() {
   const r = await sh('docker', [
     'stats', '--no-stream',
     '--format', '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}',
@@ -160,10 +180,11 @@ async function purgeSimUsers() {
   ]);
 }
 
-async function startLoadCompose(users) {
+async function startLoadCompose(users, intervalOverride) {
   await stopLoadCompose();
   const count = LOAD_WORKERS.find((w) => users <= w.max).count;
   const perWorker = Math.ceil(users / count);
+  const interval = intervalOverride || (users > LOAD_INTERVAL_THRESHOLD ? 2 : 0.5);
   const target = 'http://host.docker.internal:8090/fwd/location';
   for (const name of loadWorkerNames(count)) {
     await sh('docker', [
@@ -172,10 +193,10 @@ async function startLoadCompose(users) {
       '-v', `${SIMULATOR_SCRIPT}:/code/simulate_users.py:ro`,
       'python:3.12-slim',
       'sh', '-c',
-      `pip install -q httpx==0.28.1 && python /code/simulate_users.py --users ${perWorker} --target ${target} --interval 0.5`,
+      `pip install -q httpx==0.28.1 && python /code/simulate_users.py --users ${perWorker} --target ${target} --interval ${interval}`,
     ]);
   }
-  state.load = { running: true, users };
+  state.load = { running: true, users, interval };
   state.upTicks = 0;
   state.maxWarned = false;
 
@@ -183,7 +204,7 @@ async function startLoadCompose(users) {
   const evtRate = Math.min(10, Math.max(1, Math.round(users / 50)));
   await startEventGenCompose(evtRate);
 
-  logEvent(`⚡ 開始模擬：${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人）＋ 事件流每秒約 ${evtRate} 則`);
+  logEvent(`⚡ 開始模擬：${users} 人湧入（${count} 個模擬 worker × ${perWorker} 人・間隔 ${interval}s）＋ 事件流每秒約 ${evtRate} 則`);
 }
 
 // 清空所有事件：刪除事件本體、GEO 索引與反垃圾紀錄（demo 重來用），
@@ -353,8 +374,10 @@ async function autoscalerTick() {
 
 // ---------- k8s 模式 ----------
 
-async function startLoadK8s(users) {
-  const tmp = (name) => path.join(require('os').tmpdir(), `${name}-${Date.now()}.yaml`);
+// 暫存 YAML 路徑（startLoadK8s 與 startEventGenK8s 共用）
+const tmp = (name) => path.join(require('os').tmpdir(), `${name}-${Date.now()}.yaml`);
+
+async function startLoadK8s(users, intervalOverride) {
   const cmFile = tmp('simulator-cm');
   const cm = await sh('kubectl', ['-n', K8S_NS, 'create', 'configmap', 'simulator-code',
     '--from-file', `simulate_users.py=${SIMULATOR_SCRIPT}`, '--dry-run=client', '-o', 'yaml']);
@@ -363,11 +386,13 @@ async function startLoadK8s(users) {
   await sh('kubectl', ['apply', '-f', cmFile]);
   fs.unlinkSync(cmFile);
   const jobFile = tmp('load-generator');
-  fs.writeFileSync(jobFile, fs.readFileSync(JOB_YAML, 'utf8').replace(/--users \d+/, `--users ${users}`));
+  let jobYaml = fs.readFileSync(JOB_YAML, 'utf8').replace(/--users \d+/, `--users ${users}`);
+  if (intervalOverride) jobYaml = jobYaml.replace(/--interval [\d.]+/, `--interval ${intervalOverride}`);
+  fs.writeFileSync(jobFile, jobYaml);
   await sh('kubectl', ['-n', K8S_NS, 'delete', 'job', 'load-generator', '--ignore-not-found']);
   const r = await sh('kubectl', ['apply', '-f', jobFile]);
   fs.unlinkSync(jobFile);
-  state.load = { running: r.ok, users: r.ok ? users : 0 };
+  state.load = { running: r.ok, users: r.ok ? users : 0, interval: intervalOverride || 0.5 };
   await startEventGenK8s(); // 事件流跟著人數一起啟動
   logEvent(r.ok ? `⚡ K8s 模擬：Job load-generator 已建立（${users} 人）＋ 事件流` : `⚠️ Job 建立失敗：${r.err}`);
 }
@@ -456,10 +481,10 @@ async function k8sStatus() {
       };
     }
   }
-  let load = { running: false, users: state.load.users };
+  let load = { running: false, users: state.load.users, interval: state.load.interval };
   if (job.ok) {
     const j = JSON.parse(job.out);
-    load = { running: (j.status.active || 0) > 0, users: state.load.users };
+    load = { running: (j.status.active || 0) > 0, users: state.load.users, interval: state.load.interval };
   }
   let eventGen = { running: false };
   if (evtJob.ok) {
@@ -486,9 +511,18 @@ async function k8sStatus() {
 
 // ---------- HTTP：API + 靜態頁 + round-robin proxy ----------
 
+// 上游 keep-alive 連線池：proxy 每秒轉發數千請求時，逐請求建 TCP 連線會成為瓶頸
+const upstreamAgents = {};
+function upstreamAgent(port) {
+  if (!upstreamAgents[port]) {
+    upstreamAgents[port] = new http.Agent({ keepAlive: true, maxSockets: 512, keepAliveMsecs: 30000 });
+  }
+  return upstreamAgents[port];
+}
+
 function forward(req, res, port) {
   const upstream = http.request(
-    { host: '127.0.0.1', port, path: req.url.replace(/^\/fwd\/location/, ''), method: req.method, headers: { ...req.headers, host: `127.0.0.1:${port}` } },
+    { host: '127.0.0.1', port, path: req.url.replace(/^\/fwd\/location/, ''), method: req.method, headers: { ...req.headers, host: `127.0.0.1:${port}` }, agent: upstreamAgent(port) },
     (ur) => {
       res.writeHead(ur.statusCode, ur.headers);
       ur.pipe(res);
@@ -532,9 +566,12 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/load/start' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
       const users = Math.min(3000, Math.max(10, Number(body.users) || 500));
-      if (state.mode === 'k8s') await startLoadK8s(users);
-      else await startLoadCompose(users);
-      return sendJson(res, 200, { ok: true, users });
+      // 回報間隔（秒）：未填則依人數自動決定
+      const iv = Number(body.interval);
+      const interval = Number.isFinite(iv) && iv > 0 ? Math.min(60, Math.max(0.2, iv)) : null;
+      if (state.mode === 'k8s') await startLoadK8s(users, interval);
+      else await startLoadCompose(users, interval);
+      return sendJson(res, 200, { ok: true, users, interval });
     }
 
     if (url.pathname === '/api/events/clear' && req.method === 'POST') {
